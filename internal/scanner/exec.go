@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -17,6 +18,15 @@ type Trivy struct {
 	BinPath string
 	// Severity is passed to --severity. Empty means HIGH,CRITICAL.
 	Severity []string
+	// CacheDir is passed to --cache-dir when non-empty: for the database
+	// preparation commands always, and for image scans only when
+	// SkipDBUpdate is set.
+	CacheDir string
+	// SkipDBUpdate makes every image scan use the databases already in the
+	// cache (--skip-db-update --skip-java-db-update) instead of updating them,
+	// so all scans of a cycle see the databases PrepareDB fixed. Off by
+	// default; when off, scan arguments are unchanged.
+	SkipDBUpdate bool
 }
 
 // New returns a Trivy with KestreLynx defaults (HIGH/CRITICAL, trivy on PATH).
@@ -87,6 +97,12 @@ func (t Trivy) trivyArgs(target ScanTarget) []string {
 		"--quiet",
 		"--format", "json",
 		"--severity", t.severity(),
+	}
+	if t.SkipDBUpdate {
+		args = append(args, "--skip-db-update", "--skip-java-db-update")
+		if t.CacheDir != "" {
+			args = append(args, "--cache-dir", t.CacheDir)
+		}
 	}
 	switch {
 	case pinnedByConfig(target):
@@ -204,6 +220,20 @@ func reconcileTarget(scan ImageScan, target ScanTarget) ImageScan {
 // pulled) is reported via ImageScan.Err rather than a returned error, so one bad
 // image never aborts a whole run; callers iterate and surface Err per image.
 func (t Trivy) Scan(ctx context.Context, target ScanTarget) ImageScan {
+	if t.SkipDBUpdate {
+		// Comparison mode runs elsewhere with a clean environment, so the
+		// binary and cache must be absolute and explicit.
+		rt, err := t.resolved()
+		if err != nil {
+			return ImageScan{
+				Image:   target.Subject.Ref,
+				Subject: target.Subject,
+				Source:  target.Source,
+				Err:     fmt.Errorf("trivy scan %s: %w", target.Subject.Ref, err),
+			}
+		}
+		t = rt
+	}
 	args := t.trivyArgs(target)
 	scanArg := args[len(args)-1]
 
@@ -211,6 +241,23 @@ func (t Trivy) Scan(ctx context.Context, target ScanTarget) ImageScan {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if t.SkipDBUpdate {
+		// Comparable scans must not pick up trivy.yaml or .trivyignore from
+		// whatever directory the process happens to run in.
+		dir, err := os.MkdirTemp("", "kestrelynx-trivy-")
+		if err != nil {
+			return ImageScan{
+				Image:   target.Subject.Ref,
+				Subject: target.Subject,
+				Source:  target.Source,
+				Err:     fmt.Errorf("trivy scan %s: create working directory: %w", scanArg, err),
+			}
+		}
+		defer os.RemoveAll(dir)
+		cmd.Dir = dir
+		// Settings come from the flags above; none may come from TRIVY_*.
+		cmd.Env = withoutTrivyEnv(os.Environ())
+	}
 
 	if err := cmd.Run(); err != nil {
 		return ImageScan{

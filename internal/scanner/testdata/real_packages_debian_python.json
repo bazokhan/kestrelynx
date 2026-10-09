@@ -1,0 +1,559 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.71.2"
+ },
+ "ArtifactName": "kl-fixture-packages:latest",
+ "ArtifactType": "container_image",
+ "Results": [
+  {
+   "Target": "debian:12-slim (debian 12.15)",
+   "Class": "os-pkgs",
+   "Type": "debian",
+   "Packages": [
+    {
+     "ID": "adduser@3.134",
+     "Name": "adduser",
+     "Identifier": {
+      "PURL": "pkg:deb/debian/adduser@3.134?arch=all&distro=debian-12.15",
+      "UID": "7a208af783dc414a"
+     },
+     "Version": "3.134",
+     "Arch": "all",
+     "SrcName": "adduser",
+     "SrcVersion": "3.134",
+     "Repository": {
+      "Class": "official"
+     },
+     "Digest": "sha256:c24fe4eb8e60d8632d72ed104cce7c92cff200847c897dc8ba764b6c47b519e0",
+     "AnalyzedBy": "dpkg"
+    },
+    {
+     "ID": "bash@5.2.15-2+b13",
+     "Name": "bash",
+     "Identifier": {
+      "PURL": "pkg:deb/debian/bash@5.2.15-2%2Bb13?arch=amd64&distro=debian-12.15",
+      "UID": "9c79ae3471aa8169"
+     },
+     "Version": "5.2.15",
+     "Release": "2+b13",
+     "Arch": "amd64",
+     "SrcName": "bash",
+     "SrcVersion": "5.2.15",
+     "SrcRelease": "2",
+     "Repository": {
+      "Class": "official"
+     },
+     "Digest": "sha256:82130bb6a560cd2a7234d8018baf73f188f5dd56413d5aa0accc987b2197a6a1",
+     "AnalyzedBy": "dpkg"
+    },
+    {
+     "ID": "bsdutils@1:2.38.1-5+deb12u3",
+     "Name": "bsdutils",
+     "Identifier": {
+      "PURL": "pkg:deb/debian/bsdutils@2.38.1-5%2Bdeb12u3?arch=amd64&distro=debian-12.15&epoch=1",
+      "UID": "83e9f8b41c7083c0"
+     },
+     "Version": "2.38.1",
+     "Release": "5+deb12u3",
+     "Epoch": 1,
+     "Arch": "amd64",
+     "SrcName": "util-linux",
+     "SrcVersion": "2.38.1",
+     "SrcRelease": "5+deb12u3",
+     "Repository": {
+      "Class": "official"
+     },
+     "Digest": "sha256:6cae172b006a4603e710e046c3acba8d98d36748894cbe3eeda31d415fec331e",
+     "AnalyzedBy": "dpkg"
+    },
+    {
+     "ID": "coreutils@9.1-1",
+     "Name": "coreutils",
+     "Identifier": {
+      "PURL": "pkg:deb/debian/coreutils@9.1-1?arch=amd64&distro=debian-12.15",
+      "UID": "6fc8345c49db3d2c"
+     },
+     "Version": "9.1",
+     "Release": "1",
+     "Arch": "amd64",
+     "SrcName": "coreutils",
+     "SrcVersion": "9.1",
+     "SrcRelease": "1",
+     "Repository": {
+      "Class": "official"
+     },
+     "Digest": "sha256:61038f857e346e8500adf53a2a0a20859f4d3a3b51570cc876b153a2d51a3091",
+     "AnalyzedBy": "dpkg"
+    }
+   ]
+  },
+  {
+   "Target": "Python",
+   "Class": "lang-pkgs",
+   "Type": "python-pkg",
+   "Packages": [
+    {
+     "Name": "pip",
+     "Identifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "Version": "25.0.1",
+     "Licenses": [
+      "MIT"
+     ],
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "FilePath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "AnalyzedBy": "python-pkg"
+    }
+   ],
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2025-8869",
+     "VendorIDs": [
+      "GHSA-4xh5-x5gv-qwph"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "25.3",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-8869",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:5dcb121f2982ef623c5beb7cef496dd91fed875940611c46f623a907dd1f0721",
+     "Title": "pip: pip missing checks on symbolic link extraction",
+     "Description": "When extracting a tar archive pip may not check symbolic links point into the extraction directory if the tarfile module doesn't implement PEP 706.\nNote that upgrading pip to a \"fixed\" version for this vulnerability doesn't fix all known vulnerabilities that are remediated by using a Python version that implements PEP 706.\n\nNote that this is a vulnerability in pip's fallback implementation of tar extraction for Python versions that don't implement PEP 706\nand therefore are not secure to all vulnerabilities in the Python 'tarfile' module. If you're using a Python version that implements PEP 706\nthen pip doesn't use the \"vulnerable\" fallback code.\n\nMitigations include upgrading to a version of pip that includes the fix, upgrading to a Python version that implements PEP 706 (Python >=3.9.17, >=3.10.12, >=3.11.4, or >=3.12),\napplying the linked patch, or inspecting source distributions (sdists) before installation as is already a best-practice.",
+     "Severity": "MEDIUM",
+     "VendorSeverity": {
+      "amazon": 2,
+      "azure": 2,
+      "ghsa": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:A/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N",
+       "V40Score": 5.9
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:H/A:N",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2025-8869",
+      "https://advisory.echohq.com/cve/CVE-2025-8869",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/commit/f2b92314da012b9fffa36b3f3e67748a37ef464a",
+      "https://github.com/pypa/pip/pull/13550",
+      "https://lists.debian.org/debian-lts-announce/2025/10/msg00028.html",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/IF5A3GCJY3VH7BVHJKOWOJFKTW7VFQEN",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/IF5A3GCJY3VH7BVHJKOWOJFKTW7VFQEN/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-8869",
+      "https://pip.pypa.io/en/stable/news/#v25-2",
+      "https://www.cve.org/CVERecord?id=CVE-2025-8869"
+     ],
+     "PublishedDate": "2025-09-24T15:15:41.293Z",
+     "LastModifiedDate": "2026-09-26T00:10:00.127Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-13346",
+     "VendorIDs": [
+      "GHSA-qwm4-qh6w-59xr"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "26.2.0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-13346",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:569970389885818f0a1541883e1a63eee674a1c5787400e562e97af3429e0b80",
+     "Title": "pip: pip: Arbitrary file installation via malicious package indexes",
+     "Description": "pip would incorrectly handle doubly-encoded package URLs from indexes allowing for files to be installed to arbitrary locations on disk even when installing wheels.\n\n\n\n\nThis vulnerability requires downloading or installing a package from a malicious package index to succeed, malicious packages alone are not able to exploit this vulnerability. Note that this vulnerability only materially impacts users running `pip download` with the `--only-binary` option as installing source distributions from an untrusted index is already an unsafe operation that executes code during install time.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-36"
+     ],
+     "VendorSeverity": {
+      "azure": 2,
+      "ghsa": 2,
+      "nvd": 2,
+      "photon": 2,
+      "redhat": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:H/UI:A/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N",
+       "V40Score": 5.6
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N",
+       "V3Score": 6.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:H/A:L",
+       "V3Score": 5.9
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/07/29/7",
+      "https://access.redhat.com/security/cve/CVE-2026-13346",
+      "https://advisory.echohq.com/cve/CVE-2026-13346",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-3721.yaml",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/commit/10dfb6b9005484578b386f64b9f36982e3dc6679",
+      "https://github.com/pypa/pip/pull/14110",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/L2BNQGGVQCEV7DROOORQ7WFKKFF2OOQX",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/L2BNQGGVQCEV7DROOORQ7WFKKFF2OOQX/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-13346",
+      "https://www.cve.org/CVERecord?id=CVE-2026-13346"
+     ],
+     "PublishedDate": "2026-07-29T19:16:44.267Z",
+     "LastModifiedDate": "2026-08-20T13:17:44.277Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-3219",
+     "VendorIDs": [
+      "GHSA-58qw-9mgm-455v"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "26.1",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-3219",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:77d5e73e9db4a8093f2c950988cbcf08ef5a4edd31c7a78d2de52c7d30ba7603",
+     "Title": "pip: pip: Incorrect file installation due to improper archive handling",
+     "Description": "pip handles concatenated tar and ZIP files as ZIP files regardless of filename or whether a file is both a tar and ZIP file. This behavior could result in confusing installation behavior, such as installing \"incorrect\" files according to the filename of the archive. New behavior only proceeds with installation if the file identifies uniquely as a ZIP or tar archive, not as both.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-434"
+     ],
+     "VendorSeverity": {
+      "amazon": 1,
+      "azure": 2,
+      "ghsa": 2,
+      "photon": 1,
+      "redhat": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:A/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N",
+       "V40Score": 4.6
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:N/I:H/A:N",
+       "V3Score": 5
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/04/20/8",
+      "https://access.redhat.com/security/cve/CVE-2026-3219",
+      "https://advisory.echohq.com/cve/CVE-2026-3219",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/issues/13867",
+      "https://github.com/pypa/pip/pull/13870",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/QAJ5JIVWWCAJ4EZL2FP5MOOW35JS7LRJ",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/QAJ5JIVWWCAJ4EZL2FP5MOOW35JS7LRJ/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-3219",
+      "https://www.cve.org/CVERecord?id=CVE-2026-3219"
+     ],
+     "PublishedDate": "2026-04-20T16:16:45.43Z",
+     "LastModifiedDate": "2026-06-17T10:43:14.243Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-6357",
+     "VendorIDs": [
+      "GHSA-jp4c-xjxw-mgf9"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "26.1",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-6357",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:fca7682af0e899b622b60f7a4e6e163c5f5129df810f9e69405163b42473a68f",
+     "Title": "pip: pip: Arbitrary code execution or information disclosure via malicious wheel package installation",
+     "Description": "pip prior to version 26.1 would run self-update check functionality after installing wheel files which required importing well-known Python modules names. These module imports were intentionally deferred to increase startup time of the pip CLI. The patch changes self-update functionality to run before wheels are installed to prevent newly-installed modules from being imported shortly after the installation of a wheel package. Users should still review package contents prior to installation.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-829"
+     ],
+     "VendorSeverity": {
+      "amazon": 3,
+      "azure": 2,
+      "ghsa": 2,
+      "photon": 2,
+      "redhat": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:A/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N",
+       "V40Score": 5.3
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:H/UI:R/S:U/C:H/I:H/A:N",
+       "V3Score": 5.8
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/04/27/7",
+      "https://access.redhat.com/security/cve/CVE-2026-6357",
+      "https://advisory.echohq.com/cve/CVE-2026-6357",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/commit/b369bfc96cc524e00c267e1693290e6599c36bad",
+      "https://github.com/pypa/pip/pull/13923",
+      "https://ichard26.github.io/blog/2026/04/whats-new-in-pip-26.1/#security-fixes",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-6357",
+      "https://www.cve.org/CVERecord?id=CVE-2026-6357"
+     ],
+     "PublishedDate": "2026-04-27T15:16:20.857Z",
+     "LastModifiedDate": "2026-06-17T11:00:42.947Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-8643",
+     "VendorIDs": [
+      "GHSA-wf93-45jw-7689"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "26.1.2",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-8643",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:1ff0db8201646658d4bf0b51d56f1d6013632a2df05cb4690ae95d7ab1c6568a",
+     "Title": "python-pip: Path traversal via malicious entry point name in pip wheel installation allows arbitrary file overwrite",
+     "Description": "pip would treat console_scripts and gui_scripts as paths instead of file names without sanitizing the resolved absolute path to the installation directory, leading to entry points being installed outside the installation directory.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-22"
+     ],
+     "VendorSeverity": {
+      "alma": 3,
+      "amazon": 3,
+      "azure": 2,
+      "ghsa": 2,
+      "nvd": 2,
+      "oracle-oval": 3,
+      "redhat": 3,
+      "rocky": 3
+     },
+     "CVSS": {
+      "ghsa": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+       "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:A/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N",
+       "V3Score": 8,
+       "V40Score": 4.1
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+       "V3Score": 5.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+       "V3Score": 8
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/06/01/5",
+      "https://access.redhat.com/errata/RHSA-2026:33313",
+      "https://access.redhat.com/errata/RHSA-2026:34374",
+      "https://access.redhat.com/errata/RHSA-2026:34456",
+      "https://access.redhat.com/errata/RHSA-2026:34739",
+      "https://access.redhat.com/errata/RHSA-2026:34740",
+      "https://access.redhat.com/errata/RHSA-2026:34741",
+      "https://access.redhat.com/errata/RHSA-2026:34748",
+      "https://access.redhat.com/errata/RHSA-2026:34749",
+      "https://access.redhat.com/errata/RHSA-2026:34750",
+      "https://access.redhat.com/errata/RHSA-2026:34752",
+      "https://access.redhat.com/errata/RHSA-2026:34756",
+      "https://access.redhat.com/errata/RHSA-2026:34758",
+      "https://access.redhat.com/errata/RHSA-2026:34760",
+      "https://access.redhat.com/errata/RHSA-2026:34765",
+      "https://access.redhat.com/errata/RHSA-2026:34772",
+      "https://access.redhat.com/errata/RHSA-2026:34773",
+      "https://access.redhat.com/errata/RHSA-2026:34774",
+      "https://access.redhat.com/errata/RHSA-2026:34775",
+      "https://access.redhat.com/errata/RHSA-2026:34776",
+      "https://access.redhat.com/errata/RHSA-2026:34777",
+      "https://access.redhat.com/errata/RHSA-2026:34778",
+      "https://access.redhat.com/errata/RHSA-2026:34780",
+      "https://access.redhat.com/errata/RHSA-2026:34891",
+      "https://access.redhat.com/errata/RHSA-2026:36193",
+      "https://access.redhat.com/errata/RHSA-2026:36315",
+      "https://access.redhat.com/errata/RHSA-2026:37275",
+      "https://access.redhat.com/errata/RHSA-2026:37283",
+      "https://access.redhat.com/errata/RHSA-2026:42078",
+      "https://access.redhat.com/errata/RHSA-2026:42079",
+      "https://access.redhat.com/errata/RHSA-2026:42132",
+      "https://access.redhat.com/errata/RHSA-2026:42144",
+      "https://access.redhat.com/errata/RHSA-2026:42644",
+      "https://access.redhat.com/errata/RHSA-2026:50479",
+      "https://access.redhat.com/errata/RHSA-2026:54760",
+      "https://access.redhat.com/errata/RHSA-2026:56347",
+      "https://access.redhat.com/errata/RHSA-2026:60520",
+      "https://access.redhat.com/security/cve/CVE-2026-8643",
+      "https://advisory.echohq.com/cve/CVE-2026-8643",
+      "https://bugzilla.redhat.com/2460927",
+      "https://bugzilla.redhat.com/show_bug.cgi?id=2460927",
+      "https://creativecommons.org/licenses/by/4.0/",
+      "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2026-8643",
+      "https://errata.almalinux.org/9/ALSA-2026-36315.html",
+      "https://errata.rockylinux.org/RLSA-2026:36315",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-196.yaml",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/commit/8eb178480bd1a2b223f509fc430796b265158dfb",
+      "https://github.com/pypa/pip/pull/14000",
+      "https://linux.oracle.com/cve/CVE-2026-8643.html",
+      "https://linux.oracle.com/errata/ELSA-2026-36315.html",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/YV63UET5D3OOJY7O4M5XCVYO2YM4NBYJ",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/YV63UET5D3OOJY7O4M5XCVYO2YM4NBYJ/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-8643",
+      "https://security.access.redhat.com/data/csaf/v2/vex/2026/cve-2026-8643.json",
+      "https://www.cve.org/CVERecord?id=CVE-2026-8643"
+     ],
+     "PublishedDate": "2026-06-01T17:17:35.77Z",
+     "LastModifiedDate": "2026-09-16T13:18:08Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-1703",
+     "VendorIDs": [
+      "GHSA-6vgw-5pg2-w6jp"
+     ],
+     "PkgName": "pip",
+     "PkgPath": "usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA",
+     "PkgIdentifier": {
+      "PURL": "pkg:pypi/pip@25.0.1",
+      "UID": "7d864d9a4bf3bfe8"
+     },
+     "InstalledVersion": "25.0.1",
+     "FixedVersion": "26.0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:7abff04c4f315a5424ff8d34ad0c10700efc2fc32961841df78d2bfc17e1a353",
+      "DiffID": "sha256:90630b4239d75c9daa2f10f7bb6bfe9b45cfc1419783384dd9873dbf2b732fc3"
+     },
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-1703",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory pip",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+     },
+     "Fingerprint": "sha256:20ac2a4907719e6edb4c80410daf206cc016b9aed8f05b2a7d2d8d66528227a2",
+     "Title": "pip: pip: Information disclosure via path traversal when installing crafted wheel archives",
+     "Description": "When pip is installing and extracting a maliciously crafted wheel archive, files may be extracted outside the installation directory. The path traversal is limited to prefixes of the installation directory, thus isn't able to inject or overwrite executable files in typical situations.",
+     "Severity": "LOW",
+     "CweIDs": [
+      "CWE-22"
+     ],
+     "VendorSeverity": {
+      "amazon": 1,
+      "azure": 1,
+      "cbl-mariner": 1,
+      "ghsa": 1,
+      "redhat": 1,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:A/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N",
+       "V40Score": 2
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:N",
+       "V3Score": 3.9
+      }
+     },
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2026-1703",
+      "https://advisory.echohq.com/cve/CVE-2026-1703",
+      "https://github.com/pypa/pip",
+      "https://github.com/pypa/pip/commit/8e227a9be4faa9594e05d02ca05a413a2a4e7735",
+      "https://github.com/pypa/pip/pull/13777",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/WIEA34D4TABF2UNQJAOMXKCICSPBE2DJ",
+      "https://mail.python.org/archives/list/security-announce@python.org/thread/WIEA34D4TABF2UNQJAOMXKCICSPBE2DJ/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-1703",
+      "https://www.cve.org/CVERecord?id=CVE-2026-1703"
+     ],
+     "PublishedDate": "2026-02-02T15:16:30.51Z",
+     "LastModifiedDate": "2026-06-17T10:16:21.7Z"
+    }
+   ]
+  }
+ ]
+}

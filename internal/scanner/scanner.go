@@ -150,6 +150,40 @@ type ImageScan struct {
 	// those three facts alone and never set independently of them.
 	Pinned bool
 	Source ScanSource // where this scan's bytes came from
+
+	// TrivyVersion is the report's Trivy.Version, "" when the report did not
+	// carry one.
+	TrivyVersion string
+	// Packages lists, per Result, every package Trivy reported (not only the
+	// vulnerable ones), in report order. At most maxRetainedPackages packages
+	// are kept across the whole scan.
+	Packages []ResultPackages
+	// PackagesTruncated is true when the report held more packages than
+	// maxRetainedPackages, so Packages is a prefix of the full list and must
+	// not be read as complete.
+	PackagesTruncated bool
+}
+
+// maxRetainedPackages bounds how many packages ParseReport keeps per scan, so
+// a hostile or corrupt report cannot make the parser hold unbounded memory.
+// Real images list a few thousand packages at most.
+const maxRetainedPackages = 200000
+
+// ResultPackages is the package list of one Trivy Result.
+type ResultPackages struct {
+	Target   string // Result.Target, normalized like Finding.Target
+	Class    PkgClass
+	Type     string // Result.Type, verbatim
+	Packages []Package
+}
+
+// Package is one installed package from a Trivy Result.
+type Package struct {
+	Name    string
+	Version string // formatted like Finding.InstalledVer (epoch and release included)
+	// PkgPath is the file the package was found at, normalized like
+	// Finding.PkgPath; empty when Trivy reported none.
+	PkgPath string
 }
 
 // ScanTarget names the image to scan. Subject carries the identity to pin
@@ -168,7 +202,10 @@ type ScanTarget struct {
 // KestreLynx depends on. Fields we don't use are intentionally omitted.
 type trivyReport struct {
 	ArtifactName string `json:"ArtifactName"`
-	Metadata     struct {
+	Trivy        struct {
+		Version string `json:"Version"`
+	} `json:"Trivy"`
+	Metadata struct {
 		OS struct {
 			Family string `json:"Family"`
 			EOSL   bool   `json:"EOSL"`
@@ -182,9 +219,16 @@ type trivyReport struct {
 		} `json:"ImageConfig"`
 	} `json:"Metadata"`
 	Results []struct {
-		Class           string `json:"Class"`
-		Type            string `json:"Type"`
-		Target          string `json:"Target"`
+		Class    string `json:"Class"`
+		Type     string `json:"Type"`
+		Target   string `json:"Target"`
+		Packages []struct {
+			Name     string `json:"Name"`
+			Version  string `json:"Version"`
+			Release  string `json:"Release"`
+			Epoch    int    `json:"Epoch"`
+			FilePath string `json:"FilePath"`
+		} `json:"Packages"`
 		Vulnerabilities []struct {
 			VulnerabilityID  string `json:"VulnerabilityID"`
 			PkgName          string `json:"PkgName"`
@@ -218,6 +262,7 @@ func ParseReport(data []byte) (ImageScan, error) {
 		Image:           r.ArtifactName,
 		OSFamily:        r.Metadata.OS.Family,
 		OSEOSL:          r.Metadata.OS.EOSL,
+		TrivyVersion:    r.Trivy.Version,
 		RegistryDigests: registryDigests,
 		Platform: inventory.Platform{
 			OS:           r.Metadata.ImageConfig.OS,
@@ -232,9 +277,28 @@ func ParseReport(data []byte) (ImageScan, error) {
 		scan.ScannedKey = inventory.EntityKey{Digest: d}
 	}
 
+	retained := 0
 	for _, res := range r.Results {
 		class := classOf(res.Class)
 		target := trimLeadingSlash(res.Target)
+		if len(res.Packages) > 0 {
+			rp := ResultPackages{Target: target, Class: class, Type: res.Type}
+			for _, p := range res.Packages {
+				if retained >= maxRetainedPackages {
+					scan.PackagesTruncated = true
+					break
+				}
+				rp.Packages = append(rp.Packages, Package{
+					Name:    p.Name,
+					Version: formatPackageVersion(p.Epoch, p.Version, p.Release),
+					PkgPath: trimLeadingSlash(p.FilePath),
+				})
+				retained++
+			}
+			if len(rp.Packages) > 0 {
+				scan.Packages = append(scan.Packages, rp)
+			}
+		}
 		for _, v := range res.Vulnerabilities {
 			// Trivy stores the status as an enum whose zero value is
 			// "unknown" and serializes it with omitempty, so an unknown
@@ -286,4 +350,18 @@ func trimLeadingSlash(s string) string {
 		return s[1:]
 	}
 	return s
+}
+
+// formatPackageVersion renders a package version the way Trivy writes
+// Vulnerability.InstalledVersion: "[epoch:]version[-release]", the epoch
+// omitted when zero.
+func formatPackageVersion(epoch int, version, release string) string {
+	v := version
+	if release != "" {
+		v += "-" + release
+	}
+	if epoch != 0 {
+		v = fmt.Sprintf("%d:%s", epoch, v)
+	}
+	return v
 }
