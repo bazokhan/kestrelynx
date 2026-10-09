@@ -22,6 +22,8 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/kubernetes"
 	"github.com/kitsunetrail/kestrelynx/internal/notify"
+	"github.com/kitsunetrail/kestrelynx/internal/registry"
+	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/runner"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 	"github.com/kitsunetrail/kestrelynx/internal/state"
@@ -113,6 +115,15 @@ func main() {
 		}
 	}
 
+	if cfg.Remediation.Plan.Enabled {
+		r.Plan = buildPlanConfig(cfg)
+		log.Info("fix plan enabled",
+			"max_candidate_scans", cfg.Remediation.Limits.MaxCandidateScans,
+			"max_baseline_rescans", cfg.Remediation.Limits.MaxBaselineRescans,
+			"max_registry_requests", cfg.Remediation.Limits.MaxRegistryRequests,
+			"max_tag_pages", cfg.Remediation.Limits.MaxTagPages)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -129,6 +140,30 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("kestrelynx stopped")
+}
+
+// buildPlanConfig assembles the read-only fix plan. Its records live next to
+// the diff state, so the one state volume covers them; config validation
+// already restricts it to the Docker adapter.
+func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
+	stateDir := filepath.Dir(cfg.State.Path)
+	l := cfg.Remediation.Limits
+	return &runner.PlanConfig{
+		// Comparison mode: the databases PrepareDB fixes are the only ones
+		// any scan of the cycle uses.
+		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true},
+		NewRegistry: func(b *registry.Budget) remediation.Registry {
+			return registry.New(registry.Options{Budget: b})
+		},
+		Limits: remediation.Limits{
+			MaxCandidateScans:  l.MaxCandidateScans,
+			MaxBaselineRescans: l.MaxBaselineRescans,
+			MaxTagPages:        l.MaxTagPages,
+		},
+		MaxRegistryRequests: l.MaxRegistryRequests,
+		Plans:               remediation.PlanStore{Path: remediation.DefaultPlanPath(stateDir)},
+		Delivered:           remediation.DeliveredStore{Path: remediation.DefaultDeliveredPath(stateDir)},
+	}
 }
 
 // buildLister constructs the Runtime Adapter cfg.Kubernetes.Enabled selects

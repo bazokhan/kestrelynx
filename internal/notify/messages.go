@@ -332,6 +332,34 @@ type messages struct {
 	FbThreadPackages     string // " (%d package(s))"
 	ShortEOLBase         string // "⛔ EOL base"
 	ShortEOLPackage      string // "⛔ EOL packages"
+
+	// --- fix plan ---
+	// The plan only proposes candidates: nothing is pulled, changed or
+	// created, and the heading says so.
+	PlanHeading                 string // "\n*🔧 Fix plan* (candidates only — nothing is changed automatically)\n"
+	PlanSegPullAgain            string // "%d re-pull" (count of images a fresh pull would fix)
+	PlanSegUpdate               string // "%d update candidate(s)" (count of newer tags that would fix)
+	PlanSegManual               string // "%d manual"
+	PlanSegNotComparable        string // "%d not comparable"
+	PlanSegDeferred             string // "%d deferred"
+	PlanSegNoCandidate          string // "%d no candidate"
+	PlanSegExcluded             string // "%d excluded"
+	PlanSegFailed               string // "%d failed"
+	PlanNothing                 string // "No updates to propose."
+	PlanPullAgainLine           string // "• Re-pulling %[1]s resolves %[2]d finding(s)" (image reference, count)
+	PlanUpdateLine              string // "• Updating %[1]s to %[2]s resolves %[3]d finding(s)" (image reference, candidate tag, count)
+	PlanPullAgainPartialLine    string // "• Re-pulling %[1]s resolves %[2]d of %[3]d findings%[4]s" (image reference, resolved, targeted, remainder clause)
+	PlanUpdatePartialLine       string // "• Updating %[1]s to %[2]s resolves %[3]d of %[4]d findings%[5]s" (image reference, candidate tag, resolved, targeted, remainder clause)
+	PlanRemainClause            string // "%d remain" (findings still present on the candidate)
+	PlanUndetectedClause        string // "%d not detected on the running image" (targeted findings the comparison scan of the running image did not show)
+	PlanClauseJoin              string // ", " (between the remainder clauses)
+	PlanClauseWrap              string // " (%s)" (around the joined clauses)
+	PlanIntroducedKEVPullLine   string // "• Re-pulling %[1]s introduces a KEV-listed vulnerability — manual review" (image reference)
+	PlanIntroducedKEVUpdateLine string // "• Updating %[1]s to %[2]s introduces a KEV-listed vulnerability — manual review" (image reference, candidate tag)
+	PlanKEVSuffix               string // " (%d KEV)" (appended to a plan line; counts the resolved KEV-listed findings)
+	PlanNotSaved                string // "_The fix plan could not be saved._"
+	PlanUnavailableDB           string // "_Fix plan unavailable this cycle: the scan databases could not be prepared._"
+	PlanUnavailableOther        string // "_Fix plan unavailable this cycle._"
 }
 
 // enMessages is the historical English wording, unchanged byte-for-byte from
@@ -599,6 +627,31 @@ var enMessages = messages{
 	FbThreadPackages:     " (%d package(s))",
 	ShortEOLBase:         "⛔ EOL base",
 	ShortEOLPackage:      "⛔ EOL packages",
+
+	PlanHeading:                 "\n*🔧 Fix plan* (candidates only — nothing is changed automatically)\n",
+	PlanSegPullAgain:            "%d re-pull",
+	PlanSegUpdate:               "%d update candidate(s)",
+	PlanSegManual:               "%d manual",
+	PlanSegNotComparable:        "%d not comparable",
+	PlanSegDeferred:             "%d deferred",
+	PlanSegNoCandidate:          "%d no candidate",
+	PlanSegExcluded:             "%d excluded",
+	PlanSegFailed:               "%d failed",
+	PlanNothing:                 "No updates to propose.",
+	PlanPullAgainLine:           "• Re-pulling %[1]s resolves %[2]d finding(s)",
+	PlanUpdateLine:              "• Updating %[1]s to %[2]s resolves %[3]d finding(s)",
+	PlanPullAgainPartialLine:    "• Re-pulling %[1]s resolves %[2]d of %[3]d findings%[4]s",
+	PlanUpdatePartialLine:       "• Updating %[1]s to %[2]s resolves %[3]d of %[4]d findings%[5]s",
+	PlanRemainClause:            "%d remain",
+	PlanUndetectedClause:        "%d not detected on the running image",
+	PlanClauseJoin:              ", ",
+	PlanClauseWrap:              " (%s)",
+	PlanIntroducedKEVPullLine:   "• Re-pulling %[1]s introduces a KEV-listed vulnerability — manual review",
+	PlanIntroducedKEVUpdateLine: "• Updating %[1]s to %[2]s introduces a KEV-listed vulnerability — manual review",
+	PlanKEVSuffix:               " (%d KEV)",
+	PlanNotSaved:                "_The fix plan could not be saved._",
+	PlanUnavailableDB:           "_Fix plan unavailable this cycle: the scan databases could not be prepared._",
+	PlanUnavailableOther:        "_Fix plan unavailable this cycle._",
 }
 
 // jaMessages is the Japanese dictionary.
@@ -863,6 +916,31 @@ var jaMessages = messages{
 	FbThreadPackages:     " (%dパッケージ)",
 	ShortEOLBase:         "⛔ EOLのベースOS",
 	ShortEOLPackage:      "⛔ EOLのパッケージ",
+
+	PlanHeading:                 "\n*🔧 修正計画* (候補の提示のみ — 自動では何も変更しない)\n",
+	PlanSegPullAgain:            "再pull %d件",
+	PlanSegUpdate:               "更新候補 %d件",
+	PlanSegManual:               "要判断 %d件",
+	PlanSegNotComparable:        "比較不能 %d件",
+	PlanSegDeferred:             "延期 %d件",
+	PlanSegNoCandidate:          "候補なし %d件",
+	PlanSegExcluded:             "対象外 %d件",
+	PlanSegFailed:               "失敗 %d件",
+	PlanNothing:                 "提案できる更新はありません。",
+	PlanPullAgainLine:           "• %[1]s を再pullすると %[2]d件の所見が解消",
+	PlanUpdateLine:              "• %[1]s を %[2]s に更新すると %[3]d件の所見が解消",
+	PlanPullAgainPartialLine:    "• %[1]s を再pullすると %[3]d件中 %[2]d件の所見が解消%[4]s",
+	PlanUpdatePartialLine:       "• %[1]s を %[2]s に更新すると %[4]d件中 %[3]d件の所見が解消%[5]s",
+	PlanRemainClause:            "%d件は残る",
+	PlanUndetectedClause:        "%d件は稼働中のイメージで未検出",
+	PlanClauseJoin:              "、",
+	PlanClauseWrap:              "(%s)",
+	PlanIntroducedKEVPullLine:   "• %[1]s を再pullするとKEV掲載の脆弱性が新たに入る — 要確認",
+	PlanIntroducedKEVUpdateLine: "• %[1]s を %[2]s に更新するとKEV掲載の脆弱性が新たに入る — 要確認",
+	PlanKEVSuffix:               " (KEV %d件)",
+	PlanNotSaved:                "_修正計画を保存できなかった_",
+	PlanUnavailableDB:           "_今回は修正計画を作成できない: スキャン用データベースを準備できなかった_",
+	PlanUnavailableOther:        "_今回は修正計画を作成できない_",
 }
 
 // messagesFor resolves a Language to its dictionary, defaulting to English

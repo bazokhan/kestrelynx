@@ -46,6 +46,12 @@ type Message struct {
 	EOLFirstSeen func(image, pkg string) (time.Time, bool)
 	LastReport   *state.ReportRef
 	Result       *ThreadResult
+
+	// Plan is the read-only fix plan of this cycle: nil when the plan is not
+	// enabled, in which case nothing about it is rendered or sent. Slack
+	// shows a short section in both the full and the diff view; the generic
+	// webhook carries every item.
+	Plan *PlanInfo
 }
 
 // ThreadResult is the out-slot for a thread post: a zero Ref means no thread
@@ -143,7 +149,7 @@ type WebhookNotifier struct {
 }
 
 func (n WebhookNotifier) Send(ctx context.Context, m Message) error {
-	return postJSON(ctx, client(n.Client), "generic webhook", n.URL, BuildWebhookPayload(m.Report, m.Diff))
+	return postJSON(ctx, client(n.Client), "generic webhook", n.URL, BuildWebhookPayloadWithPlan(m.Report, m.Diff, m.Plan))
 }
 
 // MultiNotifier fans a message out to several notifiers, attempting all even if

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -453,5 +454,135 @@ triage:
 `))
 	if err != nil {
 		t.Errorf("Parse: %v, want disabled triage to skip threshold validation", err)
+	}
+}
+
+func TestParse_RemediationDefaults(t *testing.T) {
+	c, err := Parse([]byte(minimal))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.Remediation.Plan.Enabled {
+		t.Error("Remediation.Plan.Enabled = true, want false by default")
+	}
+	want := RemediationLimits{MaxCandidateScans: 10, MaxBaselineRescans: 10, MaxRegistryRequests: 200, MaxTagPages: 20}
+	if c.Remediation.Limits != want {
+		t.Errorf("Remediation.Limits = %+v, want %+v", c.Remediation.Limits, want)
+	}
+}
+
+func TestParse_RemediationExplicit(t *testing.T) {
+	c, err := Parse([]byte(minimal + `
+remediation:
+  plan:
+    enabled: true
+  limits:
+    max_candidate_scans: 3
+    max_baseline_rescans: 0
+    max_registry_requests: 50
+    max_tag_pages: 5
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !c.Remediation.Plan.Enabled {
+		t.Error("Remediation.Plan.Enabled = false, want true")
+	}
+	// An explicit 0 stays 0 (it allows none of that work); it is not replaced
+	// by the default.
+	want := RemediationLimits{MaxCandidateScans: 3, MaxBaselineRescans: 0, MaxRegistryRequests: 50, MaxTagPages: 5}
+	if c.Remediation.Limits != want {
+		t.Errorf("Remediation.Limits = %+v, want %+v", c.Remediation.Limits, want)
+	}
+}
+
+func TestParse_RemediationPlanAllowedInBothModes(t *testing.T) {
+	for _, mode := range []string{"diff", "full"} {
+		_, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://x.test"
+  mode: ` + mode + `
+remediation:
+  plan:
+    enabled: true
+`))
+		if err != nil {
+			t.Errorf("mode %s: %v", mode, err)
+		}
+	}
+}
+
+func TestParse_RemediationNegativeLimitRejected(t *testing.T) {
+	for _, key := range []string{"max_candidate_scans", "max_baseline_rescans", "max_registry_requests", "max_tag_pages"} {
+		_, err := Parse([]byte(minimal + "\nremediation:\n  limits:\n    " + key + ": -1\n"))
+		if err == nil {
+			t.Errorf("%s: expected an error for a negative limit", key)
+			continue
+		}
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: err = %v, want it to name the key", key, err)
+		}
+	}
+}
+
+func TestParse_RemediationPlanWithKubernetesRejected(t *testing.T) {
+	_, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  plan:\n    enabled: true\n"))
+	if err == nil {
+		t.Fatal("Parse: expected an error for remediation.plan.enabled with kubernetes.enabled")
+	}
+	if !strings.Contains(err.Error(), "remediation.plan.enabled") || !strings.Contains(err.Error(), "kubernetes.enabled") {
+		t.Errorf("err = %v, want it to name both keys", err)
+	}
+	// Disabled plan next to Kubernetes stays valid.
+	if _, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  plan:\n    enabled: false\n")); err != nil {
+		t.Errorf("Parse: %v, want a disabled plan to be accepted with kubernetes", err)
+	}
+}
+
+func TestParse_RemediationUnknownKeyRejected(t *testing.T) {
+	for _, body := range []string{
+		"remediation:\n  enabled: true\n",
+		"remediation:\n  plan:\n    enable: true\n",
+		"remediation:\n  limits:\n    max_candidates: 1\n",
+	} {
+		if _, err := Parse([]byte(minimal + "\n" + body)); err == nil {
+			t.Errorf("%q: expected an unknown-key error", body)
+		}
+	}
+}
+
+func TestExampleConfig_RemediationBlockParses(t *testing.T) {
+	data, err := os.ReadFile("../../config.example.yml")
+	if err != nil {
+		t.Fatalf("read example: %v", err)
+	}
+	// Uncomment the remediation example (the trailing block of "# " lines)
+	// and parse it on its own: the file's other keys are examples of theirs.
+	var block []string
+	in := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "# remediation:" {
+			in = true
+		}
+		if !in {
+			continue
+		}
+		if strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "#   #") {
+			line = strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
+		}
+		block = append(block, line)
+	}
+	if len(block) == 0 {
+		t.Fatal("config.example.yml has no commented remediation block")
+	}
+	c, err := Parse([]byte(minimal + "\n" + strings.Join(block, "\n")))
+	if err != nil {
+		t.Fatalf("Parse uncommented example: %v", err)
+	}
+	if !c.Remediation.Plan.Enabled {
+		t.Error("uncommented example: Remediation.Plan.Enabled = false, want true")
+	}
+	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20}) {
+		t.Errorf("uncommented example limits = %+v", c.Remediation.Limits)
 	}
 }

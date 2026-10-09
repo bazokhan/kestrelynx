@@ -45,6 +45,7 @@ func buildChannelMessages(m Message, footer ChannelFooter, msg messages, lim Ren
 		r:       m.Report,
 		full:    m.FullReport,
 		holding: m.Holding,
+		plan:    m.Plan,
 		msg:     msg,
 		rd:      renderer{msg: msg, lim: lim},
 		byRef:   imagesByRef(m.Report),
@@ -123,6 +124,7 @@ type chView struct {
 	d       *state.Diff // nil in full mode
 	full    bool        // the weekly full report in diff mode
 	holding bool
+	plan    *PlanInfo // nil = no fix plan section
 	msg     messages
 	rd      renderer
 	byRef   map[string]analyze.ImageObservation
@@ -158,6 +160,7 @@ func (v *chView) buildFull() {
 	if !v.r.HasIssues() {
 		v.l.group()
 		v.l.section(v.rd.lim, []string{trimNL(v.msg.AllClear)}, false)
+		v.planSection()
 		v.unresolvedNotes(false)
 		return
 	}
@@ -254,6 +257,10 @@ func (v *chView) fullBody(intel bool) {
 		}
 	}
 	summary(start)
+	if v.plan.visible() {
+		start()
+		v.planSection()
+	}
 	if n := mutedCount(r); n > 0 {
 		start()
 		v.l.section(v.rd.lim, []string{trimNL(fmt.Sprintf(msg.MutedLine, n))}, false)
@@ -541,6 +548,7 @@ func (v *chView) buildDiff() {
 	}
 
 	if early {
+		v.planSection()
 		v.diffSegs(0, 0, 0, len(d.Replaced), len(d.RefChanges))
 		v.diffTail(false)
 		return
@@ -570,8 +578,11 @@ func (v *chView) buildDiff() {
 		v.fullBody(false)
 		return
 	}
+	// The scan failures join the resolved list's group unless the plan
+	// section sits between them.
+	planShown := v.planSection()
 	v.diffSegs(newN, resolvedN, len(d.NewEOSL)+eolN, len(d.Replaced), len(d.RefChanges))
-	v.diffTail(resolvedN > 0)
+	v.diffTail(resolvedN > 0 && !planShown)
 }
 
 // diffSegs sets the fallback segments of a diff view: what changed, zero

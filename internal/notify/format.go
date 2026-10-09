@@ -455,6 +455,9 @@ type webhookPayload struct {
 	// Runtime is the Sensor-wide runtime status, present only when
 	// runtime.enabled is true (analyze.Report.Runtime != nil).
 	Runtime *runtimePayload `json:"runtime,omitempty"`
+	// Remediation is the read-only fix plan, present only when the plan is
+	// enabled (Message.Plan != nil).
+	Remediation *remediationPayload `json:"remediation,omitempty"`
 }
 
 // runtimePayload mirrors analyze.RuntimeInfo for the webhook's top-level
@@ -786,6 +789,12 @@ type errorPayload struct {
 // The payload always carries the full current data (the webhook's role is the
 // unabridged record); d adds the diff section when diff mode is on.
 func BuildWebhookPayload(r analyze.Report, d *state.Diff) any {
+	return BuildWebhookPayloadWithPlan(r, d, nil)
+}
+
+// BuildWebhookPayloadWithPlan is BuildWebhookPayload plus the fix plan: a nil
+// plan leaves the payload exactly as BuildWebhookPayload produces it.
+func BuildWebhookPayloadWithPlan(r analyze.Report, d *state.Diff, plan *PlanInfo) any {
 	byRef := imagesByRef(r)
 	p := webhookPayload{
 		GeneratedAt: r.GeneratedAt.Format(time.RFC3339),
@@ -823,6 +832,9 @@ func BuildWebhookPayload(r analyze.Report, d *state.Diff) any {
 	}
 	if d != nil {
 		p.Diff = buildDiffPayload(r, *d)
+	}
+	if plan != nil {
+		p.Remediation = remediationPayloadOf(plan)
 	}
 	return p
 }

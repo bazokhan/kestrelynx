@@ -136,6 +136,31 @@ func (s *Source) Lookup(ctx context.Context, ids []string) (map[string]Enrichmen
 	return out, f, errors.Join(errs...)
 }
 
+// KEVSet returns the IDs of the CISA KEV catalog, refreshing the cached
+// catalog when it is stale. It reads no EPSS data. An error means no usable
+// catalog is available.
+func (s *Source) KEVSet(ctx context.Context) (map[string]bool, error) {
+	m := s.loadMeta()
+	at, err := s.ensure(ctx, kevFile, s.kevURL(), m.KEVFetchedAt, s.validateKEV)
+	if !usable(at, s.now()) {
+		return nil, errors.Join(err, errors.New("kev catalog unavailable"))
+	}
+	s.saveMeta(meta{KEVFetchedAt: at, EPSSFetchedAt: m.EPSSFetchedAt})
+	data, rerr := os.ReadFile(filepath.Join(s.CacheDir, kevFile))
+	if rerr != nil {
+		return nil, rerr
+	}
+	var cat kevCatalog
+	if err := json.Unmarshal(data, &cat); err != nil {
+		return nil, fmt.Errorf("parse kev catalog: %w", err)
+	}
+	ids := make(map[string]bool, len(cat.Vulnerabilities))
+	for _, v := range cat.Vulnerabilities {
+		ids[v.CVEID] = true
+	}
+	return ids, nil
+}
+
 // ensure re-downloads the dataset when its cache is older than refreshAfter.
 // It returns the fetch time of whatever usable file is now cached (the fresh
 // download, or the previous cache when downloading failed), or the zero time

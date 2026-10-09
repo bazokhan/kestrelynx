@@ -118,6 +118,12 @@ type Runner struct {
 	// it shows in place of a hidden low-priority/muted row is actually
 	// true for this deployment.
 	GenericWebhookConfigured bool
+
+	// Plan enables the read-only fix plan. nil (the default) means the plan
+	// is off: no database preparation, no comparison-mode scans, no registry
+	// access, no plan or delivery records, and every scan, state change and
+	// notification is exactly what it is without this field.
+	Plan *PlanConfig
 }
 
 // NoFullReport disables the weekly full report in diff mode.
@@ -159,7 +165,20 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	images := inventory.DistinctImages(containers)
 	log.Info("scanning images", "count", len(images))
 
-	scans := r.scanAll(ctx, images)
+	// With the plan on, prepared databases put every scan of the cycle, and
+	// the plan's candidate scans, on the same database content. Without them
+	// the scans run as usual and the cycle has no plan.
+	sc := r.Scanner
+	var cyc planCycle
+	if r.Plan != nil {
+		if cyc = r.preparePlan(ctx); cyc.ok {
+			sc = r.Plan.Scanner
+		}
+	}
+	scans, targets := r.scanImages(ctx, sc, images)
+	if cyc.ok {
+		cyc = r.verifyScans(ctx, cyc)
+	}
 
 	report := analyze.Build(scans, containers, r.triage(ctx, scans), r.now())
 	report.Environment = r.Environment
@@ -170,10 +189,14 @@ func (r Runner) RunOnce(ctx context.Context) error {
 			analyze.ApplyMuting(&report, r.now())
 		}
 	}
-	if r.Store == nil {
-		return r.sendFull(ctx, report)
+	var plan planOutcome
+	if r.Plan != nil {
+		plan = r.buildPlan(ctx, cyc, report, containers, scans, targets)
 	}
-	return r.sendDiff(ctx, report)
+	if r.Store == nil {
+		return r.sendFull(ctx, report, plan)
+	}
+	return r.sendDiff(ctx, report, plan)
 }
 
 // scanAll scans every running image, de-duplicating on the resolved
@@ -188,28 +211,38 @@ func (r Runner) RunOnce(ctx context.Context) error {
 // collide there, since inventory.DistinctImages itself de-duplicates on
 // (Ref, EntityKey)).
 func (r Runner) scanAll(ctx context.Context, images []inventory.RunningImage) []scanner.ImageScan {
+	scans, _ := r.scanImages(ctx, r.Scanner, images)
+	return scans
+}
+
+// scanImages is scanAll with the scanner chosen by the caller. It also
+// returns, per scan, the target that scans the same image again.
+func (r Runner) scanImages(ctx context.Context, sc ImageScanner, images []inventory.RunningImage) ([]scanner.ImageScan, []scanner.ScanTarget) {
 	log := r.log()
 	source := r.source()
 	scans := make([]scanner.ImageScan, 0, len(images))
+	targets := make([]scanner.ScanTarget, 0, len(images))
 	byKey := map[inventory.EntityKey]scanner.ImageScan{}
 
 	for _, img := range images {
 		key, resolved := inventory.EntityKeyOf(img)
 		subject := inventory.ImageSubject{Ref: img.Ref, Key: key, Resolved: resolved}
+		target := scanner.ScanTarget{Subject: subject, Registry: img.Registry, Source: source}
 
 		if !resolved {
-			result := r.Scanner.Scan(ctx, scanner.ScanTarget{Subject: subject, Registry: img.Registry, Source: source})
+			result := sc.Scan(ctx, target)
 			if result.Err != nil {
 				log.Warn("image scan failed", "image", img.Ref, "resolved", false, "err", result.Err)
 			}
 			log.Info("scanned image", "ref", img.Ref, "resolved", false)
 			scans = append(scans, result)
+			targets = append(targets, target)
 			continue
 		}
 
 		result, ok := byKey[key]
 		if !ok || !result.Pinned {
-			result = r.Scanner.Scan(ctx, scanner.ScanTarget{Subject: subject, Registry: img.Registry, Source: source})
+			result = sc.Scan(ctx, target)
 			if result.Err != nil {
 				log.Warn("image scan failed", "image", img.Ref, "content_id", key.Digest.String(), "resolved", true, "err", result.Err)
 			}
@@ -219,8 +252,9 @@ func (r Runner) scanAll(ctx context.Context, images []inventory.RunningImage) []
 		}
 		log.Info("scanned image", "ref", img.Ref, "content_id", key.Digest.String(), "resolved", true)
 		scans = append(scans, retarget(result, img.Ref))
+		targets = append(targets, target)
 	}
-	return scans
+	return scans, targets
 }
 
 // retarget deep-copies scan and relabels it for ref. A de-duplicated scan
@@ -375,15 +409,16 @@ func (r Runner) bootTime() (time.Time, error) {
 
 // sendFull is the stateless full mode: re-send everything whenever there is
 // anything to say.
-func (r Runner) sendFull(ctx context.Context, report analyze.Report) error {
+func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOutcome) error {
 	log := r.log()
-	if !report.HasIssues() && !r.NotifyOnClean {
+	if !report.HasIssues() && !r.NotifyOnClean && !plan.changed {
 		log.Info("no issues found; skipping notification")
 		return nil
 	}
-	if err := r.Notifier.Send(ctx, notify.Message{Report: report}); err != nil {
+	if err := r.Notifier.Send(ctx, plan.message(notify.Message{Report: report})); err != nil {
 		return fmt.Errorf("send notification: %w", err)
 	}
+	r.markDelivered(plan)
 	log.Info("notification sent",
 		"affected", report.AffectedImageCount(),
 		"eosl", len(report.EOSLImages),
@@ -396,7 +431,7 @@ func (r Runner) sendFull(ctx context.Context, report analyze.Report) error {
 // clear", never "the scanner died"), and stay quiet on clean-and-unchanged
 // unless NotifyOnClean. State is saved only after a successful (or skipped)
 // delivery, so a failed send is re-reported as new next cycle instead of lost.
-func (r Runner) sendDiff(ctx context.Context, report analyze.Report) error {
+func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOutcome) error {
 	log := r.log()
 	prev, err := r.Store.Load()
 	if err != nil {
@@ -416,7 +451,7 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report) error {
 	// so a quiet cycle must not skip the notification just because nothing
 	// newly changed.
 	holding := holdingUnconfirmed(prev, report)
-	send := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding
+	send := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding || plan.changed
 	if !send {
 		log.Info("no issues and no changes; skipping notification")
 		return r.saveState(next)
@@ -437,9 +472,10 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report) error {
 		LastReport:   prev.LastFullReport,
 		Result:       res,
 	}
-	if err := r.Notifier.Send(ctx, m); err != nil {
+	if err := r.Notifier.Send(ctx, plan.message(m)); err != nil {
 		return fmt.Errorf("send notification: %w", err)
 	}
+	r.markDelivered(plan)
 	if res.Ref.TS != "" {
 		ref := res.Ref
 		next.LastFullReport = &ref

@@ -129,3 +129,24 @@ runtime:
   # reappears immediately as an ordinary change. Has no effect unless
   # enabled above is also true.
   mute_unfixable_not_in_use: false
+
+# Read-only fix plan (experimental). For each running image that has a fixed
+# vulnerability, look for a newer image in its registry, scan it under the
+# same vulnerability databases as the running one, and report whether updating
+# would resolve the findings. Nothing is pulled, changed or created; the plan
+# appears as a short "Fix plan" section in Slack and a `remediation` object in
+# the generic webhook payload. Docker only (not supported with
+# kubernetes.enabled). Public registries only; it needs outbound HTTPS to the
+# image registries and downloads the Trivy databases before each cycle.
+# Disabled by default; with it off, scans and notifications are unchanged.
+#
+# remediation:
+#   plan:
+#     enabled: true
+#   # Per-cycle limits (provisional defaults shown). Work past a limit is
+#   # reported as deferred, not dropped. 0 allows none of that work.
+#   limits:
+#     max_candidate_scans: 10
+#     max_baseline_rescans: 10
+#     max_registry_requests: 200
+#     max_tag_pages: 20

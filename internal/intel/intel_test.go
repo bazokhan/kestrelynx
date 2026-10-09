@@ -252,3 +252,34 @@ func TestLookupSurvivesDeletedCacheWithStaleMeta(t *testing.T) {
 		t.Errorf("kev hits = %d, want 2", feeds.kevHits)
 	}
 }
+
+func TestKEVSet(t *testing.T) {
+	feeds := newTestFeeds(t)
+	now := time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC)
+	s := newSource(t, feeds, &now)
+
+	set, err := s.KEVSet(context.Background())
+	if err != nil {
+		t.Fatalf("KEVSet: %v", err)
+	}
+	if !set["CVE-2026-1111"] || set["CVE-2026-3333"] {
+		t.Errorf("set = %v, want the KEV-listed CVE only", set)
+	}
+	if feeds.epssHits != 0 {
+		t.Error("KEVSet must not fetch EPSS")
+	}
+	// A second call within the refresh window reuses the cache.
+	if _, err := s.KEVSet(context.Background()); err != nil || feeds.kevHits != 1 {
+		t.Errorf("second call: err=%v hits=%d, want the cached catalog", err, feeds.kevHits)
+	}
+}
+
+func TestKEVSetUnavailableIsAnError(t *testing.T) {
+	feeds := newTestFeeds(t)
+	feeds.kevBody = func() ([]byte, int) { return nil, http.StatusServiceUnavailable }
+	now := time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC)
+	s := newSource(t, feeds, &now)
+	if set, err := s.KEVSet(context.Background()); err == nil || set != nil {
+		t.Errorf("set=%v err=%v, want an error without a catalog", set, err)
+	}
+}

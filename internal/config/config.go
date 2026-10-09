@@ -26,6 +26,7 @@ type Config struct {
 	Triage      TriageConfig
 	Environment EnvironmentConfig
 	Runtime     RuntimeConfig
+	Remediation RemediationConfig
 }
 
 // EnvironmentConfig names the environment this instance is watching
@@ -145,6 +146,29 @@ type RuntimeConfig struct {
 	MuteUnfixableNotInUse bool
 }
 
+// RemediationConfig controls the optional fix plan: for each running image
+// with a fixed vulnerability, it looks for a newer image in the registry,
+// rescans it and reports whether it would resolve the findings. The plan is
+// read-only — nothing is pulled, changed or created. Disabled by default.
+type RemediationConfig struct {
+	Plan   RemediationPlanConfig
+	Limits RemediationLimits
+}
+
+// RemediationPlanConfig switches the read-only plan on.
+type RemediationPlanConfig struct {
+	Enabled bool
+}
+
+// RemediationLimits caps the work of one plan. A limit of zero allows none of
+// that work; work past a limit is reported as deferred, never dropped.
+type RemediationLimits struct {
+	MaxCandidateScans   int // candidate image scans per cycle
+	MaxBaselineRescans  int // rescans of a running image to match the plan's scan conditions
+	MaxRegistryRequests int // registry HTTP requests per cycle, token exchanges included
+	MaxTagPages         int // tag listing pages per cycle
+}
+
 // rawConfig mirrors the YAML shape. Pointers are used where "absent" must be
 // distinguished from a zero value (booleans whose default is true).
 type rawConfig struct {
@@ -200,6 +224,19 @@ type rawConfig struct {
 		EvidenceDir           string `yaml:"evidence_dir"`
 		MuteUnfixableNotInUse *bool  `yaml:"mute_unfixable_not_in_use"`
 	} `yaml:"runtime"`
+	Remediation struct {
+		Plan struct {
+			Enabled *bool `yaml:"enabled"`
+		} `yaml:"plan"`
+		// The limits are pointers so an explicit 0 ("allow none") is told
+		// apart from an omitted key.
+		Limits struct {
+			MaxCandidateScans   *int `yaml:"max_candidate_scans"`
+			MaxBaselineRescans  *int `yaml:"max_baseline_rescans"`
+			MaxRegistryRequests *int `yaml:"max_registry_requests"`
+			MaxTagPages         *int `yaml:"max_tag_pages"`
+		} `yaml:"limits"`
+	} `yaml:"remediation"`
 }
 
 const (
@@ -218,6 +255,16 @@ const (
 	// unconfigured Sensor flag agree on the volume path without either side
 	// having to spell it out.
 	defaultEvidenceDir = "/var/lib/kestrelynx-runtime"
+)
+
+// Provisional defaults for the fix plan's per-cycle limits. They are
+// deliberately small so a first run stays cheap for registries and for the
+// host; they are to be revisited once real runs show what a cycle costs.
+const (
+	defaultMaxCandidateScans   = 10
+	defaultMaxBaselineRescans  = 10
+	defaultMaxRegistryRequests = 200
+	defaultMaxTagPages         = 20
 )
 
 var validSeverities = map[string]bool{
@@ -278,6 +325,15 @@ func Parse(data []byte) (Config, error) {
 			Enabled:               boolOr(raw.Runtime.Enabled, false),
 			EvidenceDir:           raw.Runtime.EvidenceDir,
 			MuteUnfixableNotInUse: boolOr(raw.Runtime.MuteUnfixableNotInUse, false),
+		},
+		Remediation: RemediationConfig{
+			Plan: RemediationPlanConfig{Enabled: boolOr(raw.Remediation.Plan.Enabled, false)},
+			Limits: RemediationLimits{
+				MaxCandidateScans:   intOr(raw.Remediation.Limits.MaxCandidateScans, defaultMaxCandidateScans),
+				MaxBaselineRescans:  intOr(raw.Remediation.Limits.MaxBaselineRescans, defaultMaxBaselineRescans),
+				MaxRegistryRequests: intOr(raw.Remediation.Limits.MaxRegistryRequests, defaultMaxRegistryRequests),
+				MaxTagPages:         intOr(raw.Remediation.Limits.MaxTagPages, defaultMaxTagPages),
+			},
 		},
 	}
 
@@ -384,6 +440,22 @@ func validate(c *Config, dockerSocketExplicit bool) error {
 			return fmt.Errorf("config: runtime.evidence_dir %q must be an absolute path", c.Runtime.EvidenceDir)
 		}
 	}
+	for _, l := range []struct {
+		key string
+		val int
+	}{
+		{"max_candidate_scans", c.Remediation.Limits.MaxCandidateScans},
+		{"max_baseline_rescans", c.Remediation.Limits.MaxBaselineRescans},
+		{"max_registry_requests", c.Remediation.Limits.MaxRegistryRequests},
+		{"max_tag_pages", c.Remediation.Limits.MaxTagPages},
+	} {
+		if l.val < 0 {
+			return fmt.Errorf("config: remediation.limits.%s must not be negative, got %d", l.key, l.val)
+		}
+	}
+	if c.Remediation.Plan.Enabled && c.Kubernetes.Enabled {
+		return fmt.Errorf("config: remediation.plan.enabled is not supported with kubernetes.enabled")
+	}
 	return nil
 }
 
@@ -395,6 +467,13 @@ func boolOr(p *bool, def bool) bool {
 }
 
 func stringOr(p *string, def string) string {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+
+func intOr(p *int, def int) int {
 	if p != nil {
 		return *p
 	}
