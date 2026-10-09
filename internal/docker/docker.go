@@ -19,7 +19,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 )
@@ -184,27 +183,12 @@ const (
 // truthy flag, so a near-miss value is never guessed at as meaning yes.
 const runtimeExcludeLabel = "io.kestrelynx.runtime.exclude"
 
-// maxLabelValueBytes mirrors Docker Compose's own project/service name
-// limit; a value over this is treated as unusable rather than truncated.
-const maxLabelValueBytes = 253
-
 // validLabelValue reports whether v is safe to trust for a Workload
-// association: non-empty, free of control characters (C0 including TAB, US
-// and newlines, DEL, and the C1 range), and no more than maxLabelValueBytes.
-// Anything that fails is treated exactly like a missing label — no
-// truncation, no partial acceptance, mirroring the image identity model's
-// "an unresolved value is safer than a guessed one".
-func validLabelValue(v string) bool {
-	if v == "" || len(v) > maxLabelValueBytes {
-		return false
-	}
-	for _, r := range v {
-		if unicode.IsControl(r) {
-			return false
-		}
-	}
-	return true
-}
+// association (see inventory.ValidComposeName). Anything that fails is
+// treated exactly like a missing label — no truncation, no partial
+// acceptance, mirroring the image identity model's "an unresolved value is
+// safer than a guessed one".
+func validLabelValue(v string) bool { return inventory.ValidComposeName(v) }
 
 // workloadFromLabels resolves a Workload from Docker Compose labels. Both
 // the project and service labels must be present and valid or the container

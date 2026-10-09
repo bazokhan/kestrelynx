@@ -1,0 +1,66 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 未解決の所見の全体 — 🚨 今すぐ対応3件 · 👀 要監視1件 · 🔕 低優先度4件
+--- section ---
+🛡️ *KestreLynx* — 2026-06-24 09:00のスキャン結果
+イメージ3件をスキャン、2件に影響あり
+_未解決の所見の全体_
+--- section ---
+*優先度:* 🚨 今すぐ対応3件 · 👀 要監視1件 · 🔕 低優先度4件
+--- divider ---
+--- section ---
+*🚨 今すぐ対応 (3件) — 悪用あり、または悪用の可能性が高い*
+*イメージ: web:1.0*
+--- section ---
+*◆ openssl*
+現在: 3.0.7
+修正版: 3.0.11
+更新の注意度: 🟢 ディストリのセキュリティパッチ
+検出件数: CRITICAL 1 / HIGH 0
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0001|CVE-2031-0001> · CRITICAL · EPSS 94%
+悪用情報: CISA KEV (実際の攻撃で悪用あり) · 🧨 ランサムウェア攻撃
+参照: <https://avd.example/CVE-2031-0001|アドバイザリ> · <https://vendor.example/advisory/1|ベンダーのアドバイザリ>
+--- divider ---
+--- section ---
+*イメージ: api:2.0*
+--- section ---
+*◆ libxml2*
+現在: 2.9.14
+修正版: なし — 緩和策を検討
+検出件数: CRITICAL 0 / HIGH 2
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0006|CVE-2031-0006> · HIGH · EPSS 20% (このパッケージにほか +1件のCVE)
+参照: <https://avd.example/CVE-2031-0006|アドバイザリ>
+--- divider ---
+--- section ---
+*◆ zlib*
+現在: 1.2.13
+修正版: なし — 上流では修正予定なし、置き換えを検討
+検出件数: CRITICAL 0 / HIGH 1
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · EPSS 50%
+悪用情報: CISA KEV (実際の攻撃で悪用あり)
+--- divider ---
+--- section ---
+*👀 要監視 (1件) — 緊急性は低いが継続監視*
+--- section ---
+*イメージ: web:1.0*
+*◆ e2fsprogs*
+現在: 1.47.0-2 · 修正版: なし
+検出件数: CRITICAL 1 / HIGH 0
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0003|CVE-2031-0003> · EPSS 3%
+--- divider ---
+--- section ---
+*🔕 低優先度 (4件)* — イメージ2件で所見4件、悪用の兆候なし (KEV未掲載、EPSSはしきい値未満)
+--- divider ---
+--- section ---
+*🔧 修正計画* (候補の提示のみ — 自動では何も変更しない)
+再pull 1件 · 依存更新候補 1件 · 再ビルドで解消見込み 1件 · 要判断 1件 · 延期 1件
+• web:latest を再pullすると 4件中 3件の所見が解消(1件は残る) (KEV 2件)
+• api (package-lock.json): express 4.18.2 → 4.19.2 ほか2件 — 更新は未実行 (KEV 1件)
+• worker (requirements.txt): urllib3 1.26.5 — 再ビルドで 1.26.18 以上が入る見込み
+--- section ---
+*⚠️ スキャン失敗*
+• broken:1 — 実体未確認: 参照によるスキャン — pull failed
+--- context ---
+⚠️ 実体未確認: 参照によるスキャン — broken:1

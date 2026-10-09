@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/analyze"
 	"github.com/kitsunetrail/kestrelynx/internal/intel"
@@ -87,9 +88,18 @@ func (p *planScanner) VerifyDB(context.Context, scanner.ScanConditions) (bool, e
 type planRegistry struct {
 	resolveErr error
 	budget     *registry.Budget
+	// block makes a tag listing wait for its context to end, as a hung
+	// registry would.
+	block       bool
+	hadDeadline bool
 }
 
-func (r *planRegistry) ListTagsUpTo(context.Context, string, int) (registry.TagList, error) {
+func (r *planRegistry) ListTagsUpTo(ctx context.Context, _ string, _ int) (registry.TagList, error) {
+	_, r.hadDeadline = ctx.Deadline()
+	if r.block {
+		<-ctx.Done()
+		return registry.TagList{}, ctx.Err()
+	}
 	return registry.TagList{Tags: []string{"1.25.3", "1.25.4"}, Pages: 1}, nil
 }
 
@@ -582,5 +592,34 @@ func TestPlan_KEVCatalogErrorDoesNotStopThePlan(t *testing.T) {
 	// Still manual: anything introduced blocks adoption; only the KEV reason is lost.
 	if it := h.notif.msg.Plan.Plan.Items[0]; it.Category != remediation.CategoryManual || it.Reason != remediation.ReasonIntroducedFindings {
 		t.Errorf("item = %s/%s", it.Category, it.Reason)
+	}
+}
+
+func TestPlan_CycleTimeoutDefersPlanWorkOnly(t *testing.T) {
+	h := newPlanHarness(osFinding("CVE-1"))
+	h.reg.block = true
+	h.r.Plan.CycleTimeout = 30 * time.Millisecond
+	h.run(t)
+
+	if !h.reg.hadDeadline {
+		t.Error("the planner's registry call had no deadline")
+	}
+	p := h.notif.msg.Plan
+	if p == nil || p.Plan == nil || len(p.Plan.Items) != 1 {
+		t.Fatalf("Message.Plan = %+v, want a plan with one item", p)
+	}
+	if it := p.Plan.Items[0]; it.Category != remediation.CategoryDeferred || it.Reason != remediation.ReasonCycleDeadline {
+		t.Errorf("item = %s/%s, want deferred/cycle_deadline", it.Category, it.Reason)
+	}
+	if len(h.notif.msg.Report.Actionable) == 0 {
+		t.Error("the ordinary report lost its finding")
+	}
+}
+
+func TestPlan_NoCycleTimeoutSetsNoDeadline(t *testing.T) {
+	h := newPlanHarness(osFinding("CVE-1"))
+	h.run(t)
+	if h.reg.hadDeadline {
+		t.Error("a deadline was set although cycle_timeout is zero")
 	}
 }

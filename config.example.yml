@@ -141,12 +141,40 @@ runtime:
 # Disabled by default; with it off, scans and notifications are unchanged.
 #
 # remediation:
-#   plan:
-#     enabled: true
-#   # Per-cycle limits (provisional defaults shown). Work past a limit is
-#   # reported as deferred, not dropped. 0 allows none of that work.
+#   enabled: true
+#   # Reserved: pull requests are not available yet, so true is rejected.
+#   pull_requests:
+#     enabled: false
+#   # Optional token for reading the mapped GitHub repositories. Empty reads
+#   # public repositories anonymously. Keep the file readable by its owner only.
+#   github:
+#     token: ""
+#   # Where the plan and delivery records are kept (an absolute path).
+#   storage_dir: /var/lib/kestrelynx/remediation
+#   # Where each running Compose workload's source lives. Read and validated at
+#   # startup; no source is fetched yet. Each entry sets exactly one of
+#   # compose (the Compose file and service that deploy it) or dependencies
+#   # (the directory holding its lockfiles). Paths are repository-relative and
+#   # normalized; "." is the repository root. Example names only.
+#   mappings:
+#     - workload: compose/example/web
+#       repository: example/deployment
+#       base_branch: main
+#       compose:
+#         path: compose.yml
+#         service: web
+#     - workload: compose/example/api
+#       repository: example/application
+#       base_branch: main
+#       dependencies:
+#         directory: .
+#   # Per-cycle limits (provisional defaults shown). Every value must be
+#   # positive. Work past a limit is reported as deferred, not dropped.
+#   # tag_pages_per_repository applies to each repository separately;
+#   # cycle_timeout is the deadline of the plan stage, not of the scans.
 #   limits:
-#     max_candidate_scans: 10
-#     max_baseline_rescans: 10
-#     max_registry_requests: 200
-#     max_tag_pages: 20
+#     candidate_scans_per_cycle: 10
+#     baseline_rescans_per_cycle: 10
+#     registry_requests_per_cycle: 200
+#     tag_pages_per_repository: 20
+#     cycle_timeout: 30m

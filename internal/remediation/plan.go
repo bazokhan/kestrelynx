@@ -75,9 +75,9 @@ type ServiceRef struct {
 type Limits struct {
 	MaxCandidateScans  int `json:"max_candidate_scans"`
 	MaxBaselineRescans int `json:"max_baseline_rescans"`
-	// MaxTagPages caps the tag listing pages requested in the pass. Each
-	// listing is given only the pages still allowed, so the total never
-	// exceeds the cap; a listing the cap stops is incomplete and its item is
+	// MaxTagPages caps the tag listing pages requested for one repository.
+	// Each repository's listing gets up to this many pages, independently of
+	// the others; a listing the cap stops is incomplete and its item is
 	// deferred.
 	MaxTagPages int `json:"max_tag_pages"`
 }
@@ -186,6 +186,9 @@ type Plan struct {
 	// Scans are the scans the comparisons used, shared between items that
 	// compared against the same scan.
 	Scans []ScanExecution `json:"scans,omitempty"`
+	// LanguageItems are the dependency units of the language-package part,
+	// one per repository directory, in the order they were handled.
+	LanguageItems []LanguageItem `json:"language_items,omitempty"`
 }
 
 // Count returns how many items are in category c.

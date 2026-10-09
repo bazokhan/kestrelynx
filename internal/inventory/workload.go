@@ -1,5 +1,7 @@
 package inventory
 
+import "unicode"
+
 // WorkloadKind identifies how a Container's Workload was determined.
 // WorkloadUnknown is the zero value on purpose: a Workload that was never
 // set (a bug, or an adapter that made no attempt) reads as "no association
@@ -67,4 +69,25 @@ type Container struct {
 	// sensitive enough that even an in-use/not-observed verdict on it is
 	// unwelcome.
 	RuntimeExcluded bool
+}
+
+// maxComposeNameBytes mirrors Docker Compose's own project/service name limit;
+// a value over this is treated as unusable rather than truncated.
+const maxComposeNameBytes = 253
+
+// ValidComposeName reports whether v is safe to trust as a Docker Compose
+// project or service name for a Workload association: non-empty, free of
+// control characters (C0 including TAB, US and newlines, DEL, and the C1
+// range), and no more than 253 bytes. It is the rule both the Docker adapter
+// applies to container labels and configuration applies to workload keys.
+func ValidComposeName(v string) bool {
+	if v == "" || len(v) > maxComposeNameBytes {
+		return false
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }

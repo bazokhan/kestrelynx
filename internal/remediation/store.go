@@ -20,9 +20,9 @@ type PlanStore struct {
 	Path string
 }
 
-// DefaultPlanPath is the plan file under a state directory.
-func DefaultPlanPath(stateDir string) string {
-	return filepath.Join(stateDir, "remediation", "plan.json")
+// DefaultPlanPath is the plan file under the remediation storage directory.
+func DefaultPlanPath(storageDir string) string {
+	return filepath.Join(storageDir, "plan.json")
 }
 
 // Load reads the plan. found is false, with a nil error, only when the file

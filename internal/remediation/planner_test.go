@@ -254,7 +254,7 @@ func TestPlanNoNewerTag(t *testing.T) {
 func TestPlanTagListSharedAndPageLimit(t *testing.T) {
 	e := newEnv()
 	e.reg.tags["nginx"] = registry.TagList{Tags: []string{"1.25.3", "1.25.4"}, Pages: 3}
-	e.reg.tags["redis"] = registry.TagList{Tags: []string{"7.2.1"}, Pages: 1}
+	e.reg.tags["redis"] = registry.TagList{Tags: []string{"7.2.1"}, Pages: 3, Truncated: true}
 	e.reg.res["nginx:1.25.4"] = resolution('b', 'c')
 	e.candidateScan("nginx:1.25.4", nil, pkgs("libc", "2"))
 	p := e.planner(t, Limits{MaxCandidateScans: 5, MaxBaselineRescans: 5, MaxTagPages: 3}, nil)
@@ -276,8 +276,8 @@ func TestPlanTagListSharedAndPageLimit(t *testing.T) {
 	if it := byRef["redis:7.2.0"]; it.Category != CategoryDeferred || it.Reason != ReasonTagPageLimit {
 		t.Errorf("redis = %s/%s", it.Category, it.Reason)
 	}
-	if e.reg.listCalls != 1 {
-		t.Errorf("list calls = %d, want 1 (shared)", e.reg.listCalls)
+	if e.reg.listCalls != 2 {
+		t.Errorf("list calls = %d, want 2 (nginx shared, redis once)", e.reg.listCalls)
 	}
 }
 
@@ -569,30 +569,40 @@ func TestNewPlannerValidates(t *testing.T) {
 	}
 }
 
-func TestPlanTagPageAllowanceIsPassedAndEnforced(t *testing.T) {
+func TestPlanTagPageAllowanceIsPerRepository(t *testing.T) {
 	e := newEnv()
-	e.reg.tags["nginx"] = registry.TagList{Tags: []string{"1.25.3", "1.25.4"}, Pages: 5}
+	e.reg.tags["nginx"] = registry.TagList{Tags: []string{"1.25.3", "1.25.4"}, Pages: 4, Truncated: true}
 	e.reg.tags["redis"] = registry.TagList{Tags: []string{"7.2.0"}, Pages: 1}
 	p := e.planner(t, Limits{MaxCandidateScans: 5, MaxBaselineRescans: 5, MaxTagPages: 4}, nil)
 	plan := p.Plan(context.Background(), []ImageInput{
 		input("nginx:1.25.3", 'a', prepared, fixedA()),
 		input("redis:7.2.0", 'd', prepared, fixedA()),
 	})
-	if len(e.reg.allowances) == 0 || e.reg.allowances[0] != 4 {
-		t.Fatalf("allowances = %v, want the first listing to get 4", e.reg.allowances)
+	if len(e.reg.allowances) != 2 || e.reg.allowances[0] != 4 || e.reg.allowances[1] != 4 {
+		t.Fatalf("allowances = %v, want each listing to get 4", e.reg.allowances)
 	}
 	nginx := item(t, plan, 0)
 	if nginx.Category != CategoryDeferred || nginx.Reason != ReasonTagPageLimit {
 		t.Errorf("a listing stopped by the cap must be deferred: %s/%s", nginx.Category, nginx.Reason)
 	}
-	if plan.Usage.TagPages != 4 {
-		t.Errorf("tag pages = %d, want 4", plan.Usage.TagPages)
+	if plan.Usage.TagPages != 5 {
+		t.Errorf("tag pages = %d, want 5 (4 for nginx, 1 for redis)", plan.Usage.TagPages)
 	}
-	if redis := item(t, plan, 1); redis.Category != CategoryDeferred || redis.Reason != ReasonTagPageLimit {
-		t.Errorf("no allowance left: %s/%s", redis.Category, redis.Reason)
+	if redis := item(t, plan, 1); redis.Category == CategoryDeferred {
+		t.Errorf("one repository hitting the cap must not defer another: %s/%s", redis.Category, redis.Reason)
 	}
-	if e.reg.listCalls != 1 {
-		t.Errorf("list calls = %d, want 1", e.reg.listCalls)
+}
+
+func TestPlanZeroTagPageLimitDefers(t *testing.T) {
+	e := newEnv()
+	plan := e.planner(t, Limits{MaxCandidateScans: 5, MaxBaselineRescans: 5, MaxTagPages: 0}, nil).Plan(context.Background(), []ImageInput{
+		input("nginx:1.25.3", 'a', prepared, fixedA()),
+	})
+	if it := item(t, plan, 0); it.Category != CategoryDeferred || it.Reason != ReasonTagPageLimit {
+		t.Errorf("nginx = %s/%s", it.Category, it.Reason)
+	}
+	if e.reg.listCalls != 0 {
+		t.Errorf("list calls = %d, want 0", e.reg.listCalls)
 	}
 }
 
@@ -614,8 +624,8 @@ func TestPlanTagListingErrorStillCountsPages(t *testing.T) {
 	if plan.Usage.TagPages != 3 {
 		t.Errorf("tag pages = %d, want 2 from the failed listing plus 1", plan.Usage.TagPages)
 	}
-	if e.reg.allowances[1] != 1 {
-		t.Errorf("second listing allowance = %d, want 1 (3 minus the 2 consumed)", e.reg.allowances[1])
+	if e.reg.allowances[1] != 3 {
+		t.Errorf("second listing allowance = %d, want 3 (the cap applies per repository)", e.reg.allowances[1])
 	}
 	if it := item(t, plan, 1); it.Category != CategoryPRCandidate {
 		t.Errorf("redis = %s/%s", it.Category, it.Reason)

@@ -360,6 +360,11 @@ type messages struct {
 	PlanNotSaved                string // "_The fix plan could not be saved._"
 	PlanUnavailableDB           string // "_Fix plan unavailable this cycle: the scan databases could not be prepared._"
 	PlanUnavailableOther        string // "_Fix plan unavailable this cycle._"
+	PlanSegDepUpdate            string // "%d dependency update candidate(s)" (dependency units with a target version in their files)
+	PlanSegRebuild              string // "%d rebuild expected" (dependency units whose version ranges allow the fix)
+	PlanDepLine                 string // "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet" (service names, lockfile, package, installed, target, the "and more" clause)
+	PlanDepMore                 string // " and %d more" (other packages of the same unit)
+	PlanRebuildLine             string // "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s" (service names, requirements file, package, installed, lowest fixed version, the "and more" clause)
 }
 
 // enMessages is the historical English wording, unchanged byte-for-byte from
@@ -652,6 +657,11 @@ var enMessages = messages{
 	PlanNotSaved:                "_The fix plan could not be saved._",
 	PlanUnavailableDB:           "_Fix plan unavailable this cycle: the scan databases could not be prepared._",
 	PlanUnavailableOther:        "_Fix plan unavailable this cycle._",
+	PlanSegDepUpdate:            "%d dependency update candidate(s)",
+	PlanSegRebuild:              "%d rebuild expected",
+	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet",
+	PlanDepMore:                 " and %d more",
+	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s",
 }
 
 // jaMessages is the Japanese dictionary.
@@ -941,6 +951,11 @@ var jaMessages = messages{
 	PlanNotSaved:                "_修正計画を保存できなかった_",
 	PlanUnavailableDB:           "_今回は修正計画を作成できない: スキャン用データベースを準備できなかった_",
 	PlanUnavailableOther:        "_今回は修正計画を作成できない_",
+	PlanSegDepUpdate:            "依存更新候補 %d件",
+	PlanSegRebuild:              "再ビルドで解消見込み %d件",
+	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — 更新は未実行",
+	PlanDepMore:                 " ほか%d件",
+	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — 再ビルドで %[5]s 以上が入る見込み",
 }
 
 // messagesFor resolves a Language to its dictionary, defaulting to English

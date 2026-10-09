@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 const minimal = `
@@ -462,49 +465,83 @@ func TestParse_RemediationDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if c.Remediation.Plan.Enabled {
-		t.Error("Remediation.Plan.Enabled = true, want false by default")
+	r := c.Remediation
+	if r.Enabled || r.PullRequests.Enabled {
+		t.Errorf("Remediation enabled flags = %v/%v, want both false by default", r.Enabled, r.PullRequests.Enabled)
 	}
-	want := RemediationLimits{MaxCandidateScans: 10, MaxBaselineRescans: 10, MaxRegistryRequests: 200, MaxTagPages: 20}
-	if c.Remediation.Limits != want {
-		t.Errorf("Remediation.Limits = %+v, want %+v", c.Remediation.Limits, want)
+	if r.GitHub.Token != "" || len(r.Mappings) != 0 {
+		t.Errorf("token/mappings = %q/%v, want none", r.GitHub.Token, r.Mappings)
+	}
+	if r.StorageDir != "/var/lib/kestrelynx/remediation" {
+		t.Errorf("StorageDir = %q", r.StorageDir)
+	}
+	want := RemediationLimits{CandidateScansPerCycle: 10, BaselineRescansPerCycle: 10, RegistryRequestsPerCycle: 200, TagPagesPerRepository: 20, CycleTimeout: 30 * time.Minute}
+	if r.Limits != want {
+		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
 	}
 }
 
 func TestParse_RemediationExplicit(t *testing.T) {
 	c, err := Parse([]byte(minimal + `
 remediation:
-  plan:
-    enabled: true
+  enabled: true
+  github:
+    token: ghp_exampletoken
+  storage_dir: /data/remediation
+  mappings:
+    - workload: compose/shop/web
+      repository: example/deployment
+      base_branch: release/1.x
+      compose:
+        path: deploy/compose.yml
+        service: web
+    - workload: compose/shop/api
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
   limits:
-    max_candidate_scans: 3
-    max_baseline_rescans: 0
-    max_registry_requests: 50
-    max_tag_pages: 5
+    candidate_scans_per_cycle: 3
+    baseline_rescans_per_cycle: 4
+    registry_requests_per_cycle: 50
+    tag_pages_per_repository: 5
+    cycle_timeout: 45m
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if !c.Remediation.Plan.Enabled {
-		t.Error("Remediation.Plan.Enabled = false, want true")
+	r := c.Remediation
+	if !r.Enabled {
+		t.Error("Remediation.Enabled = false, want true")
 	}
-	// An explicit 0 stays 0 (it allows none of that work); it is not replaced
-	// by the default.
-	want := RemediationLimits{MaxCandidateScans: 3, MaxBaselineRescans: 0, MaxRegistryRequests: 50, MaxTagPages: 5}
-	if c.Remediation.Limits != want {
-		t.Errorf("Remediation.Limits = %+v, want %+v", c.Remediation.Limits, want)
+	if r.GitHub.Token.Value() != "ghp_exampletoken" || r.StorageDir != "/data/remediation" {
+		t.Errorf("token/storage = %q/%q", r.GitHub.Token.Value(), r.StorageDir)
+	}
+	want := RemediationLimits{CandidateScansPerCycle: 3, BaselineRescansPerCycle: 4, RegistryRequestsPerCycle: 50, TagPagesPerRepository: 5, CycleTimeout: 45 * time.Minute}
+	if r.Limits != want {
+		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
+	}
+	if len(r.Mappings) != 2 {
+		t.Fatalf("mappings = %+v", r.Mappings)
+	}
+	m0, m1 := r.Mappings[0], r.Mappings[1]
+	if m0.Workload != "compose/shop/web" || m0.Repository != "example/deployment" || m0.BaseBranch != "release/1.x" ||
+		m0.Compose == nil || m0.Compose.Path != "deploy/compose.yml" || m0.Compose.Service != "web" || m0.Dependencies != nil {
+		t.Errorf("mapping 0 = %+v", m0)
+	}
+	if m1.Dependencies == nil || m1.Dependencies.Directory != "." || m1.Compose != nil {
+		t.Errorf("mapping 1 = %+v", m1)
 	}
 }
 
-func TestParse_RemediationPlanAllowedInBothModes(t *testing.T) {
+func TestParse_RemediationAllowedInBothModes(t *testing.T) {
 	for _, mode := range []string{"diff", "full"} {
 		_, err := Parse([]byte(`
 notify:
   slack_webhook_url: "https://x.test"
   mode: ` + mode + `
 remediation:
-  plan:
-    enabled: true
+  enabled: true
 `))
 		if err != nil {
 			t.Errorf("mode %s: %v", mode, err)
@@ -512,42 +549,190 @@ remediation:
 	}
 }
 
-func TestParse_RemediationNegativeLimitRejected(t *testing.T) {
-	for _, key := range []string{"max_candidate_scans", "max_baseline_rescans", "max_registry_requests", "max_tag_pages"} {
-		_, err := Parse([]byte(minimal + "\nremediation:\n  limits:\n    " + key + ": -1\n"))
-		if err == nil {
-			t.Errorf("%s: expected an error for a negative limit", key)
-			continue
+func TestParse_RemediationLimitsMustBePositive(t *testing.T) {
+	for _, key := range []string{"candidate_scans_per_cycle", "baseline_rescans_per_cycle", "registry_requests_per_cycle", "tag_pages_per_repository", "cycle_timeout"} {
+		for _, v := range []string{"-1", "0"} {
+			if key == "cycle_timeout" {
+				v += "s"
+			}
+			_, err := Parse([]byte(minimal + "\nremediation:\n  limits:\n    " + key + ": " + v + "\n"))
+			if err == nil {
+				t.Errorf("%s: %s accepted", key, v)
+				continue
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("%s: err = %v, want it to name the key", key, err)
+			}
 		}
-		if !strings.Contains(err.Error(), key) {
-			t.Errorf("%s: err = %v, want it to name the key", key, err)
-		}
+	}
+	if _, err := Parse([]byte(minimal + "\nremediation:\n  limits:\n    cycle_timeout: soon\n")); err == nil {
+		t.Error("unparseable cycle_timeout accepted")
 	}
 }
 
-func TestParse_RemediationPlanWithKubernetesRejected(t *testing.T) {
-	_, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  plan:\n    enabled: true\n"))
-	if err == nil {
-		t.Fatal("Parse: expected an error for remediation.plan.enabled with kubernetes.enabled")
+func TestParse_RemediationPullRequestsRejected(t *testing.T) {
+	for _, body := range []string{
+		"remediation:\n  enabled: true\n  pull_requests:\n    enabled: true\n",
+		"remediation:\n  pull_requests:\n    enabled: true\n",
+	} {
+		_, err := Parse([]byte(minimal + "\n" + body))
+		if err == nil || !strings.Contains(err.Error(), "remediation.pull_requests.enabled") {
+			t.Errorf("%q: err = %v", body, err)
+		}
 	}
-	if !strings.Contains(err.Error(), "remediation.plan.enabled") || !strings.Contains(err.Error(), "kubernetes.enabled") {
+	if _, err := Parse([]byte(minimal + "\nremediation:\n  enabled: true\n  pull_requests:\n    enabled: false\n")); err != nil {
+		t.Errorf("explicit false: %v", err)
+	}
+}
+
+func TestParse_RemediationStorageDirMustBeAbsolute(t *testing.T) {
+	_, err := Parse([]byte(minimal + "\nremediation:\n  storage_dir: relative/dir\n"))
+	if err == nil || !strings.Contains(err.Error(), "remediation.storage_dir") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestParse_RemediationWithKubernetesRejected(t *testing.T) {
+	_, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: true\n"))
+	if err == nil {
+		t.Fatal("Parse: expected an error for remediation.enabled with kubernetes.enabled")
+	}
+	if !strings.Contains(err.Error(), "remediation.enabled") || !strings.Contains(err.Error(), "kubernetes.enabled") {
 		t.Errorf("err = %v, want it to name both keys", err)
 	}
-	// Disabled plan next to Kubernetes stays valid.
-	if _, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  plan:\n    enabled: false\n")); err != nil {
+	if _, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: false\n")); err != nil {
 		t.Errorf("Parse: %v, want a disabled plan to be accepted with kubernetes", err)
 	}
 }
 
 func TestParse_RemediationUnknownKeyRejected(t *testing.T) {
 	for _, body := range []string{
-		"remediation:\n  enabled: true\n",
-		"remediation:\n  plan:\n    enable: true\n",
+		"remediation:\n  plan:\n    enabled: true\n",
 		"remediation:\n  limits:\n    max_candidates: 1\n",
+		"remediation:\n  mappings:\n    - workload: compose/a/b\n      repository: x/y\n      base_branch: main\n      dependencies:\n        dir: .\n",
 	} {
 		if _, err := Parse([]byte(minimal + "\n" + body)); err == nil {
 			t.Errorf("%q: expected an unknown-key error", body)
 		}
+	}
+}
+
+func TestParse_RemediationTokenIsRedacted(t *testing.T) {
+	const tok = "ghp_supersecretvalue"
+	c, err := Parse([]byte(minimal + "\nremediation:\n  github:\n    token: " + tok + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("cfg", "token", c.Remediation.GitHub.Token, "remediation", c.Remediation)
+	for _, out := range []string{
+		fmt.Sprint(c), fmt.Sprintf("%v", c.Remediation), fmt.Sprintf("%+v", c), fmt.Sprintf("%#v", c.Remediation), buf.String(),
+	} {
+		if strings.Contains(out, tok) {
+			t.Errorf("token leaked in %q", out)
+		}
+	}
+	if c.Remediation.GitHub.Token.Value() != tok {
+		t.Error("Value() must return the token")
+	}
+	for _, bad := range []string{"\"a b\"", "\"a\\nb\""} {
+		_, err := Parse([]byte(minimal + "\nremediation:\n  github:\n    token: " + bad + "\n"))
+		if err == nil || strings.Contains(err.Error(), "a b") {
+			t.Errorf("token %s: err = %v", bad, err)
+		}
+	}
+}
+
+func mapping(workload, repo, branch, route string) string {
+	return "    - workload: " + workload + "\n      repository: " + repo + "\n      base_branch: " + branch + "\n" + route
+}
+
+const (
+	composeRoute = "      compose:\n        path: compose.yml\n        service: web\n"
+	depsRoute    = "      dependencies:\n        directory: app\n"
+)
+
+func remediationWith(mappings ...string) []byte {
+	return []byte(minimal + "\nremediation:\n  mappings:\n" + strings.Join(mappings, ""))
+}
+
+func TestParse_RemediationMappingValid(t *testing.T) {
+	cases := map[string][]string{
+		"both routes for one workload": {
+			mapping("compose/p/web", "ex/deploy", "main", composeRoute),
+			mapping("compose/p/web", "ex/app", "main", depsRoute),
+		},
+		"workloads sharing a dependency root": {
+			mapping("compose/p/web", "ex/app", "main", depsRoute),
+			mapping("compose/p/api", "Ex/App", "main", depsRoute),
+		},
+		"root directory": {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: .\n")},
+		"nested branch":  {mapping("compose/p/web", "ex/app", "release/v1.2", depsRoute)},
+		"unicode names":  {mapping("compose/プロジェクト/web-1", "ex/app", "main", depsRoute)},
+	}
+	for name, ms := range cases {
+		if _, err := Parse(remediationWith(ms...)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestParse_RemediationMappingInvalid(t *testing.T) {
+	long := strings.Repeat("p", 254)
+	cases := map[string][]string{
+		"wrong kind":             {mapping("deployment/p/web", "ex/app", "main", depsRoute)},
+		"two segments":           {mapping("compose/web", "ex/app", "main", depsRoute)},
+		"four segments":          {mapping("compose/p/web/x", "ex/app", "main", depsRoute)},
+		"empty project":          {mapping("compose//web", "ex/app", "main", depsRoute)},
+		"project too long":       {mapping("compose/"+long+"/web", "ex/app", "main", depsRoute)},
+		"control char":           {mapping("\"compose/p\\t/web\"", "ex/app", "main", depsRoute)},
+		"repo without owner":     {mapping("compose/p/web", "app", "main", depsRoute)},
+		"repo with url":          {mapping("compose/p/web", "https://github.com/ex/app", "main", depsRoute)},
+		"repo with .git":         {mapping("compose/p/web", "ex/app.git", "main", depsRoute)},
+		"empty branch":           {mapping("compose/p/web", "ex/app", "\"\"", depsRoute)},
+		"branch dot dot":         {mapping("compose/p/web", "ex/app", "a..b", depsRoute)},
+		"branch leading dash":    {mapping("compose/p/web", "ex/app", "-main", depsRoute)},
+		"branch with space":      {mapping("compose/p/web", "ex/app", "\"a b\"", depsRoute)},
+		"no route":               {mapping("compose/p/web", "ex/app", "main", "")},
+		"both routes":            {mapping("compose/p/web", "ex/app", "main", composeRoute+depsRoute)},
+		"compose no path":        {mapping("compose/p/web", "ex/app", "main", "      compose:\n        service: web\n")},
+		"compose no service":     {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: compose.yml\n")},
+		"compose root path":      {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: .\n        service: web\n")},
+		"absolute path":          {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: /etc/compose.yml\n        service: web\n")},
+		"parent path":            {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: ../compose.yml\n        service: web\n")},
+		"unnormalized path":      {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: ./x/../y.yml\n        service: web\n")},
+		"backslash path":         {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: 'a\\b.yml'\n        service: web\n")},
+		"control char in path":   {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: \"a\\nb.yml\"\n        service: web\n")},
+		"service with slash":     {mapping("compose/p/web", "ex/app", "main", "      compose:\n        path: c.yml\n        service: a/b\n")},
+		"dir parent":             {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: ../x\n")},
+		"dir dot slash":          {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: ./app\n")},
+		"dir trailing slash":     {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: app/\n")},
+		"dir absolute":           {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: /app\n")},
+		"dir empty":              {mapping("compose/p/web", "ex/app", "main", "      dependencies:\n        directory: \"\"\n")},
+		"duplicate compose":      {mapping("compose/p/web", "ex/a", "main", composeRoute), mapping("compose/p/web", "ex/b", "main", composeRoute)},
+		"duplicate dependencies": {mapping("compose/p/web", "ex/a", "main", depsRoute), mapping("compose/p/web", "ex/a", "main", depsRoute)},
+		"service claimed twice":  {mapping("compose/p/web", "ex/a", "main", composeRoute), mapping("compose/p/other", "EX/A", "main", composeRoute)},
+		"root with two branches": {mapping("compose/p/web", "ex/a", "main", depsRoute), mapping("compose/p/api", "ex/a", "dev", depsRoute)},
+	}
+	for name, ms := range cases {
+		_, err := Parse(remediationWith(ms...))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "remediation.mappings[") {
+			t.Errorf("%s: err = %v, want it to name the mapping", name, err)
+		}
+	}
+}
+
+func TestParse_RemediationMappingsUnusedWhenDisabled(t *testing.T) {
+	c, err := Parse(remediationWith(mapping("compose/p/web", "ex/app", "main", depsRoute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Remediation.Enabled || len(c.Remediation.Mappings) != 1 {
+		t.Errorf("remediation = %+v", c.Remediation)
 	}
 }
 
@@ -579,10 +764,55 @@ func TestExampleConfig_RemediationBlockParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse uncommented example: %v", err)
 	}
-	if !c.Remediation.Plan.Enabled {
-		t.Error("uncommented example: Remediation.Plan.Enabled = false, want true")
+	if !c.Remediation.Enabled {
+		t.Error("uncommented example: Remediation.Enabled = false, want true")
 	}
-	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20}) {
+	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20, 30 * time.Minute}) {
 		t.Errorf("uncommented example limits = %+v", c.Remediation.Limits)
+	}
+	if len(c.Remediation.Mappings) == 0 {
+		t.Error("uncommented example has no mappings")
+	}
+}
+
+func TestParse_RemediationTokenDecodeErrorsDoNotEchoIt(t *testing.T) {
+	const tok = "ghp_supersecretvalue"
+	for name, val := range map[string]string{
+		"tagged int":    "!!int " + tok,
+		"tagged float":  "!!float " + tok,
+		"tagged bool":   "!!bool " + tok,
+		"tagged null":   "!!null " + tok,
+		"tagged seq":    "!!seq " + tok,
+		"tagged map":    "!!map " + tok,
+		"tagged ts":     "!!timestamp " + tok,
+		"tagged binary": "!!binary " + tok,
+		"custom tag":    "!custom " + tok,
+		"list":          "[" + tok + "]",
+		"map":           "{k: " + tok + "}",
+		"number":        "12345678",
+		"bool":          "true",
+	} {
+		_, err := Parse([]byte(minimal + "\nremediation:\n  github:\n    token: " + val + "\n"))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), tok) || strings.Contains(err.Error(), "12345678") {
+			t.Errorf("%s: error echoes the value: %v", name, err)
+		}
+	}
+	// An unset token stays unset.
+	for _, val := range []string{"", "~", "null", "!!null"} {
+		c, err := Parse([]byte(minimal + "\nremediation:\n  github:\n    token: " + val + "\n"))
+		if err != nil || c.Remediation.GitHub.Token != "" {
+			t.Errorf("%q: token = %q, err = %v", val, c.Remediation.GitHub.Token.Value(), err)
+		}
+	}
+	// A tagged string and a quoted string are fine.
+	for _, val := range []string{"!!str " + tok, `"` + tok + `"`, "'" + tok + "'", tok} {
+		c, err := Parse([]byte(minimal + "\nremediation:\n  github:\n    token: " + val + "\n"))
+		if err != nil || c.Remediation.GitHub.Token.Value() != tok {
+			t.Errorf("%s: token = %q, err = %v", val, c.Remediation.GitHub.Token.Value(), err)
+		}
 	}
 }

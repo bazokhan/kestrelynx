@@ -43,7 +43,7 @@ func (p *PlanInfo) visible() bool {
 	if p == nil {
 		return false
 	}
-	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || p.Changed
+	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 || p.Changed
 }
 
 // slackTopItems is how many pull-again and update-candidate items the Slack
@@ -66,6 +66,32 @@ var planSlackOrder = []remediation.Category{
 	remediation.CategoryFailed,
 }
 
+// planCountOrder is the order the Slack counts line names the categories in:
+// the image categories, with the language categories after the update
+// candidates they sit beside.
+var planCountOrder = []remediation.Category{
+	remediation.CategoryPullAgain,
+	remediation.CategoryPRCandidate,
+	remediation.CategoryDependencyUpdateCandidate,
+	remediation.CategoryRebuildExpected,
+	remediation.CategoryManual,
+	remediation.CategoryNotComparable,
+	remediation.CategoryDeferred,
+	remediation.CategoryNoCandidate,
+	remediation.CategoryExcluded,
+	remediation.CategoryFailed,
+}
+
+// planLanguageOrder is the order of the language summary of the webhook.
+var planLanguageOrder = []remediation.Category{
+	remediation.CategoryDependencyUpdateCandidate,
+	remediation.CategoryRebuildExpected,
+	remediation.CategoryManual,
+	remediation.CategoryNotComparable,
+	remediation.CategoryDeferred,
+	remediation.CategoryFailed,
+}
+
 // planSegment is the counts-line wording of category c.
 func planSegment(c remediation.Category, n int, msg messages) string {
 	var f string
@@ -74,6 +100,10 @@ func planSegment(c remediation.Category, n int, msg messages) string {
 		f = msg.PlanSegPullAgain
 	case remediation.CategoryPRCandidate:
 		f = msg.PlanSegUpdate
+	case remediation.CategoryDependencyUpdateCandidate:
+		f = msg.PlanSegDepUpdate
+	case remediation.CategoryRebuildExpected:
+		f = msg.PlanSegRebuild
 	case remediation.CategoryManual:
 		f = msg.PlanSegManual
 	case remediation.CategoryNotComparable:
@@ -116,8 +146,8 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 	}
 	plan := *p.Plan
 	var segs []string
-	for _, c := range planSlackOrder {
-		if n := plan.Count(c); n > 0 {
+	for _, c := range planCountOrder {
+		if n := plan.CountAll(c); n > 0 {
 			segs = append(segs, planSegment(c, n, msg))
 		}
 	}
@@ -153,6 +183,11 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 			}
 		}
 	}
+	for _, li := range plan.LanguageItems {
+		if line := dependencyLine(li, msg); line != "" {
+			adopted = append(adopted, line)
+		}
+	}
 	all := append(warn, adopted...)
 	total, shown := len(all), len(all)
 	if shown > slackTopItems {
@@ -171,6 +206,58 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 		lines = append(lines, trimNL(msg.DetailsInWebhook))
 	}
 	return lines
+}
+
+// dependencyLine is the Slack line of a dependency unit that has update
+// candidates (update not run yet) or expects a rebuild to take the fix, or ""
+// for any other unit. It names the first such package and counts the others.
+func dependencyLine(li remediation.LanguageItem, msg messages) string {
+	action, format := remediation.ActionUpdate, msg.PlanDepLine
+	switch li.Category {
+	case remediation.CategoryDependencyUpdateCandidate:
+	case remediation.CategoryRebuildExpected:
+		action, format = remediation.ActionRebuildExpected, msg.PlanRebuildLine
+	default:
+		return ""
+	}
+	var lead *remediation.LanguagePackage
+	n, kev := 0, 0
+	for i := range li.Packages {
+		p := &li.Packages[i]
+		if p.Action != action {
+			continue
+		}
+		n++
+		kev += p.KEVCount()
+		if lead == nil {
+			lead = p
+		}
+	}
+	if lead == nil {
+		return ""
+	}
+	more := ""
+	if n > 1 {
+		more = fmt.Sprintf(msg.PlanDepMore, n-1)
+	}
+	var services []string
+	for _, w := range li.Workloads {
+		services = append(services, escMrkdwn(workloadService(w)))
+	}
+	line := fmt.Sprintf(format, strings.Join(services, ", "), escMrkdwn(li.Manager.LockfileName()),
+		escMrkdwn(lead.Name), escMrkdwn(lead.Installed), escMrkdwn(lead.SelectionLowerBound), more)
+	if kev > 0 {
+		line += fmt.Sprintf(msg.PlanKEVSuffix, kev)
+	}
+	return line
+}
+
+// workloadService is the service part of a compose/<project>/<service> key.
+func workloadService(key string) string {
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		return key[i+1:]
+	}
+	return key
 }
 
 // kevSuffix is the plan line's count of resolved KEV-listed findings.
@@ -268,6 +355,11 @@ type remediationPayload struct {
 	Usage       *remediation.Usage       `json:"usage,omitempty"`
 	Summary     map[string]int           `json:"summary,omitempty"`
 	Items       []remediationItemPayload `json:"items"`
+	// LanguageSummary counts the language items by category; the items
+	// themselves are in LanguageItems. Both are left out without a
+	// dependency mapping.
+	LanguageSummary map[string]int        `json:"language_summary,omitempty"`
+	LanguageItems   []languageItemPayload `json:"language_items,omitempty"`
 }
 
 // conditionsPayload identifies the scan conditions every comparison of the
@@ -384,6 +476,103 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 	}
 	for _, it := range plan.Items {
 		out.Items = append(out.Items, remediationItemPayloadOf(it, scans))
+	}
+	if len(plan.LanguageItems) > 0 {
+		out.LanguageSummary = map[string]int{}
+		for _, c := range planLanguageOrder {
+			out.LanguageSummary[string(c)] = plan.CountLanguage(c)
+		}
+		for _, li := range plan.LanguageItems {
+			out.LanguageItems = append(out.LanguageItems, languageItemPayloadOf(li))
+		}
+	}
+	return out
+}
+
+// Caps on the lists of one language item in the webhook payload; a list past
+// its cap is marked truncated and its full size is given.
+const (
+	maxWebhookPackages    = 100
+	maxWebhookOccurrences = 20
+	maxWebhookCVEs        = 50
+	maxWebhookOrigins     = 50
+)
+
+type languageItemPayload struct {
+	Key       string                   `json:"key"`
+	Category  string                   `json:"category"`
+	Reason    string                   `json:"reason,omitempty"`
+	Detail    string                   `json:"detail,omitempty"`
+	Manager   string                   `json:"manager,omitempty"`
+	Priority  string                   `json:"priority,omitempty"`
+	Workloads []string                 `json:"workloads"`
+	Source    remediation.SourceRecord `json:"source"`
+	// UpdateExecuted and PostUpdateCheckExecuted are false in a plan: no
+	// package manager was run and no result was inspected.
+	UpdateExecuted          bool `json:"update_executed"`
+	PostUpdateCheckExecuted bool `json:"post_update_check_executed"`
+
+	PackageCount      int                      `json:"package_count"`
+	Packages          []languagePackagePayload `json:"packages,omitempty"`
+	PackagesTruncated bool                     `json:"packages_truncated,omitempty"`
+}
+
+type languagePackagePayload struct {
+	Name                string `json:"name"`
+	Normalized          string `json:"normalized,omitempty"`
+	Ecosystem           string `json:"ecosystem"`
+	Installed           string `json:"installed"`
+	SelectionLowerBound string `json:"selection_lower_bound,omitempty"`
+	AdoptedVersion      string `json:"adopted_version,omitempty"`
+	Relation            string `json:"relation,omitempty"`
+	Action              string `json:"action,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+	Detail              string `json:"detail,omitempty"`
+
+	OccurrenceCount      int                            `json:"occurrence_count"`
+	Occurrences          []remediation.SourceOccurrence `json:"occurrences,omitempty"`
+	OccurrencesTruncated bool                           `json:"occurrences_truncated,omitempty"`
+	CVECount             int                            `json:"cve_count"`
+	KEVCount             int                            `json:"kev_count,omitempty"`
+	CVEs                 []remediation.CVERef           `json:"cves,omitempty"`
+	CVEsTruncated        bool                           `json:"cves_truncated,omitempty"`
+	// Origins are the findings of the running images the package came from.
+	OriginCount      int                         `json:"origin_count"`
+	Origins          []remediation.FindingOrigin `json:"origins,omitempty"`
+	OriginsTruncated bool                        `json:"origins_truncated,omitempty"`
+}
+
+func languageItemPayloadOf(li remediation.LanguageItem) languageItemPayload {
+	out := languageItemPayload{
+		Key: li.Key, Category: string(li.Category), Reason: string(li.Reason), Detail: li.Detail,
+		Manager: string(li.Manager), Priority: string(li.Priority), Workloads: li.Workloads,
+		Source:         li.Source,
+		UpdateExecuted: li.UpdateExecuted, PostUpdateCheckExecuted: li.PostUpdateCheckExecuted,
+		PackageCount: len(li.Packages),
+	}
+	pkgs := li.Packages
+	if len(pkgs) > maxWebhookPackages {
+		pkgs, out.PackagesTruncated = pkgs[:maxWebhookPackages], true
+	}
+	for _, p := range pkgs {
+		pp := languagePackagePayload{
+			Name: p.Name, Normalized: p.Normalized, Ecosystem: p.Ecosystem, Installed: p.Installed,
+			SelectionLowerBound: p.SelectionLowerBound, AdoptedVersion: p.AdoptedVersion,
+			Relation: string(p.Relation), Action: string(p.Action), Reason: string(p.Reason), Detail: p.Detail,
+			OccurrenceCount: len(p.Occurrences), Occurrences: p.Occurrences,
+			CVECount: len(p.CVEs), KEVCount: p.KEVCount(), CVEs: p.CVEs,
+			OriginCount: len(p.Origins), Origins: p.Origins,
+		}
+		if len(pp.Origins) > maxWebhookOrigins {
+			pp.Origins, pp.OriginsTruncated = pp.Origins[:maxWebhookOrigins], true
+		}
+		if len(pp.Occurrences) > maxWebhookOccurrences {
+			pp.Occurrences, pp.OccurrencesTruncated = pp.Occurrences[:maxWebhookOccurrences], true
+		}
+		if len(pp.CVEs) > maxWebhookCVEs {
+			pp.CVEs, pp.CVEsTruncated = pp.CVEs[:maxWebhookCVEs], true
+		}
+		out.Packages = append(out.Packages, pp)
 	}
 	return out
 }

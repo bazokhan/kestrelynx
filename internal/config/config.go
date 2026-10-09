@@ -5,11 +5,14 @@ package config
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"gopkg.in/yaml.v3"
@@ -151,22 +154,118 @@ type RuntimeConfig struct {
 // rescans it and reports whether it would resolve the findings. The plan is
 // read-only — nothing is pulled, changed or created. Disabled by default.
 type RemediationConfig struct {
-	Plan   RemediationPlanConfig
-	Limits RemediationLimits
+	Enabled bool
+	// PullRequests switches on writing to GitHub. This version has no such
+	// path, so true is rejected at load time; the key is reserved.
+	PullRequests RemediationPullRequestsConfig
+	GitHub       RemediationGitHubConfig
+	// StorageDir holds the plan and delivery records. Always absolute.
+	StorageDir string
+	// Mappings tell, per running workload, where its source lives. They have
+	// no effect unless Enabled.
+	Mappings []RemediationMapping
+	Limits   RemediationLimits
 }
 
-// RemediationPlanConfig switches the read-only plan on.
-type RemediationPlanConfig struct {
+// RemediationPullRequestsConfig is the reserved switch for pull requests.
+type RemediationPullRequestsConfig struct {
 	Enabled bool
 }
 
-// RemediationLimits caps the work of one plan. A limit of zero allows none of
-// that work; work past a limit is reported as deferred, never dropped.
+// RemediationGitHubConfig holds the GitHub credentials of the fix plan.
+type RemediationGitHubConfig struct {
+	// Token is an optional token for reading the mapped repositories; empty
+	// means anonymous access (public repositories only).
+	Token Secret
+}
+
+// Secret is a credential that formats as a placeholder, so printing or
+// logging a Config cannot leak it. Use Value to read it.
+type Secret string
+
+// Value returns the credential itself.
+func (s Secret) Value() string { return string(s) }
+
+func (s Secret) redacted() string {
+	if s == "" {
+		return ""
+	}
+	return "[redacted]"
+}
+
+// Format implements fmt.Formatter, covering every verb.
+func (s Secret) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, s.redacted()) }
+
+// UnmarshalYAML reads a plain string; see secretFromNode.
+func (s *Secret) UnmarshalYAML(n *yaml.Node) error {
+	v, err := secretFromNode(n)
+	*s = v
+	return err
+}
+
+// secretFromNode extracts a secret from a YAML node, accepting a plain string
+// (or an empty/null value, meaning unset) and rejecting any other kind or
+// explicit tag with an error that does not contain the value. The check runs
+// on the raw node, before any scalar conversion: the decoder's own errors
+// (`!!null abc`, `!!int abc`) quote the value.
+func secretFromNode(n *yaml.Node) (Secret, error) {
+	if n.Kind == 0 {
+		return "", nil
+	}
+	if n.Kind == yaml.ScalarNode {
+		switch n.ShortTag() {
+		case "!!str":
+			return Secret(n.Value), nil
+		case "!!null":
+			switch n.Value {
+			case "", "~", "null", "Null", "NULL":
+				return "", nil
+			}
+		}
+	}
+	return "", fmt.Errorf("line %d: a secret must be a plain string (quote it if it looks like a number or boolean)", n.Line)
+}
+
+func (s Secret) String() string               { return s.redacted() }
+func (s Secret) GoString() string             { return `"` + s.redacted() + `"` }
+func (s Secret) MarshalText() ([]byte, error) { return []byte(s.redacted()), nil }
+func (s Secret) LogValue() slog.Value         { return slog.StringValue(s.redacted()) }
+
+// RemediationMapping ties a running Compose workload to the repository that
+// holds its source. Exactly one of Compose and Dependencies is set.
+type RemediationMapping struct {
+	// Workload is the running workload, compose/<project>/<service>.
+	Workload string
+	// Repository is the GitHub repository, owner/name.
+	Repository string
+	BaseBranch string
+	// Compose names the Compose file (and the service in it) that deploys
+	// the workload.
+	Compose *RemediationComposeSource
+	// Dependencies names the directory whose lockfiles resolve the
+	// workload's language packages.
+	Dependencies *RemediationDependenciesSource
+}
+
+// RemediationComposeSource locates a service in a Compose file.
+type RemediationComposeSource struct {
+	Path    string // repository-relative, normalized
+	Service string
+}
+
+// RemediationDependenciesSource locates a dependency root.
+type RemediationDependenciesSource struct {
+	Directory string // repository-relative, normalized; "." is the root
+}
+
+// RemediationLimits caps the work of one plan cycle. Every value is positive;
+// work past a limit is reported as deferred, never dropped.
 type RemediationLimits struct {
-	MaxCandidateScans   int // candidate image scans per cycle
-	MaxBaselineRescans  int // rescans of a running image to match the plan's scan conditions
-	MaxRegistryRequests int // registry HTTP requests per cycle, token exchanges included
-	MaxTagPages         int // tag listing pages per cycle
+	CandidateScansPerCycle   int           // candidate image scans
+	BaselineRescansPerCycle  int           // rescans of a running image to match the plan's scan conditions
+	RegistryRequestsPerCycle int           // registry HTTP requests, token exchanges included
+	TagPagesPerRepository    int           // tag listing pages for one repository
+	CycleTimeout             time.Duration // deadline of the plan stage
 }
 
 // rawConfig mirrors the YAML shape. Pointers are used where "absent" must be
@@ -225,16 +324,36 @@ type rawConfig struct {
 		MuteUnfixableNotInUse *bool  `yaml:"mute_unfixable_not_in_use"`
 	} `yaml:"runtime"`
 	Remediation struct {
-		Plan struct {
+		Enabled      *bool `yaml:"enabled"`
+		PullRequests struct {
 			Enabled *bool `yaml:"enabled"`
-		} `yaml:"plan"`
-		// The limits are pointers so an explicit 0 ("allow none") is told
-		// apart from an omitted key.
+		} `yaml:"pull_requests"`
+		GitHub struct {
+			// A raw node, so the value is checked before the decoder can
+			// quote it in an error.
+			Token yaml.Node `yaml:"token"`
+		} `yaml:"github"`
+		StorageDir string `yaml:"storage_dir"`
+		Mappings   []struct {
+			Workload   string `yaml:"workload"`
+			Repository string `yaml:"repository"`
+			BaseBranch string `yaml:"base_branch"`
+			Compose    *struct {
+				Path    string `yaml:"path"`
+				Service string `yaml:"service"`
+			} `yaml:"compose"`
+			Dependencies *struct {
+				Directory string `yaml:"directory"`
+			} `yaml:"dependencies"`
+		} `yaml:"mappings"`
+		// The limits are pointers so an explicit 0 (rejected) is told apart
+		// from an omitted key (defaulted).
 		Limits struct {
-			MaxCandidateScans   *int `yaml:"max_candidate_scans"`
-			MaxBaselineRescans  *int `yaml:"max_baseline_rescans"`
-			MaxRegistryRequests *int `yaml:"max_registry_requests"`
-			MaxTagPages         *int `yaml:"max_tag_pages"`
+			CandidateScansPerCycle   *int           `yaml:"candidate_scans_per_cycle"`
+			BaselineRescansPerCycle  *int           `yaml:"baseline_rescans_per_cycle"`
+			RegistryRequestsPerCycle *int           `yaml:"registry_requests_per_cycle"`
+			TagPagesPerRepository    *int           `yaml:"tag_pages_per_repository"`
+			CycleTimeout             *time.Duration `yaml:"cycle_timeout"`
 		} `yaml:"limits"`
 	} `yaml:"remediation"`
 }
@@ -259,12 +378,15 @@ const (
 
 // Provisional defaults for the fix plan's per-cycle limits. They are
 // deliberately small so a first run stays cheap for registries and for the
-// host; they are to be revisited once real runs show what a cycle costs.
+// host; they are to be revisited once real runs show what a cycle costs. The
+// cycle timeout in particular is a first guess, not a measured value.
 const (
-	defaultMaxCandidateScans   = 10
-	defaultMaxBaselineRescans  = 10
-	defaultMaxRegistryRequests = 200
-	defaultMaxTagPages         = 20
+	defaultCandidateScansPerCycle   = 10
+	defaultBaselineRescansPerCycle  = 10
+	defaultRegistryRequestsPerCycle = 200
+	defaultTagPagesPerRepository    = 20
+	defaultCycleTimeout             = 30 * time.Minute
+	defaultRemediationStorageDir    = "/var/lib/kestrelynx/remediation"
 )
 
 var validSeverities = map[string]bool{
@@ -293,6 +415,11 @@ func Parse(data []byte) (Config, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&raw); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
+	}
+
+	githubToken, err := secretFromNode(&raw.Remediation.GitHub.Token)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: remediation.github.token: %w", err)
 	}
 
 	c := Config{
@@ -327,14 +454,28 @@ func Parse(data []byte) (Config, error) {
 			MuteUnfixableNotInUse: boolOr(raw.Runtime.MuteUnfixableNotInUse, false),
 		},
 		Remediation: RemediationConfig{
-			Plan: RemediationPlanConfig{Enabled: boolOr(raw.Remediation.Plan.Enabled, false)},
+			Enabled:      boolOr(raw.Remediation.Enabled, false),
+			PullRequests: RemediationPullRequestsConfig{Enabled: boolOr(raw.Remediation.PullRequests.Enabled, false)},
+			GitHub:       RemediationGitHubConfig{Token: githubToken},
+			StorageDir:   raw.Remediation.StorageDir,
 			Limits: RemediationLimits{
-				MaxCandidateScans:   intOr(raw.Remediation.Limits.MaxCandidateScans, defaultMaxCandidateScans),
-				MaxBaselineRescans:  intOr(raw.Remediation.Limits.MaxBaselineRescans, defaultMaxBaselineRescans),
-				MaxRegistryRequests: intOr(raw.Remediation.Limits.MaxRegistryRequests, defaultMaxRegistryRequests),
-				MaxTagPages:         intOr(raw.Remediation.Limits.MaxTagPages, defaultMaxTagPages),
+				CandidateScansPerCycle:   intOr(raw.Remediation.Limits.CandidateScansPerCycle, defaultCandidateScansPerCycle),
+				BaselineRescansPerCycle:  intOr(raw.Remediation.Limits.BaselineRescansPerCycle, defaultBaselineRescansPerCycle),
+				RegistryRequestsPerCycle: intOr(raw.Remediation.Limits.RegistryRequestsPerCycle, defaultRegistryRequestsPerCycle),
+				TagPagesPerRepository:    intOr(raw.Remediation.Limits.TagPagesPerRepository, defaultTagPagesPerRepository),
+				CycleTimeout:             durationOr(raw.Remediation.Limits.CycleTimeout, defaultCycleTimeout),
 			},
 		},
+	}
+	for _, m := range raw.Remediation.Mappings {
+		rm := RemediationMapping{Workload: m.Workload, Repository: m.Repository, BaseBranch: m.BaseBranch}
+		if m.Compose != nil {
+			rm.Compose = &RemediationComposeSource{Path: m.Compose.Path, Service: m.Compose.Service}
+		}
+		if m.Dependencies != nil {
+			rm.Dependencies = &RemediationDependenciesSource{Directory: m.Dependencies.Directory}
+		}
+		c.Remediation.Mappings = append(c.Remediation.Mappings, rm)
 	}
 
 	applyDefaults(&c)
@@ -367,6 +508,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Runtime.EvidenceDir == "" {
 		c.Runtime.EvidenceDir = defaultEvidenceDir
+	}
+	if c.Remediation.StorageDir == "" {
+		c.Remediation.StorageDir = defaultRemediationStorageDir
 	}
 }
 
@@ -440,23 +584,47 @@ func validate(c *Config, dockerSocketExplicit bool) error {
 			return fmt.Errorf("config: runtime.evidence_dir %q must be an absolute path", c.Runtime.EvidenceDir)
 		}
 	}
+	return validateRemediation(c)
+}
+
+// validateRemediation checks the remediation section. Limits, storage and
+// mappings are checked whether or not the plan is enabled, so a mistake shows
+// at load time rather than the day the plan is switched on.
+func validateRemediation(c *Config) error {
+	r := &c.Remediation
+	if r.PullRequests.Enabled {
+		if !r.Enabled {
+			return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.enabled, and pull requests are not available yet")
+		}
+		return fmt.Errorf("config: remediation.pull_requests.enabled is not available yet; leave it false")
+	}
+	if r.Enabled && c.Kubernetes.Enabled {
+		return fmt.Errorf("config: remediation.enabled is not supported with kubernetes.enabled")
+	}
+	if tok := r.GitHub.Token.Value(); strings.IndexFunc(tok, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		// The value is not echoed.
+		return fmt.Errorf("config: remediation.github.token must not contain whitespace or control characters")
+	}
+	if !filepath.IsAbs(r.StorageDir) {
+		return fmt.Errorf("config: remediation.storage_dir %q must be an absolute path", r.StorageDir)
+	}
 	for _, l := range []struct {
 		key string
 		val int
 	}{
-		{"max_candidate_scans", c.Remediation.Limits.MaxCandidateScans},
-		{"max_baseline_rescans", c.Remediation.Limits.MaxBaselineRescans},
-		{"max_registry_requests", c.Remediation.Limits.MaxRegistryRequests},
-		{"max_tag_pages", c.Remediation.Limits.MaxTagPages},
+		{"candidate_scans_per_cycle", r.Limits.CandidateScansPerCycle},
+		{"baseline_rescans_per_cycle", r.Limits.BaselineRescansPerCycle},
+		{"registry_requests_per_cycle", r.Limits.RegistryRequestsPerCycle},
+		{"tag_pages_per_repository", r.Limits.TagPagesPerRepository},
 	} {
-		if l.val < 0 {
-			return fmt.Errorf("config: remediation.limits.%s must not be negative, got %d", l.key, l.val)
+		if l.val <= 0 {
+			return fmt.Errorf("config: remediation.limits.%s must be positive, got %d", l.key, l.val)
 		}
 	}
-	if c.Remediation.Plan.Enabled && c.Kubernetes.Enabled {
-		return fmt.Errorf("config: remediation.plan.enabled is not supported with kubernetes.enabled")
+	if r.Limits.CycleTimeout <= 0 {
+		return fmt.Errorf("config: remediation.limits.cycle_timeout must be positive, got %s", r.Limits.CycleTimeout)
 	}
-	return nil
+	return validateMappings(r.Mappings)
 }
 
 func boolOr(p *bool, def bool) bool {
@@ -474,6 +642,13 @@ func stringOr(p *string, def string) string {
 }
 
 func intOr(p *int, def int) int {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+
+func durationOr(p *time.Duration, def time.Duration) time.Duration {
 	if p != nil {
 		return *p
 	}

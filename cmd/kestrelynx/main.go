@@ -18,6 +18,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/config"
 	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/evidence"
+	"github.com/kitsunetrail/kestrelynx/internal/github"
 	"github.com/kitsunetrail/kestrelynx/internal/intel"
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/kubernetes"
@@ -115,13 +116,18 @@ func main() {
 		}
 	}
 
-	if cfg.Remediation.Plan.Enabled {
+	if cfg.Remediation.Enabled {
 		r.Plan = buildPlanConfig(cfg)
+		l := cfg.Remediation.Limits
 		log.Info("fix plan enabled",
-			"max_candidate_scans", cfg.Remediation.Limits.MaxCandidateScans,
-			"max_baseline_rescans", cfg.Remediation.Limits.MaxBaselineRescans,
-			"max_registry_requests", cfg.Remediation.Limits.MaxRegistryRequests,
-			"max_tag_pages", cfg.Remediation.Limits.MaxTagPages)
+			"candidate_scans_per_cycle", l.CandidateScansPerCycle,
+			"baseline_rescans_per_cycle", l.BaselineRescansPerCycle,
+			"registry_requests_per_cycle", l.RegistryRequestsPerCycle,
+			"tag_pages_per_repository", l.TagPagesPerRepository,
+			"cycle_timeout", l.CycleTimeout,
+			"storage_dir", cfg.Remediation.StorageDir,
+			"mappings", len(cfg.Remediation.Mappings),
+			"github_token_set", cfg.Remediation.GitHub.Token != "")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -142,28 +148,63 @@ func main() {
 	log.Info("kestrelynx stopped")
 }
 
-// buildPlanConfig assembles the read-only fix plan. Its records live next to
-// the diff state, so the one state volume covers them; config validation
-// already restricts it to the Docker adapter.
+// gitHubRequestsPerCycle is the provisional request budget of a
+// cycle's GitHub client; like the other plan limits it is to be revisited once
+// real runs show what a cycle costs.
+const gitHubRequestsPerCycle = 200
+
+// dependencyMappings picks the mappings that read a dependency root. Config
+// validation has already checked the workload keys.
+func dependencyMappings(ms []config.RemediationMapping) []remediation.DependencyMapping {
+	var out []remediation.DependencyMapping
+	for _, m := range ms {
+		if m.Dependencies == nil {
+			continue
+		}
+		project, service, err := config.ParseWorkloadKey(m.Workload)
+		if err != nil {
+			continue
+		}
+		out = append(out, remediation.DependencyMapping{
+			Workload: m.Workload, Project: project, Service: service,
+			Repository: m.Repository, BaseBranch: m.BaseBranch, Directory: m.Dependencies.Directory,
+		})
+	}
+	return out
+}
+
+// buildPlanConfig assembles the read-only fix plan; config validation already
+// restricts it to the Docker adapter.
 func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
-	stateDir := filepath.Dir(cfg.State.Path)
-	l := cfg.Remediation.Limits
-	return &runner.PlanConfig{
+	rc := cfg.Remediation
+	l := rc.Limits
+	pc := &runner.PlanConfig{
 		// Comparison mode: the databases PrepareDB fixes are the only ones
 		// any scan of the cycle uses.
 		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true},
 		NewRegistry: func(b *registry.Budget) remediation.Registry {
-			return registry.New(registry.Options{Budget: b})
+			return registry.New(registry.Options{Budget: b, MaxTagPages: l.TagPagesPerRepository})
 		},
 		Limits: remediation.Limits{
-			MaxCandidateScans:  l.MaxCandidateScans,
-			MaxBaselineRescans: l.MaxBaselineRescans,
-			MaxTagPages:        l.MaxTagPages,
+			MaxCandidateScans:  l.CandidateScansPerCycle,
+			MaxBaselineRescans: l.BaselineRescansPerCycle,
+			MaxTagPages:        l.TagPagesPerRepository,
 		},
-		MaxRegistryRequests: l.MaxRegistryRequests,
-		Plans:               remediation.PlanStore{Path: remediation.DefaultPlanPath(stateDir)},
-		Delivered:           remediation.DeliveredStore{Path: remediation.DefaultDeliveredPath(stateDir)},
+		MaxRegistryRequests: l.RegistryRequestsPerCycle,
+		CycleTimeout:        l.CycleTimeout,
+		Plans:               remediation.PlanStore{Path: remediation.DefaultPlanPath(rc.StorageDir)},
+		Delivered:           remediation.DeliveredStore{Path: remediation.DefaultDeliveredPath(rc.StorageDir)},
 	}
+	pc.Dependencies = dependencyMappings(rc.Mappings)
+	if len(pc.Dependencies) > 0 {
+		// One client per cycle: its request budget and file byte total are
+		// per-cycle counters. The token goes to this client alone.
+		token := rc.GitHub.Token.Value()
+		pc.NewGitHub = func() remediation.GitHubReader {
+			return github.New(github.Options{Token: github.Token(token), Budget: github.NewBudget(gitHubRequestsPerCycle)})
+		}
+	}
+	return pc
 }
 
 // buildLister constructs the Runtime Adapter cfg.Kubernetes.Enabled selects

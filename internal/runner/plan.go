@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/analyze"
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
@@ -47,8 +48,19 @@ type PlanConfig struct {
 	Limits      remediation.Limits
 	// MaxRegistryRequests is the cycle's registry request budget.
 	MaxRegistryRequests int
-	Plans               PlanStore
-	Delivered           DeliveredStore
+	// CycleTimeout is the deadline of the plan stage: the planner's registry
+	// and candidate work, not the cycle's ordinary scans. Work the deadline
+	// cuts off is deferred. Zero or less sets no deadline.
+	CycleTimeout time.Duration
+	// NewGitHub returns the read-only GitHub client for one cycle, used to
+	// read the sources of the configured dependency mappings; nil when no
+	// such mapping exists.
+	NewGitHub func() remediation.GitHubReader
+	// Dependencies are the dependency mappings whose source files the plan
+	// reads through the GitHub client.
+	Dependencies []remediation.DependencyMapping
+	Plans        PlanStore
+	Delivered    DeliveredStore
 }
 
 // planCycle is the plan state of one cycle.
@@ -149,15 +161,30 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		return r.planUnavailable(notify.PlanNotBuilt)
 	}
 
+	if pc.CycleTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, pc.CycleTimeout)
+		defer cancel()
+	}
 	budget := registry.NewBudget(pc.MaxRegistryRequests)
+	var gh remediation.GitHubReader
+	if pc.NewGitHub != nil && len(pc.Dependencies) > 0 {
+		// One client per cycle: its request budget and file byte total are
+		// per-cycle counters. A nil client leaves the language part off.
+		if c := pc.NewGitHub(); c != nil {
+			gh = c
+		}
+	}
 	planner, err := remediation.NewPlanner(remediation.Config{
-		Registry: pc.NewRegistry(budget),
-		Scanner:  pc.Scanner,
-		Prepared: cyc.prepared,
-		Limits:   pc.Limits,
-		Budget:   budget,
-		Intel:    r.planIntel(ctx, report),
-		Now:      r.now,
+		Registry:     pc.NewRegistry(budget),
+		Scanner:      pc.Scanner,
+		Prepared:     cyc.prepared,
+		Limits:       pc.Limits,
+		Budget:       budget,
+		Intel:        r.planIntel(ctx, report),
+		GitHub:       gh,
+		Dependencies: pc.Dependencies,
+		Now:          r.now,
 	})
 	if err != nil {
 		log.Warn("fix plan unavailable: planner could not be built", "err", err)
@@ -169,6 +196,8 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		"items", len(plan.Items),
 		"pull_again", plan.Count(remediation.CategoryPullAgain),
 		"update_candidate", plan.Count(remediation.CategoryPRCandidate),
+		"dependency_units", len(plan.LanguageItems),
+		"dependency_update_candidates", plan.CountLanguage(remediation.CategoryDependencyUpdateCandidate),
 		"candidate_scans", plan.Usage.CandidateScans,
 		"baseline_rescans", plan.Usage.BaselineRescans,
 		"registry_requests", plan.Usage.RegistryRequests)

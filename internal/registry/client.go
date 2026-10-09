@@ -153,6 +153,11 @@ func forbiddenAddr(ip net.IP) bool {
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast()
 }
 
+// ForbiddenAddr reports whether ip is outside the public address space that
+// outbound read-only clients are willing to contact: loopback, private,
+// link-local, unspecified, multicast, carrier-grade NAT and the like.
+func ForbiddenAddr(ip net.IP) bool { return forbiddenAddr(ip) }
+
 // dialContext resolves addr, refuses it if any resolved address is not
 // allowed, and dials a validated IP directly so the name cannot resolve to
 // something else between the check and the connection.

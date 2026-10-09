@@ -60,6 +60,11 @@ type Config struct {
 	// only reads it, to report usage. Nil is allowed.
 	Budget *registry.Budget
 	Intel  IntelFunc
+	// GitHub reads the dependency files of the Dependencies mappings; the
+	// language-package part is skipped when it is nil.
+	GitHub GitHubReader
+	// Dependencies are the configured dependency mappings.
+	Dependencies []DependencyMapping
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -122,6 +127,8 @@ type run struct {
 	cands    map[string]scanned
 	bases    map[string]scanned
 	halted   *halt
+	// srcHalt stops all further GitHub reads of the language-package part.
+	srcHalt *halt
 }
 
 // Plan builds the plan for the cycle's images. Images without a target
@@ -180,6 +187,7 @@ func (p *Planner) Plan(ctx context.Context, inputs []ImageInput) Plan {
 		r.plan.Items = append(r.plan.Items, it)
 	}
 	r.plan.Usage.RegistryRequests = p.cfg.Budget.Used() - startUsed
+	r.languagePart(inputs)
 	return r.plan
 }
 
@@ -320,7 +328,7 @@ func (r *run) pinnedCandidate(ref ImageRef, it *Item, candTag *string) bool {
 			defer0(it, r.halted.reason, r.halted.detail)
 			return false
 		}
-		allowance := r.p.cfg.Limits.MaxTagPages - r.plan.Usage.TagPages
+		allowance := r.p.cfg.Limits.MaxTagPages
 		if allowance <= 0 {
 			defer0(it, ReasonTagPageLimit, fmt.Sprintf("tag page limit of %d reached", r.p.cfg.Limits.MaxTagPages))
 			return false
@@ -339,7 +347,7 @@ func (r *run) pinnedCandidate(ref ImageRef, it *Item, candTag *string) bool {
 	case SelectionIncomplete:
 		reason := ReasonTagListIncomplete
 		if e.list.Pages >= e.allowance {
-			reason = ReasonTagPageLimit // stopped by the pass's page allowance
+			reason = ReasonTagPageLimit // stopped by the repository's page allowance
 		}
 		defer0(it, reason, fmt.Sprintf("tag listing stopped after %d pages; newer patches cannot be ruled out", e.list.Pages))
 		return false

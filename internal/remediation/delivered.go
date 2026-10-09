@@ -19,10 +19,13 @@ const deliveredVersion = 1
 // and content, the comparison counts and the per-category totals. It leaves
 // out everything that varies between runs without changing the message —
 // times, scan IDs, error text, the order of items and the scan conditions —
-// so two plans that read the same have the same fingerprint. A plan with no
-// items has the empty fingerprint, the same as nothing delivered.
+// so two plans that read the same have the same fingerprint. The dependency
+// units add what they show — their packages, versions, relation, actions,
+// reasons, occurrence sets and the findings they came from — but not the
+// commit or file hashes, which change without changing the message. A plan with no items has the empty fingerprint, the same as
+// nothing delivered.
 func Fingerprint(p Plan) string {
-	if len(p.Items) == 0 {
+	if len(p.Items) == 0 && len(p.LanguageItems) == 0 {
 		return ""
 	}
 	type image struct {
@@ -44,10 +47,60 @@ func Fingerprint(p Plan) string {
 		Remaining  int          `json:"remaining,omitempty"`
 		Introduced int          `json:"introduced,omitempty"`
 	}
+	type langPackage struct {
+		Name        string        `json:"name"`
+		Installed   string        `json:"installed"`
+		Target      string        `json:"target,omitempty"`
+		Relation    Relation      `json:"relation,omitempty"`
+		Action      PackageAction `json:"action,omitempty"`
+		Reason      Reason        `json:"reason,omitempty"`
+		Occurrences []string      `json:"occurrences,omitempty"`
+		Origins     []string      `json:"origins,omitempty"`
+		CVEs        []string      `json:"cves,omitempty"`
+		KEV         int           `json:"kev,omitempty"`
+	}
+	type langItem struct {
+		Key       string            `json:"key"`
+		Workloads []string          `json:"workloads"`
+		Manager   DependencyManager `json:"manager,omitempty"`
+		Category  Category          `json:"category"`
+		Reason    Reason            `json:"reason,omitempty"`
+		Packages  []langPackage     `json:"packages,omitempty"`
+	}
 	out := struct {
-		Counts map[Category]int `json:"counts"`
-		Items  []item           `json:"items"`
+		Counts   map[Category]int `json:"counts"`
+		Items    []item           `json:"items"`
+		Language []langItem       `json:"language,omitempty"`
 	}{Counts: map[Category]int{}}
+	for _, li := range p.LanguageItems {
+		fl := langItem{Key: li.Key, Workloads: append([]string(nil), li.Workloads...), Manager: li.Manager, Category: li.Category, Reason: li.Reason}
+		sort.Strings(fl.Workloads)
+		for _, pk := range li.Packages {
+			lp := langPackage{Name: pk.Name, Installed: pk.Installed, Target: pk.SelectionLowerBound, Relation: pk.Relation,
+				Action: pk.Action, Reason: pk.Reason, KEV: pk.KEVCount()}
+			for _, o := range pk.Occurrences {
+				lp.Occurrences = append(lp.Occurrences, fmt.Sprintf("%s\x00%s\x00%t\x00%s\x00%s\x00%s", o.Path, o.Version, o.Direct, o.Marker, o.Constraint, o.ManualReason))
+			}
+			sort.Strings(lp.Occurrences)
+			for _, o := range pk.Origins {
+				lp.Origins = append(lp.Origins, o.key())
+			}
+			sort.Strings(lp.Origins)
+			for _, c := range pk.CVEs {
+				lp.CVEs = append(lp.CVEs, c.VulnID)
+			}
+			fl.Packages = append(fl.Packages, lp)
+		}
+		sort.Slice(fl.Packages, func(i, j int) bool {
+			a, b := fl.Packages[i], fl.Packages[j]
+			if a.Name != b.Name {
+				return a.Name < b.Name
+			}
+			return a.Installed < b.Installed
+		})
+		out.Language = append(out.Language, fl)
+	}
+	sort.Slice(out.Language, func(i, j int) bool { return out.Language[i].Key < out.Language[j].Key })
 	for _, it := range p.Items {
 		out.Counts[it.Category]++
 		fi := item{
@@ -114,9 +167,10 @@ type DeliveredStore struct {
 	Path string
 }
 
-// DefaultDeliveredPath is the delivered-plan file under a state directory.
-func DefaultDeliveredPath(stateDir string) string {
-	return filepath.Join(stateDir, "remediation", "delivered.json")
+// DefaultDeliveredPath is the delivered-plan file under the remediation
+// storage directory.
+func DefaultDeliveredPath(storageDir string) string {
+	return filepath.Join(storageDir, "delivered.json")
 }
 
 type deliveredRecord struct {
