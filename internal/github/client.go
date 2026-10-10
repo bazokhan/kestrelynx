@@ -1,6 +1,7 @@
 // Package github is a read-only client for the GitHub REST API (api.github.com
-// only). It resolves a branch to a commit SHA, lists a directory and reads a
-// file at that SHA. It has no write endpoints.
+// only). Client resolves a branch to a commit SHA, lists a directory and reads
+// a file at that SHA; it has no write endpoints. Writer (see writer.go) is a
+// separate type built by its own constructor for opening pull requests.
 //
 // The client is built to be a bounded guest: HTTPS only, a per-request
 // timeout, capped response and file sizes, a caller-supplied request budget
@@ -348,6 +349,7 @@ type Entry struct {
 
 type treeEntry struct {
 	name string
+	mode string
 	typ  EntryType
 	size int64
 	sha  string
@@ -478,7 +480,7 @@ func (c *Client) tree(ctx context.Context, rp Repo, treeSHA string) ([]treeEntry
 		if typ == EntryDir || typ == EntrySubmodule {
 			size = 0
 		}
-		out = append(out, treeEntry{name: e.Path, typ: typ, size: size, sha: e.SHA})
+		out = append(out, treeEntry{name: e.Path, mode: e.Mode, typ: typ, size: size, sha: e.SHA})
 	}
 	c.mu.Lock()
 	c.trees[key] = out
@@ -555,6 +557,9 @@ type File struct {
 	// SHA is the blob SHA of Content, verified by hashing it.
 	SHA     string
 	Content []byte
+	// Mode is the tree entry mode, "100644" or "100755", so a rewritten file
+	// can keep it.
+	Mode string
 }
 
 // ReadFile reads the regular file path of repo (owner/name) at the commit sha.
@@ -620,7 +625,7 @@ func (c *Client) ReadFile(ctx context.Context, repo, sha, p string) (File, error
 	if isLFSPointer(content) {
 		return File{}, fmt.Errorf("%w: %s", ErrLFSPointer, p)
 	}
-	return File{Path: p, SHA: ent.sha, Content: content}, nil
+	return File{Path: p, SHA: ent.sha, Content: content, Mode: ent.mode}, nil
 }
 
 // reserve counts size bytes against the cycle's total, or refuses.

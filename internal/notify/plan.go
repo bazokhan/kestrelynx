@@ -43,7 +43,8 @@ func (p *PlanInfo) visible() bool {
 	if p == nil {
 		return false
 	}
-	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 || p.Changed
+	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 ||
+		len(p.Plan.PullRequests) > 0 || len(p.Plan.PRProblems) > 0 || len(shownOperations(*p.Plan)) > 0 || p.Changed
 }
 
 // slackTopItems is how many pull-again and update-candidate items the Slack
@@ -135,7 +136,11 @@ func kevTargets(it remediation.Item) int {
 
 // planLines are the lines of the Slack fix plan section.
 func planLines(p *PlanInfo, webhook bool, msg messages) []string {
-	lines := []string{trimNL(msg.PlanHeading)}
+	heading := msg.PlanHeading
+	if p.Plan != nil && (len(p.Plan.PullRequests) > 0 || len(p.Plan.PRProblems) > 0 || len(shownOperations(*p.Plan)) > 0) {
+		heading = msg.PlanHeadingPR
+	}
+	lines := []string{trimNL(heading)}
 	if p.Plan == nil {
 		if p.Unavailable == PlanDatabasesNotPrepared {
 			lines = append(lines, trimNL(msg.PlanUnavailableDB))
@@ -151,16 +156,29 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 			segs = append(segs, planSegment(c, n, msg))
 		}
 	}
-	if len(segs) == 0 {
+	if len(segs) == 0 && len(shownOperations(plan)) > 0 {
+		// Only pull request results to report: no "nothing to propose".
+	} else if len(segs) == 0 {
 		lines = append(lines, trimNL(msg.PlanNothing))
 	} else {
 		lines = append(lines, strings.Join(segs, " · "))
+	}
+	prLines, prCounts := pullRequestLines(plan, msg)
+	if prCounts != "" {
+		lines = append(lines, prCounts)
+	}
+	for _, l := range prLines {
+		lines = append(lines, trimNL(l))
 	}
 	// Items that need a person's attention come first, then the adopted
 	// ones; only the first slackTopItems are listed.
 	var warn, adopted []string
 	for _, it := range plan.Items {
 		ref := escMrkdwn(it.Current.Ref)
+		if hasPullRequest(plan, it) {
+			// The pull request line speaks for the item.
+			continue
+		}
 		switch {
 		case it.Category == remediation.CategoryManual && it.Reason == remediation.ReasonIntroducedKEV:
 			if it.Kind == remediation.TagPinned && it.Candidate != nil {
@@ -199,6 +217,10 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 	if total > shown {
 		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, total-shown)))
 	}
+	if problem := pullRequestProblemLine(plan, msg); problem != "" {
+		lines = append(lines, problem)
+	}
+	lines = append(lines, operationLines(plan, msg)...)
 	if p.NotSaved {
 		lines = append(lines, trimNL(msg.PlanNotSaved))
 	}
@@ -206,6 +228,189 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 		lines = append(lines, trimNL(msg.DetailsInWebhook))
 	}
 	return lines
+}
+
+// maxOperationError is how many characters of an error text the Slack line
+// keeps.
+const maxOperationError = 80
+
+// shownOperations are the events the Slack section reports: the results of
+// operations and their later settlements. An intent alone says nothing yet.
+func shownOperations(plan remediation.Plan) []remediation.OperationEvent {
+	var out []remediation.OperationEvent
+	for _, ev := range plan.PROperations {
+		if ev.Phase == remediation.PhaseResult || ev.Phase == remediation.PhaseSettled {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// operationLines lists the first slackTopItems operation results, with the
+// count of the rest.
+func operationLines(plan remediation.Plan, msg messages) []string {
+	evs := shownOperations(plan)
+	if len(evs) == 0 {
+		return nil
+	}
+	lines := []string{trimNL(msg.PlanOpsLabel)}
+	shown := len(evs)
+	if shown > slackTopItems {
+		shown = slackTopItems
+	}
+	for _, ev := range evs[:shown] {
+		kind := map[remediation.OperationKind]string{
+			remediation.OpCreateBlob: msg.PlanOpBlob, remediation.OpCreateTree: msg.PlanOpTree,
+			remediation.OpCreateCommit: msg.PlanOpCommit, remediation.OpCreateRef: msg.PlanOpRef,
+			remediation.OpCreatePull: msg.PlanOpPull, remediation.OpCreateComment: msg.PlanOpComment,
+			remediation.OpClosePull: msg.PlanOpClose,
+		}[ev.Kind]
+		if kind == "" {
+			kind = escMrkdwn(string(ev.Kind))
+		}
+		target := escMrkdwn(ev.Repo)
+		switch {
+		case ev.Number > 0:
+			target = fmt.Sprintf("%s#%d", target, ev.Number)
+		case ev.Kind == remediation.OpCreateRef && ev.Ref != "":
+			target = fmt.Sprintf(msg.PlanOpTargetRef, target, escMrkdwn(ev.Ref))
+		}
+		result := map[remediation.OperationResult]string{
+			remediation.ResultOK: msg.PlanOpResultOK, remediation.ResultFailed: msg.PlanOpResultFailed,
+			remediation.ResultUnknown: msg.PlanOpResultUnknown,
+		}[ev.Result]
+		if result == "" {
+			result = escMrkdwn(string(ev.Result))
+		}
+		clause := ""
+		if e := strings.Join(strings.Fields(ev.Error), " "); e != "" {
+			if r := []rune(e); len(r) > maxOperationError {
+				e = string(r[:maxOperationError]) + "…"
+			}
+			clause = fmt.Sprintf(msg.PlanOpErrorClause, escMrkdwn(e))
+		}
+		lines = append(lines, trimNL(fmt.Sprintf(msg.PlanOpLine, kind, target, result, clause)))
+	}
+	if len(evs) > shown {
+		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, len(evs)-shown)))
+	}
+	return lines
+}
+
+// hasPullRequest reports whether a pull request of the stage exists (or
+// existed) for the update the item proposes.
+func hasPullRequest(plan remediation.Plan, it remediation.Item) bool {
+	if it.Category != remediation.CategoryPRCandidate || it.Candidate == nil {
+		return false
+	}
+	for _, u := range plan.PullRequests {
+		if u.Number > 0 && u.Current == it.Current.Ref && u.CandidateTag == it.Candidate.Tag {
+			return true
+		}
+	}
+	return false
+}
+
+// splitImageRef splits a reference into the image and its tag for display;
+// a digest suffix is dropped and a reference without a tag is returned whole.
+func splitImageRef(ref string) (image, tag string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref = ref[:i]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:]
+	}
+	return ref, ""
+}
+
+// pullRequestLines returns the Slack lines of the pull request stage — the
+// first slackTopItems units that have a pull request, created ones first —
+// and the counts line, or nothing without any unit.
+func pullRequestLines(plan remediation.Plan, msg messages) (lines []string, counts string) {
+	if len(plan.PullRequests) == 0 {
+		return nil, ""
+	}
+	n := map[remediation.PRUnitStatus]int{}
+	for _, u := range plan.PullRequests {
+		n[u.Status]++
+	}
+	var segs []string
+	for _, c := range []struct {
+		format string
+		n      int
+	}{
+		{msg.PlanPRSegCreated, n[remediation.PRStatusCreated]},
+		{msg.PlanPRSegOpen, n[remediation.PRStatusOpen]},
+		{msg.PlanPRSegMerged, n[remediation.PRStatusMerged]},
+		{msg.PlanPRSegClosed, n[remediation.PRStatusSuppressed]},
+		{msg.PlanPRSegManual, n[remediation.PRStatusManual]},
+		{msg.PlanPRSegDeferred, n[remediation.PRStatusDeferred]},
+		{msg.PlanPRSegBlocked, n[remediation.PRStatusFailed] + n[remediation.PRStatusWriteBlocked]},
+	} {
+		if c.n > 0 {
+			segs = append(segs, fmt.Sprintf(c.format, c.n))
+		}
+	}
+	if len(segs) > 0 {
+		counts = fmt.Sprintf(msg.PlanPRCounts, strings.Join(segs, " · "))
+	}
+	var listed []string
+	for _, status := range []remediation.PRUnitStatus{
+		remediation.PRStatusCreated, remediation.PRStatusOpen, remediation.PRStatusMerged, remediation.PRStatusSuppressed,
+	} {
+		format := map[remediation.PRUnitStatus]string{
+			remediation.PRStatusCreated:    msg.PlanPRCreatedLine,
+			remediation.PRStatusOpen:       msg.PlanPROpenLine,
+			remediation.PRStatusMerged:     msg.PlanPRMergedLine,
+			remediation.PRStatusSuppressed: msg.PlanPRClosedLine,
+		}[status]
+		for _, u := range plan.PullRequests {
+			if u.Status != status || u.Number <= 0 {
+				continue
+			}
+			image, old := splitImageRef(u.Current)
+			listed = append(listed, fmt.Sprintf(format,
+				mrkdwnLink(u.URL, fmt.Sprintf("#%d", u.Number)),
+				escMrkdwn(image), escMrkdwn(old), escMrkdwn(u.CandidateTag), escMrkdwn(u.Path)))
+		}
+	}
+	shown := len(listed)
+	if shown > slackTopItems {
+		shown = slackTopItems
+	}
+	lines = append(lines, listed[:shown]...)
+	if len(listed) > shown {
+		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, len(listed)-shown)))
+	}
+	return lines, counts
+}
+
+// pullRequestProblemLine is the single line that names the conditions that
+// stop pull request writes, or "" without any.
+func pullRequestProblemLine(plan remediation.Plan, msg messages) string {
+	var reasons []string
+	seen := map[remediation.PRProblemCode]bool{}
+	for _, c := range []struct {
+		code remediation.PRProblemCode
+		text string
+	}{
+		{remediation.PRProblemStorageFailed, msg.PlanPRProblemStorage},
+		{remediation.PRProblemStorageFull, msg.PlanPRProblemFull},
+		{remediation.PRProblemRecordsUnverified, msg.PlanPRProblemUnverified},
+		{remediation.PRProblemWriteBlocked, msg.PlanPRProblemBlocked},
+	} {
+		for _, pp := range plan.PRProblems {
+			if pp.Code == c.code && !seen[c.code] {
+				seen[c.code] = true
+				reasons = append(reasons, c.text)
+			}
+		}
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(msg.PlanPRProblemLine, strings.Join(reasons, msg.PlanPRProblemJoin))
 }
 
 // dependencyLine is the Slack line of a dependency unit that has update
@@ -360,6 +565,15 @@ type remediationPayload struct {
 	// dependency mapping.
 	LanguageSummary map[string]int        `json:"language_summary,omitempty"`
 	LanguageItems   []languageItemPayload `json:"language_items,omitempty"`
+
+	// PullRequestSummary counts the pull request units by status. The units
+	// are in PullRequests, the operation events not yet delivered in
+	// Operations and the conditions that stop writes in Problems; all
+	// four are left out when pull requests are not enabled.
+	PullRequestSummary map[string]int       `json:"pull_request_summary,omitempty"`
+	PullRequests       []prUnitPayload      `json:"pull_requests,omitempty"`
+	Operations         []prOperationPayload `json:"operations,omitempty"`
+	Problems           []prProblemPayload   `json:"problems,omitempty"`
 }
 
 // conditionsPayload identifies the scan conditions every comparison of the
@@ -486,7 +700,128 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 			out.LanguageItems = append(out.LanguageItems, languageItemPayloadOf(li))
 		}
 	}
+	if len(plan.PullRequests) > 0 {
+		out.PullRequestSummary = map[string]int{}
+		for _, u := range plan.PullRequests {
+			out.PullRequestSummary[string(u.Status)]++
+			out.PullRequests = append(out.PullRequests, prUnitPayloadOf(u))
+		}
+	}
+	for _, ev := range plan.PROperations {
+		out.Operations = append(out.Operations, prOperationPayloadOf(ev))
+	}
+	for _, pp := range plan.PRProblems {
+		out.Problems = append(out.Problems, prProblemPayload{Code: string(pp.Code), Repo: pp.Repo, Target: pp.Target, Reason: string(pp.Reason), Detail: pp.Detail})
+	}
 	return out
+}
+
+// maxWebhookFixTargets caps the fix targets of one pull request unit in the
+// webhook payload; a list past the cap is marked truncated.
+const maxWebhookFixTargets = 100
+
+type prUnitPayload struct {
+	Key        string   `json:"key"`
+	Repo       string   `json:"repo"`
+	BaseBranch string   `json:"base_branch"`
+	Path       string   `json:"path"`
+	Services   []string `json:"services"`
+	Workloads  []string `json:"workloads,omitempty"`
+	// AlsoRunning are services running the same image that no Compose mapping
+	// covers; they are not edited.
+	AlsoRunning     []remediation.ServiceRef `json:"also_running,omitempty"`
+	CurrentRef      string                   `json:"current_ref"`
+	CandidateTag    string                   `json:"candidate_tag,omitempty"`
+	CandidateDigest string                   `json:"candidate_digest,omitempty"`
+
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+
+	Number       int    `json:"number,omitempty"`
+	URL          string `json:"url,omitempty"`
+	State        string `json:"state,omitempty"`
+	UserModified bool   `json:"user_modified,omitempty"`
+	TargetKey    string `json:"target_key,omitempty"`
+	UpdateKey    string `json:"update_key,omitempty"`
+	AttemptKey   string `json:"attempt_key,omitempty"`
+
+	FixTargetCount      int                `json:"fix_target_count"`
+	FixTargets          []fixTargetPayload `json:"fix_targets,omitempty"`
+	FixTargetsTruncated bool               `json:"fix_targets_truncated,omitempty"`
+	ReplacedBy          int                `json:"replaced_by,omitempty"`
+	Replacing           []replacingPayload `json:"replacing,omitempty"`
+	// Replaced are the pull requests closed in favour of this one.
+	Replaced []int `json:"replaced,omitempty"`
+}
+
+type fixTargetPayload struct {
+	Location  string `json:"location"`
+	VulnID    string `json:"vuln_id"`
+	Package   string `json:"package"`
+	Ecosystem string `json:"ecosystem,omitempty"`
+}
+
+type replacingPayload struct {
+	OldNumber int    `json:"old_number"`
+	State     string `json:"state"`
+}
+
+func prUnitPayloadOf(u remediation.PRUnit) prUnitPayload {
+	out := prUnitPayload{
+		Key: u.Key, Repo: u.Repo, BaseBranch: u.BaseBranch, Path: u.Path,
+		Services: u.Services, Workloads: u.Workloads, AlsoRunning: u.AlsoRunning,
+		CurrentRef: u.Current, CandidateTag: u.CandidateTag, CandidateDigest: u.CandidateDigest,
+		Status: string(u.Status), Reason: string(u.Reason), Detail: u.Detail,
+		Number: u.Number, URL: u.URL, State: string(u.State), UserModified: u.UserModified,
+		TargetKey: u.TargetKey, UpdateKey: u.UpdateKey, AttemptKey: u.AttemptKey,
+		FixTargetCount: len(u.FixTargets), ReplacedBy: u.ReplacedBy, Replaced: u.Replaced,
+	}
+	if out.Services == nil {
+		out.Services = []string{}
+	}
+	targets := u.FixTargets
+	if len(targets) > maxWebhookFixTargets {
+		targets, out.FixTargetsTruncated = targets[:maxWebhookFixTargets], true
+	}
+	for _, t := range targets {
+		out.FixTargets = append(out.FixTargets, fixTargetPayload{
+			Location: t.Location, VulnID: t.VulnID, Package: t.Package.Name, Ecosystem: string(t.Package.Ecosystem)})
+	}
+	for _, r := range u.Replacing {
+		out.Replacing = append(out.Replacing, replacingPayload{OldNumber: r.OldNumber, State: string(r.State)})
+	}
+	return out
+}
+
+// prOperationPayload is one operation event not yet delivered. The intent,
+// the result and any later settlement of one operation share an ID.
+type prOperationPayload struct {
+	Seq        int64  `json:"seq"`
+	ID         string `json:"id"`
+	At         string `json:"at"`
+	Phase      string `json:"phase"`
+	Kind       string `json:"kind"`
+	Repo       string `json:"repo"`
+	AttemptKey string `json:"attempt_key,omitempty"`
+	Number     int    `json:"number,omitempty"`
+	Result     string `json:"result,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func prOperationPayloadOf(ev remediation.OperationEvent) prOperationPayload {
+	return prOperationPayload{
+		Seq: ev.Seq, ID: ev.ID, At: ev.At.UTC().Format(time.RFC3339), Phase: string(ev.Phase), Kind: string(ev.Kind),
+		Repo: ev.Repo, AttemptKey: ev.AttemptKey, Number: ev.Number, Result: string(ev.Result), Error: ev.Error,
+	}
+}
+
+type prProblemPayload struct {
+	Code   string `json:"code"`
+	Repo   string `json:"repo,omitempty"`
+	Target string `json:"target,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Caps on the lists of one language item in the webhook payload; a list past

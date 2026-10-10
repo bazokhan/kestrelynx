@@ -130,23 +130,35 @@ runtime:
   # enabled above is also true.
   mute_unfixable_not_in_use: false
 
-# Read-only fix plan (experimental). For each running image that has a fixed
+# Fix plan (experimental). For each running image that has a fixed
 # vulnerability, look for a newer image in its registry, scan it under the
 # same vulnerability databases as the running one, and report whether updating
-# would resolve the findings. Nothing is pulled, changed or created; the plan
-# appears as a short "Fix plan" section in Slack and a `remediation` object in
-# the generic webhook payload. Docker only (not supported with
+# would resolve the findings. By default nothing is pulled, changed or created;
+# the plan appears as a short "Fix plan" section in Slack and a `remediation`
+# object in the generic webhook payload. With pull_requests enabled, KestreLynx
+# also opens pull requests that change the image tag of Compose services (see
+# below). Docker only (not supported with
 # kubernetes.enabled). Public registries only; it needs outbound HTTPS to the
 # image registries and downloads the Trivy databases before each cycle.
 # Disabled by default; with it off, scans and notifications are unchanged.
 #
 # remediation:
 #   enabled: true
-#   # Reserved: pull requests are not available yet, so true is rejected.
+#   # Open one pull request per Compose file and running image that updates
+#   # services.<service>.image to the adopted newer patch tag. Only the tag of
+#   # the mapped services is edited; nothing is merged and no existing branch
+#   # is changed. Needs remediation.enabled, Docker mode, compose
+#   # mappings below and github.token. Opening a pull request can start the
+#   # repository's CI (workflows that run on pull_request events), so enable it
+#   # only for repositories where that is acceptable. Off by default.
 #   pull_requests:
 #     enabled: false
-#   # Optional token for reading the mapped GitHub repositories. Empty reads
-#   # public repositories anonymously. Keep the file readable by its owner only.
+#   # Token for GitHub. Empty reads public repositories anonymously, which is
+#   # enough without pull requests. With pull_requests enabled it is required
+#   # and needs the permissions Contents: Read and write and Pull requests:
+#   # Read and write on the configured repositories only (a fine-grained
+#   # personal access token limited to them). Keep the file readable by its
+#   # owner only.
 #   github:
 #     token: ""
 #   # Where the plan and delivery records are kept (an absolute path).
@@ -172,9 +184,14 @@ runtime:
 #   # positive. Work past a limit is reported as deferred, not dropped.
 #   # tag_pages_per_repository applies to each repository separately;
 #   # cycle_timeout is the deadline of the plan stage, not of the scans.
+#   # new_prs_per_cycle is how many pull requests one cycle may open;
+#   # open_prs is how many of KestreLynx's pull requests may be open at once
+#   # (an old one is never closed to make room).
 #   limits:
 #     candidate_scans_per_cycle: 10
 #     baseline_rescans_per_cycle: 10
 #     registry_requests_per_cycle: 200
 #     tag_pages_per_repository: 20
 #     cycle_timeout: 30m
+#     new_prs_per_cycle: 3
+#     open_prs: 10

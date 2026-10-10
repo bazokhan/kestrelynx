@@ -155,8 +155,9 @@ type RuntimeConfig struct {
 // read-only — nothing is pulled, changed or created. Disabled by default.
 type RemediationConfig struct {
 	Enabled bool
-	// PullRequests switches on writing to GitHub. This version has no such
-	// path, so true is rejected at load time; the key is reserved.
+	// PullRequests switches on opening pull requests that update the image
+	// tag of Compose services. It needs Enabled, a GitHub token and Docker
+	// mode.
 	PullRequests RemediationPullRequestsConfig
 	GitHub       RemediationGitHubConfig
 	// StorageDir holds the plan and delivery records. Always absolute.
@@ -167,7 +168,7 @@ type RemediationConfig struct {
 	Limits   RemediationLimits
 }
 
-// RemediationPullRequestsConfig is the reserved switch for pull requests.
+// RemediationPullRequestsConfig is the switch for pull requests.
 type RemediationPullRequestsConfig struct {
 	Enabled bool
 }
@@ -175,7 +176,8 @@ type RemediationPullRequestsConfig struct {
 // RemediationGitHubConfig holds the GitHub credentials of the fix plan.
 type RemediationGitHubConfig struct {
 	// Token is an optional token for reading the mapped repositories; empty
-	// means anonymous access (public repositories only).
+	// means anonymous access (public repositories only). Pull requests need
+	// it, with write access to the mapped repositories.
 	Token Secret
 }
 
@@ -266,6 +268,8 @@ type RemediationLimits struct {
 	RegistryRequestsPerCycle int           // registry HTTP requests, token exchanges included
 	TagPagesPerRepository    int           // tag listing pages for one repository
 	CycleTimeout             time.Duration // deadline of the plan stage
+	NewPRsPerCycle           int           // pull requests one cycle may open
+	OpenPRs                  int           // pull requests of this tool that may be open at once
 }
 
 // rawConfig mirrors the YAML shape. Pointers are used where "absent" must be
@@ -354,6 +358,8 @@ type rawConfig struct {
 			RegistryRequestsPerCycle *int           `yaml:"registry_requests_per_cycle"`
 			TagPagesPerRepository    *int           `yaml:"tag_pages_per_repository"`
 			CycleTimeout             *time.Duration `yaml:"cycle_timeout"`
+			NewPRsPerCycle           *int           `yaml:"new_prs_per_cycle"`
+			OpenPRs                  *int           `yaml:"open_prs"`
 		} `yaml:"limits"`
 	} `yaml:"remediation"`
 }
@@ -386,6 +392,8 @@ const (
 	defaultRegistryRequestsPerCycle = 200
 	defaultTagPagesPerRepository    = 20
 	defaultCycleTimeout             = 30 * time.Minute
+	defaultNewPRsPerCycle           = 3
+	defaultOpenPRs                  = 10
 	defaultRemediationStorageDir    = "/var/lib/kestrelynx/remediation"
 )
 
@@ -464,6 +472,8 @@ func Parse(data []byte) (Config, error) {
 				RegistryRequestsPerCycle: intOr(raw.Remediation.Limits.RegistryRequestsPerCycle, defaultRegistryRequestsPerCycle),
 				TagPagesPerRepository:    intOr(raw.Remediation.Limits.TagPagesPerRepository, defaultTagPagesPerRepository),
 				CycleTimeout:             durationOr(raw.Remediation.Limits.CycleTimeout, defaultCycleTimeout),
+				NewPRsPerCycle:           intOr(raw.Remediation.Limits.NewPRsPerCycle, defaultNewPRsPerCycle),
+				OpenPRs:                  intOr(raw.Remediation.Limits.OpenPRs, defaultOpenPRs),
 			},
 		},
 	}
@@ -592,14 +602,14 @@ func validate(c *Config, dockerSocketExplicit bool) error {
 // at load time rather than the day the plan is switched on.
 func validateRemediation(c *Config) error {
 	r := &c.Remediation
-	if r.PullRequests.Enabled {
-		if !r.Enabled {
-			return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.enabled, and pull requests are not available yet")
-		}
-		return fmt.Errorf("config: remediation.pull_requests.enabled is not available yet; leave it false")
+	if r.PullRequests.Enabled && !r.Enabled {
+		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.enabled")
 	}
 	if r.Enabled && c.Kubernetes.Enabled {
 		return fmt.Errorf("config: remediation.enabled is not supported with kubernetes.enabled")
+	}
+	if r.PullRequests.Enabled && r.GitHub.Token.Value() == "" {
+		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.github.token")
 	}
 	if tok := r.GitHub.Token.Value(); strings.IndexFunc(tok, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		// The value is not echoed.
@@ -616,6 +626,8 @@ func validateRemediation(c *Config) error {
 		{"baseline_rescans_per_cycle", r.Limits.BaselineRescansPerCycle},
 		{"registry_requests_per_cycle", r.Limits.RegistryRequestsPerCycle},
 		{"tag_pages_per_repository", r.Limits.TagPagesPerRepository},
+		{"new_prs_per_cycle", r.Limits.NewPRsPerCycle},
+		{"open_prs", r.Limits.OpenPRs},
 	} {
 		if l.val <= 0 {
 			return fmt.Errorf("config: remediation.limits.%s must be positive, got %d", l.key, l.val)

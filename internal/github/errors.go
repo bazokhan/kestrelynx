@@ -3,6 +3,7 @@ package github
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -52,6 +53,14 @@ var (
 	// ErrInvalidInput means a repository, branch, commit or path argument is
 	// unusable.
 	ErrInvalidInput = errors.New("github: invalid input")
+	// ErrRefExists means creating a branch failed because it already exists.
+	ErrRefExists = errors.New("github: reference already exists")
+	// ErrOutcomeUnknown means a write may or may not have been applied: the
+	// request was sent but no usable answer came back (a transport error, a
+	// timeout, a 5xx, or a success response that could not be read). The
+	// writer never resends; read the state again to find out. The cause is
+	// wrapped and reachable with errors.Is and errors.As.
+	ErrOutcomeUnknown = errors.New("github: outcome of the write is unknown")
 )
 
 // RateLimitedError is the error for a rate-limited request. The client never
@@ -92,8 +101,27 @@ func (e *NotRegularFileError) Unwrap() error { return ErrNotRegularFile }
 // StatusError is an unexpected HTTP status that has no more specific type.
 type StatusError struct {
 	Status int
+	// Message is GitHub's "message" field, sanitized and shortened; empty when
+	// the response had none. Only the write side fills it.
+	Message string
 }
 
 func (e *StatusError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("github: api.github.com answered HTTP %d: %s", e.Status, e.Message)
+	}
 	return fmt.Sprintf("github: api.github.com answered HTTP %d", e.Status)
+}
+
+// Is lets errors.Is match the sentinel for statuses that have one.
+func (e *StatusError) Is(target error) bool {
+	switch e.Status {
+	case http.StatusUnauthorized:
+		return target == ErrAuthRequired
+	case http.StatusForbidden:
+		return target == ErrForbidden
+	case http.StatusNotFound:
+		return target == ErrNotFound
+	}
+	return false
 }

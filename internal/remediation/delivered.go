@@ -22,10 +22,14 @@ const deliveredVersion = 1
 // so two plans that read the same have the same fingerprint. The dependency
 // units add what they show — their packages, versions, relation, actions,
 // reasons, occurrence sets and the findings they came from — but not the
-// commit or file hashes, which change without changing the message. A plan with no items has the empty fingerprint, the same as
-// nothing delivered.
+// commit or file hashes, which change without changing the message. The
+// pull request units add their status, reason, pull request number and state
+// and what they replaced, and the stage's problems their code and
+// repository and target; operation events are delivered by sequence number instead and
+// are not part of it. A plan with nothing in it has the empty fingerprint,
+// the same as nothing delivered.
 func Fingerprint(p Plan) string {
-	if len(p.Items) == 0 && len(p.LanguageItems) == 0 {
+	if len(p.Items) == 0 && len(p.LanguageItems) == 0 && len(p.PullRequests) == 0 && len(p.PRProblems) == 0 {
 		return ""
 	}
 	type image struct {
@@ -67,11 +71,50 @@ func Fingerprint(p Plan) string {
 		Reason    Reason            `json:"reason,omitempty"`
 		Packages  []langPackage     `json:"packages,omitempty"`
 	}
+	type prUnit struct {
+		Key          string       `json:"key"`
+		UpdateKey    string       `json:"update_key,omitempty"`
+		Status       PRUnitStatus `json:"status"`
+		Reason       Reason       `json:"reason,omitempty"`
+		Number       int          `json:"number,omitempty"`
+		State        PRState      `json:"state,omitempty"`
+		UserModified bool         `json:"user_modified,omitempty"`
+		ReplacedBy   int          `json:"replaced_by,omitempty"`
+		Replaced     []int        `json:"replaced,omitempty"`
+	}
+	type prProblem struct {
+		Code   PRProblemCode `json:"code"`
+		Repo   string        `json:"repo,omitempty"`
+		Target string        `json:"target,omitempty"`
+		Reason Reason        `json:"reason,omitempty"`
+	}
 	out := struct {
-		Counts   map[Category]int `json:"counts"`
-		Items    []item           `json:"items"`
-		Language []langItem       `json:"language,omitempty"`
+		Counts       map[Category]int `json:"counts"`
+		Items        []item           `json:"items"`
+		Language     []langItem       `json:"language,omitempty"`
+		PullRequests []prUnit         `json:"pull_requests,omitempty"`
+		PRProblems   []prProblem      `json:"pr_problems,omitempty"`
 	}{Counts: map[Category]int{}}
+	for _, u := range p.PullRequests {
+		pu := prUnit{Key: u.Key, UpdateKey: u.UpdateKey, Status: u.Status, Reason: u.Reason, Number: u.Number, State: u.State,
+			UserModified: u.UserModified, ReplacedBy: u.ReplacedBy, Replaced: append([]int(nil), u.Replaced...)}
+		sort.Ints(pu.Replaced)
+		out.PullRequests = append(out.PullRequests, pu)
+	}
+	sort.Slice(out.PullRequests, func(i, j int) bool { return out.PullRequests[i].Key < out.PullRequests[j].Key })
+	for _, pp := range p.PRProblems {
+		out.PRProblems = append(out.PRProblems, prProblem{Code: pp.Code, Repo: pp.Repo, Target: pp.Target, Reason: pp.Reason})
+	}
+	sort.Slice(out.PRProblems, func(i, j int) bool {
+		a, b := out.PRProblems[i], out.PRProblems[j]
+		if a.Code != b.Code {
+			return a.Code < b.Code
+		}
+		if a.Repo != b.Repo {
+			return a.Repo < b.Repo
+		}
+		return a.Target < b.Target
+	})
 	for _, li := range p.LanguageItems {
 		fl := langItem{Key: li.Key, Workloads: append([]string(nil), li.Workloads...), Manager: li.Manager, Category: li.Category, Reason: li.Reason}
 		sort.Strings(fl.Workloads)

@@ -127,7 +127,10 @@ func main() {
 			"cycle_timeout", l.CycleTimeout,
 			"storage_dir", cfg.Remediation.StorageDir,
 			"mappings", len(cfg.Remediation.Mappings),
-			"github_token_set", cfg.Remediation.GitHub.Token != "")
+			"github_token_set", cfg.Remediation.GitHub.Token != "",
+			"pull_requests", cfg.Remediation.PullRequests.Enabled,
+			"new_prs_per_cycle", l.NewPRsPerCycle,
+			"open_prs", l.OpenPRs)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -173,6 +176,53 @@ func dependencyMappings(ms []config.RemediationMapping) []remediation.Dependency
 	return out
 }
 
+// composeMappings picks the mappings that edit a Compose file. Config
+// validation has already checked the workload keys.
+func composeMappings(ms []config.RemediationMapping) []remediation.ComposeMapping {
+	var out []remediation.ComposeMapping
+	for _, m := range ms {
+		if m.Compose == nil {
+			continue
+		}
+		project, service, err := config.ParseWorkloadKey(m.Workload)
+		if err != nil {
+			continue
+		}
+		out = append(out, remediation.ComposeMapping{
+			Workload: m.Workload, Project: project, Service: service,
+			Repository: m.Repository, BaseBranch: m.BaseBranch, Path: m.Compose.Path, ComposeService: m.Compose.Service,
+		})
+	}
+	return out
+}
+
+// buildPullRequestConfig assembles the pull request stage. The write client
+// exists only here, so with pull requests off nothing in the process can
+// write to GitHub. Each cycle gets its own write and read clients, each with
+// its own request budget; the token goes to those clients alone.
+func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConfig {
+	token := rc.GitHub.Token.Value()
+	store := remediation.PRStore{Dir: rc.StorageDir}
+	limits := remediation.PRLimits{NewPRsPerCycle: rc.Limits.NewPRsPerCycle, OpenPRs: rc.Limits.OpenPRs}
+	return &runner.PullRequestConfig{
+		NewStage: func(resolver remediation.CandidateResolver) (runner.PRStage, error) {
+			stage, err := remediation.NewPRStage(remediation.PRStageConfig{
+				GitHub:   github.NewWriter(github.Options{Token: github.Token(token), Budget: github.NewBudget(gitHubRequestsPerCycle)}),
+				Source:   github.New(github.Options{Token: github.Token(token), Budget: github.NewBudget(gitHubRequestsPerCycle)}),
+				Resolver: resolver,
+				Store:    store,
+				Limits:   limits,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return stage, nil
+		},
+		Mappings: composeMappings(rc.Mappings),
+		Store:    store,
+	}
+}
+
 // buildPlanConfig assembles the read-only fix plan; config validation already
 // restricts it to the Docker adapter.
 func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
@@ -194,6 +244,9 @@ func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 		CycleTimeout:        l.CycleTimeout,
 		Plans:               remediation.PlanStore{Path: remediation.DefaultPlanPath(rc.StorageDir)},
 		Delivered:           remediation.DeliveredStore{Path: remediation.DefaultDeliveredPath(rc.StorageDir)},
+	}
+	if rc.PullRequests.Enabled {
+		pc.PullRequests = buildPullRequestConfig(rc)
 	}
 	pc.Dependencies = dependencyMappings(rc.Mappings)
 	if len(pc.Dependencies) > 0 {

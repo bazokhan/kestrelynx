@@ -1,0 +1,80 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 前回のスキャンからの変化 — 🆕 新規検出4件 · ✅ 解消1件 · ⚠️ スキャン失敗1件
+--- section ---
+🛡️ *KestreLynx* — 2026-06-24 09:00のスキャン結果
+イメージ3件をスキャン、2件に影響あり
+_前回のスキャンからの変化_
+--- divider ---
+--- section ---
+*🆕 前回のスキャンからの新規検出 (4件)*
+*イメージ: api:2.0*
+--- section ---
+*◆ libxml2*
+変化: 新しいCVE <https://nvd.nist.gov/vuln/detail/CVE-2031-0007|CVE-2031-0007>
+現在: 2.9.14
+修正版: なし — 緩和策を検討
+検出件数: CRITICAL 0 / HIGH 2
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0006|CVE-2031-0006> · HIGH · EPSS 20% (このパッケージにほか +1件のCVE)
+参照: <https://avd.example/CVE-2031-0006|アドバイザリ>
+--- divider ---
+--- section ---
+*◆ zlib*
+現在: 1.2.13
+修正版: なし — 上流では修正予定なし、置き換えを検討
+検出件数: CRITICAL 0 / HIGH 1
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · EPSS 50%
+悪用情報: CISA KEV (実際の攻撃で悪用あり)
+--- divider ---
+--- section ---
+*イメージ: web:1.0*
+--- section ---
+*◆ openssl*
+変化: ⬆️ 今すぐ対応に優先度昇格
+現在: 3.0.7
+修正版: 3.0.11
+更新の注意度: 🟢 ディストリのセキュリティパッチ
+検出件数: CRITICAL 1 / HIGH 0
+--- section ---
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0001|CVE-2031-0001> · CRITICAL · EPSS 94%
+悪用情報: CISA KEV (実際の攻撃で悪用あり) · 🧨 ランサムウェア攻撃
+参照: <https://avd.example/CVE-2031-0001|アドバイザリ> · <https://vendor.example/advisory/1|ベンダーのアドバイザリ>
+--- divider ---
+--- section ---
+*◆ openssl*
+変化: ⬆️ 今すぐ対応に優先度昇格
+現在: 3.0.7 · 修正版: なし
+検出件数: CRITICAL 0 / HIGH 1
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0002|CVE-2031-0002> · EPSS &lt;0.1%
+--- section ---
+*◆ dpkg*
+変化: 修正版が利用可能
+現在: 1.21.22 · 修正版: 1.21.23 (🟢 ディストリのセキュリティパッチ)
+検出件数: CRITICAL 0 / HIGH 1
+代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0004|CVE-2031-0004> · EPSS &lt;0.1%
+--- divider ---
+--- section ---
+*✅ 前回のスキャンからの解消 (1件)*
+• web:1.0: old-pkg
+--- divider ---
+--- section ---
+*🔧 修正計画* (候補の提示とPull Requestの作成のみ — マージとデプロイは自動では行わない)
+再pull 1件 · 更新候補 1件
+Pull Request: 作成 1件 · オープン 1件 · マージ済み 1件 · 未マージでクローズ 1件 · 要判断 1件 · 延期 1件
+• <https://github.com/ex/deploy/pull/12|#12> を作成: api 2.0.1 → 2.0.4 (deploy/compose.yml) — 未マージ
+• <https://github.com/ex/deploy/pull/9|#9> オープン中: worker 1.4.0 → 1.4.2 (compose.yml)
+• <https://github.com/ex/deploy/pull/7|#7> マージ済み: cache 7.0.1 → 7.0.5 (compose.yml) — デプロイは未確認
+(ほか +1件)
+• web:latest を再pullすると 4件中 3件の所見が解消(1件は残る) (KEV 2件)
+⚠️ Pull Requestの作成を停止中: リポジトリ、ブランチ、Pull Requestのいずれかが想定の状態でない
+--- divider ---
+--- section ---
+*⚠️ スキャン失敗*
+• broken:1 — 実体未確認: 参照によるスキャン — pull failed
+--- divider ---
+--- section ---
+📌 *現在の未解決:* 🚨 今すぐ対応3件 / 👀 要監視1件 / 🔕 低優先度3件
+⏰ 今すぐ対応/要監視の未解決の最長期間20日
+--- context ---
+⚠️ 実体未確認: 参照によるスキャン — broken:1

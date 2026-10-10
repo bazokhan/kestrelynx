@@ -411,7 +411,7 @@ func (r Runner) bootTime() (time.Time, error) {
 // anything to say.
 func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOutcome) error {
 	log := r.log()
-	if !report.HasIssues() && !r.NotifyOnClean && !plan.changed {
+	if !report.HasIssues() && !r.NotifyOnClean && !plan.mustSend() {
 		log.Info("no issues found; skipping notification")
 		return nil
 	}
@@ -451,7 +451,7 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 	// so a quiet cycle must not skip the notification just because nothing
 	// newly changed.
 	holding := holdingUnconfirmed(prev, report)
-	send := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding || plan.changed
+	send := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding || plan.mustSend()
 	if !send {
 		log.Info("no issues and no changes; skipping notification")
 		return r.saveState(next)

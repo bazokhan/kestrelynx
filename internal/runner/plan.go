@@ -35,6 +35,26 @@ type DeliveredStore interface {
 	Save(fingerprint string) error
 }
 
+// PRStage runs the pull request stage once (implemented by
+// *remediation.PRStage).
+type PRStage interface {
+	Run(ctx context.Context, in remediation.PRStageInput) remediation.PRStageResult
+}
+
+// PullRequestConfig turns on the pull request stage of the plan. A PlanConfig
+// without it never writes to GitHub.
+type PullRequestConfig struct {
+	// NewStage returns the stage for one cycle, built with the cycle's
+	// registry client to re-resolve candidates and with GitHub clients that
+	// carry the cycle's request budget.
+	NewStage func(resolver remediation.CandidateResolver) (PRStage, error)
+	// Mappings are the Compose mappings of the configuration.
+	Mappings []remediation.ComposeMapping
+	// Store keeps the pull request records; the runner marks the operation
+	// events delivered in it after a notification was sent.
+	Store remediation.PRStorage
+}
+
 // PlanConfig holds what a Runner needs to build the read-only fix plan. A
 // Runner with a nil Plan never prepares databases, never switches the scans
 // to comparison mode and never touches the registry.
@@ -61,6 +81,9 @@ type PlanConfig struct {
 	Dependencies []remediation.DependencyMapping
 	Plans        PlanStore
 	Delivered    DeliveredStore
+	// PullRequests, when set, opens and tracks pull requests for the
+	// update candidates of the plan; nil leaves the plan read-only.
+	PullRequests *PullRequestConfig
 }
 
 // planCycle is the plan state of one cycle.
@@ -81,7 +104,17 @@ type planOutcome struct {
 	// means its content differs from the last delivered plan.
 	fingerprint string
 	changed     bool
+	// prLastSeq is the highest sequence number among the pull request
+	// operation events the notification carries (0 when there are none).
+	// prPending says the pull request stage has something to deliver whatever
+	// the fingerprint says: operation events not yet delivered, or a problem
+	// that stops its writes, which is reported every cycle while it lasts.
+	prLastSeq int64
+	prPending bool
 }
+
+// mustSend says the plan gives a reason to send a notification.
+func (o planOutcome) mustSend() bool { return o.changed || o.prPending }
 
 // message copies the plan into m.
 func (o planOutcome) message(m notify.Message) notify.Message {
@@ -167,6 +200,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		defer cancel()
 	}
 	budget := registry.NewBudget(pc.MaxRegistryRequests)
+	reg := pc.NewRegistry(budget)
 	var gh remediation.GitHubReader
 	if pc.NewGitHub != nil && len(pc.Dependencies) > 0 {
 		// One client per cycle: its request budget and file byte total are
@@ -176,7 +210,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		}
 	}
 	planner, err := remediation.NewPlanner(remediation.Config{
-		Registry:     pc.NewRegistry(budget),
+		Registry:     reg,
 		Scanner:      pc.Scanner,
 		Prepared:     cyc.prepared,
 		Limits:       pc.Limits,
@@ -210,17 +244,75 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		}
 	}
 
-	return r.finishPlan(info, remediation.Fingerprint(plan))
+	if pc.PullRequests != nil {
+		r.runPullRequests(ctx, pc.PullRequests, reg, &plan, containers, !info.NotSaved)
+	}
+
+	out := r.finishPlan(info, remediation.Fingerprint(plan))
+	out.prLastSeq = lastOperationSeq(plan.PROperations)
+	out.prPending = len(plan.PROperations) > 0 || len(plan.PRProblems) > 0
+	return out
+}
+
+// runPullRequests runs the pull request stage on the saved plan and attaches
+// its result to it, within the deadline of ctx. A plan that could not be
+// saved is not acted on: nothing is written and the problem is reported.
+func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, resolver remediation.CandidateResolver, plan *remediation.Plan, containers []inventory.Container, saved bool) {
+	log := r.log()
+	if !saved {
+		plan.PRProblems = []remediation.PRStageProblem{{
+			Code: remediation.PRProblemStorageFailed, Reason: remediation.ReasonStorageFailed,
+			Detail: "the fix plan could not be saved, so no pull request was processed",
+		}}
+		return
+	}
+	stage, err := cfg.NewStage(resolver)
+	if err != nil {
+		log.Warn("pull request stage could not be set up", "err", err)
+		plan.PRProblems = []remediation.PRStageProblem{{
+			Code: remediation.PRProblemWriteBlocked, Reason: remediation.ReasonGitHubError,
+			Detail: "the pull request stage could not be set up",
+		}}
+		return
+	}
+	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings})
+	res.Attach(plan)
+	created := 0
+	for _, u := range res.Units {
+		if u.Status == remediation.PRStatusCreated {
+			created++
+		}
+	}
+	log.Info("pull request stage finished",
+		"units", len(res.Units), "created", created, "problems", len(res.Problems), "undelivered_operations", len(res.Operations))
+}
+
+// lastOperationSeq is the highest sequence number among events.
+func lastOperationSeq(events []remediation.OperationEvent) int64 {
+	var last int64
+	for _, ev := range events {
+		if ev.Seq > last {
+			last = ev.Seq
+		}
+	}
+	return last
 }
 
 // markDelivered records the plan's fingerprint after a notification carrying
 // it was sent. A failure only means the plan may be announced again.
 func (r Runner) markDelivered(o planOutcome) {
-	if o.info == nil || !o.changed || r.Plan.Delivered == nil {
+	if o.info == nil {
 		return
 	}
-	if err := r.Plan.Delivered.Save(o.fingerprint); err != nil {
-		r.log().Warn("delivered fix plan could not be recorded; the plan may be announced again", "err", err)
+	if o.changed && r.Plan.Delivered != nil {
+		if err := r.Plan.Delivered.Save(o.fingerprint); err != nil {
+			r.log().Warn("delivered fix plan could not be recorded; the plan may be announced again", "err", err)
+		}
+	}
+	if o.prLastSeq > 0 && r.Plan.PullRequests != nil && r.Plan.PullRequests.Store != nil {
+		if err := remediation.MarkPROperationsDelivered(r.Plan.PullRequests.Store, o.prLastSeq); err != nil {
+			r.log().Warn("delivered pull request operations could not be recorded; they may be announced again", "err", err)
+		}
 	}
 }
 

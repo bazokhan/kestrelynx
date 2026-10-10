@@ -475,7 +475,7 @@ func TestParse_RemediationDefaults(t *testing.T) {
 	if r.StorageDir != "/var/lib/kestrelynx/remediation" {
 		t.Errorf("StorageDir = %q", r.StorageDir)
 	}
-	want := RemediationLimits{CandidateScansPerCycle: 10, BaselineRescansPerCycle: 10, RegistryRequestsPerCycle: 200, TagPagesPerRepository: 20, CycleTimeout: 30 * time.Minute}
+	want := RemediationLimits{CandidateScansPerCycle: 10, BaselineRescansPerCycle: 10, RegistryRequestsPerCycle: 200, TagPagesPerRepository: 20, CycleTimeout: 30 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10}
 	if r.Limits != want {
 		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
 	}
@@ -517,7 +517,7 @@ remediation:
 	if r.GitHub.Token.Value() != "ghp_exampletoken" || r.StorageDir != "/data/remediation" {
 		t.Errorf("token/storage = %q/%q", r.GitHub.Token.Value(), r.StorageDir)
 	}
-	want := RemediationLimits{CandidateScansPerCycle: 3, BaselineRescansPerCycle: 4, RegistryRequestsPerCycle: 50, TagPagesPerRepository: 5, CycleTimeout: 45 * time.Minute}
+	want := RemediationLimits{CandidateScansPerCycle: 3, BaselineRescansPerCycle: 4, RegistryRequestsPerCycle: 50, TagPagesPerRepository: 5, CycleTimeout: 45 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10}
 	if r.Limits != want {
 		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
 	}
@@ -550,7 +550,7 @@ remediation:
 }
 
 func TestParse_RemediationLimitsMustBePositive(t *testing.T) {
-	for _, key := range []string{"candidate_scans_per_cycle", "baseline_rescans_per_cycle", "registry_requests_per_cycle", "tag_pages_per_repository", "cycle_timeout"} {
+	for _, key := range []string{"candidate_scans_per_cycle", "baseline_rescans_per_cycle", "registry_requests_per_cycle", "tag_pages_per_repository", "cycle_timeout", "new_prs_per_cycle", "open_prs"} {
 		for _, v := range []string{"-1", "0"} {
 			if key == "cycle_timeout" {
 				v += "s"
@@ -570,18 +570,32 @@ func TestParse_RemediationLimitsMustBePositive(t *testing.T) {
 	}
 }
 
-func TestParse_RemediationPullRequestsRejected(t *testing.T) {
-	for _, body := range []string{
-		"remediation:\n  enabled: true\n  pull_requests:\n    enabled: true\n",
-		"remediation:\n  pull_requests:\n    enabled: true\n",
-	} {
-		_, err := Parse([]byte(minimal + "\n" + body))
-		if err == nil || !strings.Contains(err.Error(), "remediation.pull_requests.enabled") {
-			t.Errorf("%q: err = %v", body, err)
-		}
+func TestParse_RemediationPullRequests(t *testing.T) {
+	c, err := Parse([]byte(minimal + "\nremediation:\n  enabled: true\n  github:\n    token: ghp_exampletoken\n  pull_requests:\n    enabled: true\n  limits:\n    new_prs_per_cycle: 2\n    open_prs: 5\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !c.Remediation.PullRequests.Enabled || c.Remediation.Limits.NewPRsPerCycle != 2 || c.Remediation.Limits.OpenPRs != 5 {
+		t.Errorf("pull requests = %+v, limits = %+v", c.Remediation.PullRequests, c.Remediation.Limits)
 	}
 	if _, err := Parse([]byte(minimal + "\nremediation:\n  enabled: true\n  pull_requests:\n    enabled: false\n")); err != nil {
 		t.Errorf("explicit false: %v", err)
+	}
+}
+
+func TestParse_RemediationPullRequestsRejected(t *testing.T) {
+	tok := "  github:\n    token: ghp_exampletoken\n"
+	for name, tc := range map[string]struct{ body, want string }{
+		"plan off":      {"remediation:\n" + tok + "  pull_requests:\n    enabled: true\n", "requires remediation.enabled"},
+		"no token":      {"remediation:\n  enabled: true\n  pull_requests:\n    enabled: true\n", "remediation.github.token"},
+		"blank token":   {"remediation:\n  enabled: true\n  github:\n    token: \"\"\n  pull_requests:\n    enabled: true\n", "remediation.github.token"},
+		"kubernetes":    {"kubernetes:\n  enabled: true\nremediation:\n  enabled: true\n" + tok + "  pull_requests:\n    enabled: true\n", "kubernetes.enabled"},
+		"kubernetes pr": {"kubernetes:\n  enabled: true\nremediation:\n" + tok + "  pull_requests:\n    enabled: true\n", "remediation.pull_requests.enabled"},
+	} {
+		_, err := Parse([]byte(minimal + "\n" + tc.body))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to contain %q", name, err, tc.want)
+		}
 	}
 }
 
@@ -767,7 +781,7 @@ func TestExampleConfig_RemediationBlockParses(t *testing.T) {
 	if !c.Remediation.Enabled {
 		t.Error("uncommented example: Remediation.Enabled = false, want true")
 	}
-	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20, 30 * time.Minute}) {
+	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20, 30 * time.Minute, 3, 10}) {
 		t.Errorf("uncommented example limits = %+v", c.Remediation.Limits)
 	}
 	if len(c.Remediation.Mappings) == 0 {

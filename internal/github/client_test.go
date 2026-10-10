@@ -920,3 +920,17 @@ func TestHashMismatchChargesTheBytesRead(t *testing.T) {
 		t.Errorf("BytesRead = %d, want 5", c.BytesRead())
 	}
 }
+
+func TestReadFileReportsTheMode(t *testing.T) {
+	f := newFakeGH()
+	f.addFile("plain.txt", []byte("a"))
+	f.add("bin/run.sh", "100755", []byte("#!/bin/sh\n"))
+	f.seal()
+	c := newGH(t, f, Options{})
+	for p, want := range map[string]string{"plain.txt": "100644", "bin/run.sh": "100755"} {
+		file, err := c.ReadFile(context.Background(), "example/app", f.commit, p)
+		if err != nil || file.Mode != want {
+			t.Errorf("%s: mode %q err %v, want %q", p, file.Mode, err, want)
+		}
+	}
+}

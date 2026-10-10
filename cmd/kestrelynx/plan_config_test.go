@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/config"
+	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 )
 
@@ -74,4 +77,61 @@ func TestDependencyMappings(t *testing.T) {
 	if pc := buildPlanConfig(cfg); len(pc.Dependencies) != 1 || pc.NewGitHub == nil {
 		t.Errorf("plan config = %+v", pc)
 	}
+}
+
+func TestBuildPlanConfig_PullRequests(t *testing.T) {
+	cfg := config.Config{
+		State: config.StateConfig{Path: "/var/lib/kestrelynx/state.json"},
+		Remediation: config.RemediationConfig{
+			Enabled: true, StorageDir: "/data/remediation",
+			GitHub: config.RemediationGitHubConfig{Token: "ghp_exampletoken"},
+			Limits: config.RemediationLimits{NewPRsPerCycle: 2, OpenPRs: 5},
+			Mappings: []config.RemediationMapping{
+				{Workload: "compose/shop/web", Repository: "ex/deploy", BaseBranch: "main", Compose: &config.RemediationComposeSource{Path: "deploy/compose.yml", Service: "web"}},
+				{Workload: "compose/shop/api", Repository: "ex/app", BaseBranch: "main", Dependencies: &config.RemediationDependenciesSource{Directory: "."}},
+			},
+		},
+	}
+	if pc := buildPlanConfig(cfg); pc.PullRequests != nil {
+		t.Fatal("a pull request stage is built with pull requests off")
+	}
+
+	cfg.Remediation.PullRequests.Enabled = true
+	pc := buildPlanConfig(cfg)
+	if pc.PullRequests == nil || pc.PullRequests.NewStage == nil {
+		t.Fatalf("no pull request stage with pull requests on: %+v", pc.PullRequests)
+	}
+	want := []remediation.ComposeMapping{{
+		Workload: "compose/shop/web", Project: "shop", Service: "web", Repository: "ex/deploy", BaseBranch: "main",
+		Path: "deploy/compose.yml", ComposeService: "web",
+	}}
+	if got := pc.PullRequests.Mappings; len(got) != 1 || got[0] != want[0] {
+		t.Errorf("mappings = %+v, want only the compose mapping %+v", got, want)
+	}
+	if st, ok := pc.PullRequests.Store.(remediation.PRStore); !ok || st.Dir != "/data/remediation" {
+		t.Errorf("store = %+v, want the records under storage_dir", pc.PullRequests.Store)
+	}
+	a, err := pc.PullRequests.NewStage(nil)
+	if err == nil || a != nil {
+		t.Errorf("a stage without a resolver was built: %v, %v", a, err)
+	}
+	reg := fakeResolver{}
+	s1, err := pc.PullRequests.NewStage(reg)
+	if err != nil || s1 == nil {
+		t.Fatalf("NewStage: %v", err)
+	}
+	if s2, _ := pc.PullRequests.NewStage(reg); s1 == s2 {
+		t.Error("the stage (and its clients and budgets) must be new for each cycle")
+	}
+
+	cfg.Remediation.Limits = config.RemediationLimits{}
+	if _, err := buildPlanConfig(cfg).PullRequests.NewStage(reg); err == nil {
+		t.Error("a stage with no limits was built")
+	}
+}
+
+type fakeResolver struct{}
+
+func (fakeResolver) Resolve(context.Context, string, string, inventory.Platform) (registry.Resolution, error) {
+	return registry.Resolution{}, nil
 }

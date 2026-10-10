@@ -189,6 +189,13 @@ type Plan struct {
 	// LanguageItems are the dependency units of the language-package part,
 	// one per repository directory, in the order they were handled.
 	LanguageItems []LanguageItem `json:"language_items,omitempty"`
+	// PullRequests are the Compose update units of the pull request stage,
+	// in plan order; empty when pull requests are not enabled.
+	PullRequests []PRUnit `json:"pull_requests,omitempty"`
+	// PROperations are the pull request operation events not yet delivered.
+	PROperations []OperationEvent `json:"pr_operations,omitempty"`
+	// PRProblems are the conditions that stop pull request writes.
+	PRProblems []PRStageProblem `json:"pr_problems,omitempty"`
 }
 
 // Count returns how many items are in category c.

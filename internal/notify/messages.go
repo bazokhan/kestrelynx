@@ -365,6 +365,43 @@ type messages struct {
 	PlanDepLine                 string // "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet" (service names, lockfile, package, installed, target, the "and more" clause)
 	PlanDepMore                 string // " and %d more" (other packages of the same unit)
 	PlanRebuildLine             string // "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s" (service names, requirements file, package, installed, lowest fixed version, the "and more" clause)
+
+	// Pull requests of the fix plan (only with pull requests enabled). A
+	// line names the pull request link, the image, the old and new tag and
+	// the Compose file; none of them says a finding is resolved.
+	PlanHeadingPR           string // "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n"
+	PlanPRCounts            string // "Pull requests: %s" (the joined segments)
+	PlanPRSegCreated        string // "%d created" (opened in this cycle)
+	PlanPRSegOpen           string // "%d open"
+	PlanPRSegMerged         string // "%d merged"
+	PlanPRSegClosed         string // "%d closed without merging"
+	PlanPRSegManual         string // "%d manual"
+	PlanPRSegDeferred       string // "%d deferred"
+	PlanPRSegBlocked        string // "%d blocked or failed"
+	PlanPRCreatedLine       string // "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet" (link, image, old tag, new tag, Compose file)
+	PlanPROpenLine          string // "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s"
+	PlanPRMergedLine        string // "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed"
+	PlanPRClosedLine        string // "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again"
+	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
+	PlanPRProblemJoin       string // "; " (between the reasons)
+	PlanPRProblemBlocked    string // "a repository, branch or pull request is not in the expected state"
+	PlanPRProblemStorage    string // "the pull request records could not be saved"
+	PlanPRProblemFull       string // "the operation log is full"
+	PlanPRProblemUnverified string // "existing pull requests could not be verified"
+	PlanOpsLabel            string // "Pull request operations:"
+	PlanOpLine              string // "• %[1]s %[2]s: %[3]s%[4]s" (operation, target, result, error clause)
+	PlanOpErrorClause       string // " — %s" (the short error text)
+	PlanOpTargetRef         string // "%[1]s (%[2]s)" (repository, branch)
+	PlanOpResultOK          string // "ok"
+	PlanOpResultFailed      string // "failed"
+	PlanOpResultUnknown     string // "outcome unknown"
+	PlanOpBlob              string // "create blob"
+	PlanOpTree              string // "create tree"
+	PlanOpCommit            string // "create commit"
+	PlanOpRef               string // "create branch"
+	PlanOpPull              string // "open pull request"
+	PlanOpComment           string // "comment"
+	PlanOpClose             string // "close pull request"
 }
 
 // enMessages is the historical English wording, unchanged byte-for-byte from
@@ -662,6 +699,40 @@ var enMessages = messages{
 	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet",
 	PlanDepMore:                 " and %d more",
 	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s",
+
+	PlanHeadingPR:           "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n",
+	PlanPRCounts:            "Pull requests: %s",
+	PlanPRSegCreated:        "%d created",
+	PlanPRSegOpen:           "%d open",
+	PlanPRSegMerged:         "%d merged",
+	PlanPRSegClosed:         "%d closed without merging",
+	PlanPRSegManual:         "%d manual",
+	PlanPRSegDeferred:       "%d deferred",
+	PlanPRSegBlocked:        "%d blocked or failed",
+	PlanPRCreatedLine:       "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet",
+	PlanPROpenLine:          "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s",
+	PlanPRMergedLine:        "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed",
+	PlanPRClosedLine:        "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again",
+	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
+	PlanPRProblemJoin:       "; ",
+	PlanPRProblemBlocked:    "a repository, branch or pull request is not in the expected state",
+	PlanPRProblemStorage:    "the pull request records could not be saved",
+	PlanPRProblemFull:       "the operation log is full",
+	PlanPRProblemUnverified: "existing pull requests could not be verified",
+	PlanOpsLabel:            "Pull request operations:",
+	PlanOpLine:              "• %[1]s %[2]s: %[3]s%[4]s",
+	PlanOpErrorClause:       " — %s",
+	PlanOpTargetRef:         "%[1]s (%[2]s)",
+	PlanOpResultOK:          "ok",
+	PlanOpResultFailed:      "failed",
+	PlanOpResultUnknown:     "outcome unknown",
+	PlanOpBlob:              "create blob",
+	PlanOpTree:              "create tree",
+	PlanOpCommit:            "create commit",
+	PlanOpRef:               "create branch",
+	PlanOpPull:              "open pull request",
+	PlanOpComment:           "comment",
+	PlanOpClose:             "close pull request",
 }
 
 // jaMessages is the Japanese dictionary.
@@ -956,6 +1027,40 @@ var jaMessages = messages{
 	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — 更新は未実行",
 	PlanDepMore:                 " ほか%d件",
 	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — 再ビルドで %[5]s 以上が入る見込み",
+
+	PlanHeadingPR:           "\n*🔧 修正計画* (候補の提示とPull Requestの作成のみ — マージとデプロイは自動では行わない)\n",
+	PlanPRCounts:            "Pull Request: %s",
+	PlanPRSegCreated:        "作成 %d件",
+	PlanPRSegOpen:           "オープン %d件",
+	PlanPRSegMerged:         "マージ済み %d件",
+	PlanPRSegClosed:         "未マージでクローズ %d件",
+	PlanPRSegManual:         "要判断 %d件",
+	PlanPRSegDeferred:       "延期 %d件",
+	PlanPRSegBlocked:        "停止・失敗 %d件",
+	PlanPRCreatedLine:       "• %[1]s を作成: %[2]s %[3]s → %[4]s (%[5]s) — 未マージ",
+	PlanPROpenLine:          "• %[1]s オープン中: %[2]s %[3]s → %[4]s (%[5]s)",
+	PlanPRMergedLine:        "• %[1]s マージ済み: %[2]s %[3]s → %[4]s (%[5]s) — デプロイは未確認",
+	PlanPRClosedLine:        "• %[1]s 未マージでクローズ: %[2]s %[3]s → %[4]s (%[5]s) — 再提案しない",
+	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
+	PlanPRProblemJoin:       "、",
+	PlanPRProblemBlocked:    "リポジトリ、ブランチ、Pull Requestのいずれかが想定の状態でない",
+	PlanPRProblemStorage:    "Pull Requestの記録を保存できない",
+	PlanPRProblemFull:       "操作ログが満杯",
+	PlanPRProblemUnverified: "既存のPull Requestを確認できない",
+	PlanOpsLabel:            "Pull Requestの操作:",
+	PlanOpLine:              "• %[1]s %[2]s: %[3]s%[4]s",
+	PlanOpErrorClause:       " — %s",
+	PlanOpTargetRef:         "%[1]s (%[2]s)",
+	PlanOpResultOK:          "成功",
+	PlanOpResultFailed:      "失敗",
+	PlanOpResultUnknown:     "結果不明",
+	PlanOpBlob:              "blob作成",
+	PlanOpTree:              "tree作成",
+	PlanOpCommit:            "commit作成",
+	PlanOpRef:               "ブランチ作成",
+	PlanOpPull:              "Pull Request作成",
+	PlanOpComment:           "コメント",
+	PlanOpClose:             "Pull Requestのクローズ",
 }
 
 // messagesFor resolves a Language to its dictionary, defaulting to English
