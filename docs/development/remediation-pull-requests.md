@@ -13,7 +13,7 @@ When explicitly enabled, create remediation pull requests on GitHub. Include a c
 ## Approach
 
 - **Build a minimal scope that works from start to finish**
-    - Connect remediation plans to PR creation and expand the scope based on user feedback
+    - Connect remediation plans to PR creation for Compose tags, Dockerfile base images, and language packages in the minimal release, and expand the scope based on user feedback
     - Implement this within KestreLynx without relying on existing dependency update tools, to avoid additional setup for users
 - **Do not execute third-party code**
     - Require manual action when updating a dependency needs a source build or another operation that executes its code
@@ -52,6 +52,7 @@ The limitations on parent package upgrades are documented in [Dependabot securit
 | Runtime environment | Docker Compose |
 | Change destination | GitHub, accessed with a token restricted to selected repositories |
 | Package sources | Public container images and public npm and PyPI packages |
+| Dockerfile base images | Public base images used by images users build themselves |
 | Language packages | npm and pnpm for Node.js; pip and uv for Python |
 | Remediation plan notifications | Enabled as a read-only capability |
 | PR creation | Explicitly enabled as a separate capability that performs writes |
@@ -64,6 +65,19 @@ References such as `postgres:16` and `latest` can point to new content while ret
 | --- | --- | --- |
 | `postgres:16`, `latest`, and similar tags | New content under the same tag | Rescan and notify users of findings that would be fixed by pulling again, without creating a PR because no file changes |
 | `nginx:1.25.3` and similar version tags | The latest patch within the same major and minor version, with the same suffix | Create a PR that changes the tag |
+
+### Dockerfile base images
+
+Images in personal projects are often built from local Dockerfiles through Compose `build:`, so Compose tag updates do not cover them. Language package updates cannot fix findings in base image layers, so the minimal release includes Dockerfile base image updates.
+
+When a Compose mapping exists, use `build:` to locate the Dockerfile and the build target stage without additional configuration. Use the stage specified by `target`, or the last stage when it is omitted. If `FROM` refers to an earlier stage, follow it to the `FROM` that references a public base image and update only its tag.
+
+| Reference | Candidate | Notification or PR |
+| --- | --- | --- |
+| Tags specifying a full version, such as `python:3.12.3-slim` | The latest patch within the same major and minor version, with the same suffix | Create a PR that changes the `FROM` tag |
+| Tags whose content can change, such as `python:3.12-slim` | Do not create an update candidate | Do not create a PR or compare finding counts; only provide instructions to fetch the latest base and rebuild, such as `docker compose build --pull`, without claiming that improvement has been verified |
+
+Only treat the running image as built from a base for comparison when its initial layers match the base image's layers. Use the layer Trivy reports for each finding to identify findings in the verified base layers as candidates originating from the base. Exclude findings in later layers and findings without a reported layer.
 
 ### Language packages and source mapping
 
@@ -87,7 +101,7 @@ Compare the original and candidate under the same conditions, using the same sca
 | Either scan fails or the conditions cannot be matched | Mark the results as incomparable without treating findings as resolved |
 | A fix is expected from source changes | Present this separately from a confirmed fix in the production image |
 
-PRs for distributed images include the image rescan comparison. Language package PRs present the source comparison and the expected effect on the image, without claiming that resolution in production has been verified.
+PRs for distributed images include the image rescan comparison. Dockerfile base image PRs include results from rescanning the current and candidate bases under the same conditions, labeled as a “comparison of base images only.” Do not treat Trivy's layer attribution as proof of origin, and explicitly state that the rebuilt final image has not been verified. Language package PRs present the source comparison and the expected effect on the image, without claiming that resolution in production has been verified.
 
 ### Execution environment for updates
 
@@ -113,12 +127,12 @@ This capability introduces the creation of job containers by KestreLynx through 
 
 ## Unverified areas and next steps
 
-Remediation plans and PR creation are not yet implemented. Start with read-only candidate selection, comparison, and notifications, then implement Compose tag PRs, followed by language package PRs.
+Remediation plans and PR creation are not yet implemented. Start with read-only candidate selection, comparison, and notifications, then implement Compose tag PRs, Dockerfile base image PRs, and language package PRs in that order.
 
 - **Add tracking of remediation results**
     - Pick up images built by a PR's CI and rescan them to verify the results
 - **Expand the supported change targets**
-    - Add Kubernetes definition files, automatic source identification, and Dockerfile base image updates in turn, guided by user feedback
+    - Add Kubernetes definition files and automatic source identification after the minimal release, in turn and guided by user feedback
     - Defer emergency patching that generates patched images
 
 ## Update history
@@ -126,6 +140,7 @@ Remediation plans and PR creation are not yet implemented. Start with read-only 
 ### October 9, 2026
 
 - Recorded investigation and design
+- Dockerfile base image update policy
 
 ---
 
