@@ -1,8 +1,8 @@
 # Remediation plan and pull request development
 
-- **Status:** Design (implementation not started).
+- **Status:** Implementation in progress.
 - **Started:** October 8, 2026
-- **Last updated:** October 9, 2026
+- **Last updated:** October 10, 2026
 
 ## Purpose
 
@@ -127,7 +127,16 @@ This capability introduces the creation of job containers by KestreLynx through 
 
 ## Unverified areas and next steps
 
-Remediation plans and PR creation are not yet implemented. Start with read-only candidate selection, comparison, and notifications, then implement Compose tag PRs, Dockerfile base image PRs, and language package PRs in that order.
+Read-only remediation plans now include candidate selection, rescan comparisons, and notifications for both distributed images and language packages. Compose tag PR creation is also implemented, with the following verified in a GitHub repository used for validation.
+
+- PRs change only the targeted tag lines
+- Repeated runs do not create duplicate PRs
+- Updates from closed PRs are not recreated, even after their branches are deleted
+- Branches modified by users are left untouched
+- Lost local records are reconstructed from markers in PR bodies
+- With read-only permissions, writes fail, leave nothing behind, and trigger a notification
+
+Next, implement Dockerfile base image PRs, followed by language package PRs.
 
 - **Add tracking of remediation results**
     - Pick up images built by a PR's CI and rescan them to verify the results
@@ -136,6 +145,10 @@ Remediation plans and PR creation are not yet implemented. Start with read-only 
     - Defer emergency patching that generates patched images
 
 ## Update history
+
+### October 10, 2026
+
+- Updated implementation and validation status
 
 ### October 9, 2026
 

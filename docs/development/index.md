@@ -5,7 +5,7 @@ This section covers the problems being addressed, approaches tried, lessons lear
 Development logs record how features were explored and implemented.
 For instructions on currently available features, see [Documentation](../documentation/index.md).
 
-- October 8, 2026 — [Remediation plan and pull request development](remediation-pull-requests.md) — selecting candidate fixes from running container findings and connecting comparisons and notifications to GitHub PRs (design; implementation not started)
+- October 8, 2026 — [Remediation plan and pull request development](remediation-pull-requests.md) — selecting candidate fixes from running container findings and connecting comparisons and notifications to GitHub PRs (implementation in progress)
 - October 3, 2026 — [Short-lived container scanning development](short-lived-containers.md) — design for recording short-lived container executions and keeping the last version that ran under each image name in scan and notification scope for 14 days (design; implementation not started)
 - October 2, 2026 — [Kubernetes Sensor Feasibility](kubernetes-runtime-sensor.md) — validation of the Docker Sensor's permissions and isolation on Kubernetes and the changes needed for cgroup namespaces and AppArmor (design and feasibility validation only; implementation not started)
 - September 25, 2026 — [Runtime Evidence Prioritization Development](runtime-prioritization-development.md) — implementation of the Sensor and the main application's display, with overhead, notifications, and ongoing observations from continuous operation (implemented and operationally validated)

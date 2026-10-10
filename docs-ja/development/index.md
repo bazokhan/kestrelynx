@@ -4,7 +4,7 @@
 
 開発ログは検討・実装の過程の記録です。現在利用できる機能の導入・運用方法は[ドキュメント](../documentation/index.md)を参照してください。
 
-- 2026年10月8日 — [修正計画と修正PRの開発](remediation-pull-requests.md) — 稼働中のコンテナの所見から修正候補を選び、比較・通知とGitHubの修正PRにつなぐ設計(設計、実装未着手)
+- 2026年10月8日 — [修正計画と修正PRの開発](remediation-pull-requests.md) — 稼働中のコンテナの所見から修正候補を選び、比較・通知とGitHubの修正PRにつなぐ設計(実装中)
 - 2026年10月3日 — [短命なコンテナのスキャンの開発](short-lived-containers.md) — 短命なコンテナの実行を記録し、名前ごとに最後に動いた版を14日間スキャンと通知の対象に残す設計(設計、実装未着手)
 - 2026年10月2日 — [KubernetesでのSensorの成立性の検証](kubernetes-runtime-sensor.md) — Docker向けSensorの権限・隔離の成立性と、cgroup名前空間・AppArmorで必要な変更を確かめた検証(設計・成立性の検証まで、実装未着手)
 - 2026年9月25日 — [実行時証拠による優先順位付けの開発](runtime-prioritization-development.md) — Sensor と本体の表示の実装、常時運用で確認した負荷・通知と継続観察の記録(実装・運用検証済み)
