@@ -1,0 +1,463 @@
+package docker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+)
+
+// WorkClient runs disposable work containers through the Docker Engine API.
+// It is a separate type from Client (which only ever issues GET requests for
+// discovery) and is constructed only when the feature that needs it is
+// enabled. It knows nothing about what a job does: callers hand it an image
+// reference, an entrypoint, input files, a deadline and resource values, and
+// get back the files the job left under the fixed result directory plus its
+// exit code.
+//
+// Every request is built by one of the *Op constructors below, which fix the
+// method, path, query and body shape. do, the only function that sends a
+// request, accepts nothing else. That is a coding discipline, not a privilege
+// boundary: the mounted socket grants the full Engine API regardless.
+type WorkClient struct {
+	httpClient *http.Client
+	baseURL    string
+	cfg        WorkConfig
+	repo       string // repository part of cfg.Image
+	digest     string // "sha256:..." part of cfg.Image
+	log        *slog.Logger
+
+	mu    sync.Mutex
+	owned map[string]*ownedContainer
+}
+
+// WorkConfig is the part of a work container that is fixed per client rather
+// than per job.
+type WorkConfig struct {
+	// Image is the pinned work image reference, "repository@sha256:<64 hex>".
+	// Only this repository and digest are ever pulled, inspected or run.
+	Image string
+	// Entrypoint is the fixed program the container runs. Job input never
+	// reaches it.
+	Entrypoint []string
+	// Env is the complete environment of the container ("KEY=value"); the
+	// host process environment is never inherited.
+	Env []string
+	// AllowedEnvKeys is the required closed set of names Env may use.
+	// Whatever its value, names that look like credentials are refused.
+	AllowedEnvKeys []string
+	// InstanceID identifies this installation (see LoadOrCreateInstanceID).
+	InstanceID string
+	// Limits bound what a job may send and return.
+	Limits TransferLimits
+	// Log receives diagnostics; nil falls back to slog.Default.
+	Log *slog.Logger
+
+	// Per-operation deadlines; zero values use the defaults below. Streaming
+	// calls (pull, wait) are bounded by the context, never by an HTTP client
+	// timeout.
+	OpTimeout       time.Duration
+	PullTimeout     time.Duration
+	TransferTimeout time.Duration
+	CleanupTimeout  time.Duration
+}
+
+// TransferLimits bound the tar streams in both directions.
+type TransferLimits struct {
+	MaxInputBytes     int64 // total input file bytes
+	MaxInputTarBytes  int64 // whole input archive, headers included
+	MaxInputFiles     int   // input files
+	MaxInputPathBytes int   // longest input path
+	LogMaxBytes       int64 // json-file max-size of the container log (one file, no rotation)
+	MaxStdoutBytes    int64 // most stdout bytes read back; at least LogMaxBytes
+}
+
+// Resources are the per-job resource values; every field is required.
+type Resources struct {
+	MemoryBytes   int64 // memory limit; swap is set to the same value (no swap)
+	NanoCPUs      int64
+	PidsLimit     int64
+	NofileLimit   int64
+	ShmSizeBytes  int64 // size of /dev/shm
+	TmpSizeBytes  int64 // size of the /tmp tmpfs
+	HomeSizeBytes int64 // size of the /home/worker tmpfs
+}
+
+const (
+	defaultOpTimeout       = 30 * time.Second
+	defaultPullTimeout     = 10 * time.Minute
+	defaultTransferTimeout = 2 * time.Minute
+	defaultCleanupTimeout  = 30 * time.Second
+)
+
+// Fixed container settings. They are constants on purpose: nothing a caller
+// passes can change them.
+const (
+	workUID     = 10001
+	workGID     = 10001
+	workUser    = "10001:10001"
+	workDir     = "/work"
+	tmpMount    = "/tmp"
+	homeMount   = "/home/worker"
+	workNamePfx = "kestrelynx-work-"
+
+	labelWork     = "io.kestrelynx.work"
+	labelInstance = "io.kestrelynx.work.instance"
+	labelJob      = "io.kestrelynx.work.job"
+	labelImage    = "io.kestrelynx.work.image"
+)
+
+var (
+	imageRefRE   = regexp.MustCompile(`^([a-z0-9][a-z0-9._:/-]{0,254})@(sha256:[0-9a-f]{64})$`)
+	instanceIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	digestRE     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	jobIDRE      = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
+)
+
+var envKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// secretLikeNames are substrings that mark an environment variable as a
+// likely credential; the work container never receives one.
+var secretLikeNames = []string{"TOKEN", "SECRET", "PASSWORD", "KEY"}
+
+func validateEnv(env, allowed []string) error {
+	allow := map[string]bool{}
+	for _, k := range allowed {
+		allow[k] = true
+	}
+	seen := map[string]bool{}
+	for _, e := range env {
+		k, _, ok := strings.Cut(e, "=")
+		if !ok || !envKeyRE.MatchString(k) {
+			return fmt.Errorf("work env entry %q is not KEY=value with a plain name", e)
+		}
+		for _, bad := range secretLikeNames {
+			if strings.Contains(strings.ToUpper(k), bad) {
+				return fmt.Errorf("work env name %q looks like a credential", k)
+			}
+		}
+		if !allow[k] {
+			return fmt.Errorf("work env name %q is not in the allowed set", k)
+		}
+		if seen[k] {
+			return fmt.Errorf("work env name %q is duplicated", k)
+		}
+		seen[k] = true
+	}
+	return nil
+}
+
+// NewWork returns a WorkClient that dials the Docker daemon over the given
+// unix socket.
+func NewWork(socketPath string, cfg WorkConfig) (*WorkClient, error) {
+	hc := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}}
+	return newWorkClient("http://docker", hc, cfg)
+}
+
+// newWorkClient is used by tests to point the client at an httptest server.
+func newWorkClient(baseURL string, hc *http.Client, cfg WorkConfig) (*WorkClient, error) {
+	m := imageRefRE.FindStringSubmatch(cfg.Image)
+	if m == nil || strings.Contains(m[1], "//") || strings.Contains(m[1], "..") {
+		return nil, fmt.Errorf("work image %q must be a pinned repository@sha256:<64 hex> reference", cfg.Image)
+	}
+	if !instanceIDRE.MatchString(cfg.InstanceID) {
+		return nil, fmt.Errorf("work instance id %q is malformed", cfg.InstanceID)
+	}
+	if len(cfg.Entrypoint) == 0 || cfg.Entrypoint[0] == "" {
+		return nil, errors.New("work entrypoint is required")
+	}
+	l := cfg.Limits
+	if l.MaxInputBytes <= 0 || l.MaxInputTarBytes <= 0 || l.MaxInputFiles <= 0 || l.MaxInputPathBytes <= 0 || l.LogMaxBytes <= 0 || l.MaxStdoutBytes < l.LogMaxBytes {
+		return nil, errors.New("work transfer limits must be positive and MaxStdoutBytes at least LogMaxBytes")
+	}
+	if len(cfg.AllowedEnvKeys) == 0 {
+		return nil, errors.New("work AllowedEnvKeys is required")
+	}
+	if err := validateEnv(cfg.Env, cfg.AllowedEnvKeys); err != nil {
+		return nil, err
+	}
+	if cfg.OpTimeout <= 0 {
+		cfg.OpTimeout = defaultOpTimeout
+	}
+	if cfg.PullTimeout <= 0 {
+		cfg.PullTimeout = defaultPullTimeout
+	}
+	if cfg.TransferTimeout <= 0 {
+		cfg.TransferTimeout = defaultTransferTimeout
+	}
+	if cfg.CleanupTimeout <= 0 {
+		cfg.CleanupTimeout = defaultCleanupTimeout
+	}
+	c := &WorkClient{
+		httpClient: hc, baseURL: baseURL, cfg: cfg,
+		repo: m[1], digest: m[2], log: cfg.Log,
+		owned: map[string]*ownedContainer{},
+	}
+	if c.log == nil {
+		c.log = slog.Default()
+	}
+	return c, nil
+}
+
+// workOp is one fully specified Engine API request.
+type workOp struct {
+	method      string
+	path        string
+	query       url.Values
+	contentType string
+	body        []byte
+}
+
+func (o workOp) String() string { return o.method + " " + o.path }
+
+func containerPath(id, suffix string) string {
+	return "/containers/" + url.PathEscape(id) + suffix
+}
+
+func imageInspectOp(ref string) workOp {
+	// ref is validated against imageRefRE by the constructor, so it is kept
+	// unescaped: the daemon routes "/images/{name:.*}/json" on the raw path.
+	return workOp{method: http.MethodGet, path: "/images/" + ref + "/json"}
+}
+
+func imageCreateOp(repo, digest string) workOp {
+	return workOp{method: http.MethodPost, path: "/images/create",
+		query: url.Values{"fromImage": {repo}, "tag": {digest}}}
+}
+
+func containerCreateOp(name string, body []byte) workOp {
+	return workOp{method: http.MethodPost, path: "/containers/create",
+		query: url.Values{"name": {name}}, contentType: "application/json", body: body}
+}
+
+func startOp(id string) workOp {
+	return workOp{method: http.MethodPost, path: containerPath(id, "/start")}
+}
+
+func putArchiveOp(id string, tarBytes []byte) workOp {
+	return workOp{method: http.MethodPut, path: containerPath(id, "/archive"),
+		query: url.Values{"path": {"/"}}, contentType: "application/x-tar", body: tarBytes}
+}
+
+func waitOp(id string) workOp {
+	return workOp{method: http.MethodPost, path: containerPath(id, "/wait"),
+		query: url.Values{"condition": {"not-running"}}}
+}
+
+func logsOp(id string) workOp {
+	return workOp{method: http.MethodGet, path: containerPath(id, "/logs"),
+		query: url.Values{"stdout": {"1"}, "stderr": {"0"}}}
+}
+
+func killOp(id string) workOp {
+	return workOp{method: http.MethodPost, path: containerPath(id, "/kill")}
+}
+
+func deleteOp(id string) workOp {
+	return workOp{method: http.MethodDelete, path: containerPath(id, ""),
+		query: url.Values{"force": {"true"}, "v": {"true"}}}
+}
+
+func containerInspectOp(id string) workOp {
+	return workOp{method: http.MethodGet, path: containerPath(id, "/json")}
+}
+
+// containerInspectByNameOp reads a container by its deterministic name; name
+// is always built by containerName from a validated job id.
+func containerInspectByNameOp(name string) workOp {
+	return workOp{method: http.MethodGet, path: containerPath(name, "/json")}
+}
+
+func listWorkOp(instanceID string) workOp {
+	f, _ := json.Marshal(map[string][]string{"label": {labelWork + "=1", labelInstance + "=" + instanceID}})
+	return workOp{method: http.MethodGet, path: "/containers/json",
+		query: url.Values{"all": {"true"}, "filters": {string(f)}}}
+}
+
+// do sends op and returns the response; the caller closes the body. The
+// status is not interpreted here.
+func (c *WorkClient) do(ctx context.Context, op workOp) (*http.Response, error) {
+	u := c.baseURL + op.path
+	if len(op.query) > 0 {
+		u += "?" + op.query.Encode()
+	}
+	var body io.Reader
+	if op.body != nil {
+		body = bytes.NewReader(op.body)
+	}
+	req, err := http.NewRequestWithContext(ctx, op.method, u, body)
+	if err != nil {
+		return nil, fmt.Errorf("build request %s: %w", op, err)
+	}
+	if op.contentType != "" {
+		req.Header.Set("Content-Type", op.contentType)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	return resp, nil
+}
+
+// statusError is returned for an unexpected HTTP status.
+type statusError struct {
+	op     workOp
+	status int
+	body   string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("%s: status %d: %s", e.op, e.status, e.body)
+}
+
+func hasStatus(err error, status int) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.status == status
+}
+
+// call sends op, requires one of the wanted statuses, and decodes the JSON
+// body into out when out is non-nil.
+func (c *WorkClient) call(ctx context.Context, op workOp, out any, want ...int) error {
+	resp, err := c.do(ctx, op)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	ok := false
+	for _, w := range want {
+		ok = ok || resp.StatusCode == w
+	}
+	if !ok {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return &statusError{op: op, status: resp.StatusCode, body: strings.TrimSpace(string(b))}
+	}
+	if out == nil {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		return nil
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(out); err != nil {
+		return fmt.Errorf("decode %s: %w", op, err)
+	}
+	return nil
+}
+
+func (c *WorkClient) withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, d)
+}
+
+// normalizeRepo drops the implicit Docker Hub prefixes so a RepoDigests entry
+// compares equal to a familiar-form reference.
+func normalizeRepoDigest(s string) string {
+	for _, p := range []string{"index.docker.io/library/", "docker.io/library/", "index.docker.io/", "docker.io/"} {
+		if strings.HasPrefix(s, p) {
+			return strings.TrimPrefix(s, p)
+		}
+	}
+	return s
+}
+
+type imageInspect struct {
+	ID          string   `json:"Id"`
+	RepoDigests []string `json:"RepoDigests"`
+}
+
+// checkImage reports whether the local image store holds the pinned image.
+// A missing image is (false, nil). The image counts as present only when its
+// RepoDigests contain the pinned reference: with the containerd image store
+// Id is the index digest, so Id alone is not compared.
+func (c *WorkClient) checkImage(ctx context.Context) (bool, error) {
+	ctx, cancel := c.withTimeout(ctx, c.cfg.OpTimeout)
+	defer cancel()
+	var img imageInspect
+	if err := c.call(ctx, imageInspectOp(c.cfg.Image), &img, http.StatusOK); err != nil {
+		if hasStatus(err, http.StatusNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect work image: %w", err)
+	}
+	for _, d := range img.RepoDigests {
+		if normalizeRepoDigest(d) == c.cfg.Image {
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("work image %s is present but its repo digests %v do not include the pinned reference", c.cfg.Image, img.RepoDigests)
+}
+
+// pullMessage is one JSON line of the /images/create progress stream.
+type pullMessage struct {
+	Error       string `json:"error"`
+	ErrorDetail *struct {
+		Message string `json:"message"`
+	} `json:"errorDetail"`
+}
+
+func (c *WorkClient) pullImage(ctx context.Context) error {
+	ctx, cancel := c.withTimeout(ctx, c.cfg.PullTimeout)
+	defer cancel()
+	op := imageCreateOp(c.repo, c.digest)
+	resp, err := c.do(ctx, op)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return &statusError{op: op, status: resp.StatusCode, body: strings.TrimSpace(string(b))}
+	}
+	// The daemon answers 200 and reports a failure as a line in the stream.
+	dec := json.NewDecoder(io.LimitReader(resp.Body, 64<<20))
+	for {
+		var m pullMessage
+		if err := dec.Decode(&m); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("read pull progress: %w", err)
+		}
+		if m.Error != "" || m.ErrorDetail != nil {
+			msg := m.Error
+			if msg == "" && m.ErrorDetail != nil {
+				msg = m.ErrorDetail.Message
+			}
+			return fmt.Errorf("pull %s: %s", c.cfg.Image, msg)
+		}
+	}
+}
+
+// EnsureImage makes the pinned work image available locally, pulling it only
+// when it is absent, and verifies it afterwards. A failed pull is an error;
+// there is no fallback.
+func (c *WorkClient) EnsureImage(ctx context.Context) error {
+	ok, err := c.checkImage(ctx)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if err := c.pullImage(ctx); err != nil {
+		return err
+	}
+	ok, err = c.checkImage(ctx)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("work image %s is still missing after pull", c.cfg.Image)
+	}
+	return nil
+}

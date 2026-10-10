@@ -6,7 +6,13 @@ RUN go mod download
 COPY . .
 # -tags timetzdata embeds the IANA timezone database in the binary so daily_at is
 # interpreted in TZ (e.g. Asia/Tokyo) even on base images without tzdata.
-RUN CGO_ENABLED=0 go build -trimpath -tags timetzdata -ldflags="-s -w" -o /out/kestrelynx ./cmd/kestrelynx
+# WORKER_IMAGE is the work image (repository@sha256:digest) this build is
+# released with; it is linked in as the default work image reference and is
+# empty in a build that does not pin one.
+ARG WORKER_IMAGE=""
+RUN CGO_ENABLED=0 go build -trimpath -tags timetzdata \
+    -ldflags="-s -w -X github.com/kitsunetrail/kestrelynx/internal/worker.DefaultImage=${WORKER_IMAGE}" \
+    -o /out/kestrelynx ./cmd/kestrelynx
 
 # Final image is the official Trivy image (Trivy + its DB tooling already on PATH),
 # so KestreLynx shells out to a pinned trivy version (ADR-002). It is Alpine-based.
