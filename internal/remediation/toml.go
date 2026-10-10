@@ -3,6 +3,7 @@ package remediation
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ func parseTOML(data []byte) (map[string]any, error) {
 	if !utf8.Valid(data) {
 		return nil, errors.New("toml: not valid UTF-8")
 	}
-	p := &tomlParser{src: string(data), line: 1, headers: map[string]bool{}, dotted: map[string]bool{}}
+	p := &tomlParser{src: string(data), line: 1, headers: map[uintptr]bool{}, dotted: map[uintptr]bool{}}
 	p.src = strings.TrimPrefix(p.src, "\xef\xbb\xbf")
 	root := map[string]any{}
 	if err := p.document(root); err != nil {
@@ -70,10 +71,12 @@ type tomlParser struct {
 	pos  int
 	line int
 	// headers are the tables named by a [header]; dotted are the tables made
-	// by a dotted key. Both are by canonical path, and a table can be defined
-	// in only one of the two ways, once.
-	headers map[string]bool
-	dotted  map[string]bool
+	// by a dotted key. Both are by the identity of the table (its address), not
+	// by a path built from its names, so that a long table name is not copied
+	// for every key below it. A table can be defined in only one of the two
+	// ways, once.
+	headers map[uintptr]bool
+	dotted  map[uintptr]bool
 	inlines int
 	depth   int // current nesting of arrays and inline tables
 }
@@ -83,6 +86,12 @@ type tomlParser struct {
 // stay far below it; the bound keeps hostile input from exhausting the stack
 // in the parser or in the conversion that follows.
 const maxTOMLDepth = 32
+
+// tableID is the identity of a table.
+func tableID(m map[string]any) uintptr { return reflect.ValueOf(m).Pointer() }
+
+// maxTOMLKeyBytes bounds one part of a key or table name.
+const maxTOMLKeyBytes = 1024
 
 func (p *tomlParser) eof() bool { return p.pos >= len(p.src) }
 
@@ -163,7 +172,7 @@ func (p *tomlParser) endOfLine() error {
 }
 
 func (p *tomlParser) document(root map[string]any) error {
-	cur, curKey := root, ""
+	cur := root
 	for {
 		if err := p.skipBlank(); err != nil {
 			return err
@@ -178,7 +187,7 @@ func (p *tomlParser) document(root map[string]any) error {
 			if err != nil {
 				return err
 			}
-			if cur, curKey, err = p.appendTable(root, path); err != nil {
+			if cur, err = p.appendTable(root, path); err != nil {
 				return err
 			}
 		case p.peek() == '[':
@@ -187,7 +196,7 @@ func (p *tomlParser) document(root map[string]any) error {
 			if err != nil {
 				return err
 			}
-			if cur, curKey, err = p.openHeader(root, path); err != nil {
+			if cur, err = p.openHeader(root, path); err != nil {
 				return err
 			}
 		default:
@@ -199,7 +208,7 @@ func (p *tomlParser) document(root map[string]any) error {
 			if err != nil {
 				return err
 			}
-			if err := p.set(cur, curKey, path, v); err != nil {
+			if err := p.set(cur, path, v); err != nil {
 				return err
 			}
 		}
@@ -217,6 +226,9 @@ func (p *tomlParser) keyPath(closer string) ([]string, error) {
 		k, err := p.key()
 		if err != nil {
 			return nil, err
+		}
+		if len(k) > maxTOMLKeyBytes {
+			return nil, fmt.Errorf("a key is longer than %d bytes", maxTOMLKeyBytes)
 		}
 		if path = append(path, k); len(path) > maxTOMLDepth {
 			return nil, fmt.Errorf("a key has more than %d parts", maxTOMLDepth)
@@ -384,7 +396,6 @@ func (p *tomlParser) inlineTable() (any, error) {
 	p.pos++ // {
 	out := inlineTable{}
 	p.inlines++
-	scope := fmt.Sprintf("\x01inline%d", p.inlines)
 	p.skipSpace()
 	if p.peek() == '}' {
 		p.pos++
@@ -400,7 +411,7 @@ func (p *tomlParser) inlineTable() (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := p.set(out, scope, path, v); err != nil {
+		if err := p.set(out, path, v); err != nil {
 			return nil, err
 		}
 		p.skipSpace()
@@ -573,22 +584,20 @@ func tableOf(v any) (map[string]any, bool) {
 	return m, ok
 }
 
-// set stores v at the dotted path below t, whose canonical path is prefix. A
-// key set twice is an error, and so is a dotted key that goes through a table
-// defined any other way.
-func (p *tomlParser) set(t map[string]any, prefix string, path []string, v any) error {
+// set stores v at the dotted path below t. A key set twice is an error, and
+// so is a dotted key that goes through a table defined any other way.
+func (p *tomlParser) set(t map[string]any, path []string, v any) error {
 	for _, k := range path[:len(path)-1] {
-		prefix += "\x00" + k
 		sub, ok := t[k]
 		if !ok {
 			m := map[string]any{}
 			t[k] = m
-			p.dotted[prefix] = true
+			p.dotted[tableID(m)] = true
 			t = m
 			continue
 		}
 		m, isTable := tableOf(sub)
-		if !isTable || !p.dotted[prefix] {
+		if !isTable || !p.dotted[tableID(m)] {
 			return fmt.Errorf("key %q cannot be extended here", k)
 		}
 		t = m
@@ -602,12 +611,10 @@ func (p *tomlParser) set(t map[string]any, prefix string, path []string, v any) 
 }
 
 // walk returns the table at path, creating missing ones as implicit tables;
-// an array of tables on the way continues in its last element. key is the
-// canonical path.
-func (p *tomlParser) walk(root map[string]any, path []string) (map[string]any, string, error) {
-	t, key := root, ""
+// an array of tables on the way continues in its last element.
+func (p *tomlParser) walk(root map[string]any, path []string) (map[string]any, error) {
+	t := root
 	for _, k := range path {
-		key += "\x00" + k
 		sub, ok := t[k]
 		if !ok {
 			m := map[string]any{}
@@ -619,27 +626,24 @@ func (p *tomlParser) walk(root map[string]any, path []string) (map[string]any, s
 		case map[string]any:
 			t = s
 		case *tableArray:
-			last := len(s.items) - 1
-			key += fmt.Sprintf("[%d]", last)
-			t = s.items[last]
+			t = s.items[len(s.items)-1]
 		default:
-			return nil, "", fmt.Errorf("key %q is not a table", k)
+			return nil, fmt.Errorf("key %q is not a table", k)
 		}
 	}
-	return t, key, nil
+	return t, nil
 }
 
 // openHeader opens the table a [header] names. A table can be named by a
 // header once, and not if a dotted key already made it. An array of tables
 // is never redefined as a table, though a header may go through one to reach
 // a sub-table of its last element.
-func (p *tomlParser) openHeader(root map[string]any, path []string) (map[string]any, string, error) {
-	parent, pkey, err := p.walk(root, path[:len(path)-1])
+func (p *tomlParser) openHeader(root map[string]any, path []string) (map[string]any, error) {
+	parent, err := p.walk(root, path[:len(path)-1])
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	last := path[len(path)-1]
-	key := pkey + "\x00" + last
 	var t map[string]any
 	switch sub := parent[last].(type) {
 	case nil:
@@ -648,22 +652,23 @@ func (p *tomlParser) openHeader(root map[string]any, path []string) (map[string]
 	case map[string]any:
 		t = sub
 	case *tableArray:
-		return nil, "", fmt.Errorf("%q is an array of tables and cannot be defined as a table", strings.Join(path, "."))
+		return nil, fmt.Errorf("%q is an array of tables and cannot be defined as a table", strings.Join(path, "."))
 	default:
-		return nil, "", fmt.Errorf("key %q is not a table", last)
+		return nil, fmt.Errorf("key %q is not a table", last)
 	}
-	if p.headers[key] || p.dotted[key] {
-		return nil, "", fmt.Errorf("table %q is defined twice", strings.Join(path, "."))
+	id := tableID(t)
+	if p.headers[id] || p.dotted[id] {
+		return nil, fmt.Errorf("table %q is defined twice", strings.Join(path, "."))
 	}
-	p.headers[key] = true
-	return t, key, nil
+	p.headers[id] = true
+	return t, nil
 }
 
 // appendTable adds a table to the array of tables a [[header]] names.
-func (p *tomlParser) appendTable(root map[string]any, path []string) (map[string]any, string, error) {
-	parent, pkey, err := p.walk(root, path[:len(path)-1])
+func (p *tomlParser) appendTable(root map[string]any, path []string) (map[string]any, error) {
+	parent, err := p.walk(root, path[:len(path)-1])
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	last := path[len(path)-1]
 	m := map[string]any{}
@@ -673,8 +678,7 @@ func (p *tomlParser) appendTable(root map[string]any, path []string) (map[string
 	case *tableArray:
 		existing.items = append(existing.items, m)
 	default:
-		return nil, "", fmt.Errorf("key %q is not an array of tables", last)
+		return nil, fmt.Errorf("key %q is not an array of tables", last)
 	}
-	ta := parent[last].(*tableArray)
-	return m, fmt.Sprintf("%s\x00%s[%d]", pkey, last, len(ta.items)-1), nil
+	return m, nil
 }

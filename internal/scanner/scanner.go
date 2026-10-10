@@ -137,6 +137,10 @@ const (
 type ImageScan struct {
 	Image    string
 	OSFamily string
+	// OSName is Metadata.OS.Name verbatim: the OS release the family is at
+	// ("12.5" for Debian, "22.04" for Ubuntu, "3.19.1" for Alpine); empty when
+	// the report carried none.
+	OSName   string
 	OSEOSL   bool // base OS is end-of-life: no more security updates
 	Findings []Finding
 	Err      error
@@ -219,6 +223,7 @@ type trivyReport struct {
 	Metadata struct {
 		OS struct {
 			Family string `json:"Family"`
+			Name   string `json:"Name"`
 			EOSL   bool   `json:"EOSL"`
 		} `json:"OS"`
 		ImageID     string   `json:"ImageID"`
@@ -282,6 +287,7 @@ func ParseReport(data []byte) (ImageScan, error) {
 	scan := ImageScan{
 		Image:           r.ArtifactName,
 		OSFamily:        r.Metadata.OS.Family,
+		OSName:          r.Metadata.OS.Name,
 		OSEOSL:          r.Metadata.OS.EOSL,
 		TrivyVersion:    r.Trivy.Version,
 		DiffIDs:         diffIDs,

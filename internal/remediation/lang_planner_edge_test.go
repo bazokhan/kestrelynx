@@ -149,10 +149,11 @@ func TestParseUvRevisionDynamicAndTypes(t *testing.T) {
 		lock      string
 		reason    Reason
 	}{
-		{"revision 2", uvPyproject, strings.Replace(uvLock, "revision = 3", "revision = 2", 1), ReasonUnsupportedLockfile},
-		{"revision 4", uvPyproject, strings.Replace(uvLock, "revision = 3", "revision = 4", 1), ReasonUnsupportedLockfile},
-		{"no revision", uvPyproject, strings.Replace(uvLock, "revision = 3\n", "", 1), ReasonUnsupportedLockfile},
-		{"revision is a string", uvPyproject, strings.Replace(uvLock, "revision = 3", `revision = "3"`, 1), ReasonUnsupportedLockfile},
+		{"revision 3 would be migrated by the work image", uvPyproject, strings.Replace(uvLock, "revision = 5", "revision = 3", 1), ReasonUnsupportedLockfile},
+		{"revision 2", uvPyproject, strings.Replace(uvLock, "revision = 5", "revision = 2", 1), ReasonUnsupportedLockfile},
+		{"revision 4", uvPyproject, strings.Replace(uvLock, "revision = 5", "revision = 4", 1), ReasonUnsupportedLockfile},
+		{"no revision", uvPyproject, strings.Replace(uvLock, "revision = 5\n", "", 1), ReasonUnsupportedLockfile},
+		{"revision is a string", uvPyproject, strings.Replace(uvLock, "revision = 5", `revision = "5"`, 1), ReasonUnsupportedLockfile},
 		{"dynamic version", strings.Replace(uvPyproject, `version = "0.1.0"`, `dynamic = ["version"]`, 1), uvLock, ReasonDynamicMetadata},
 		{"dynamic anything", strings.Replace(uvPyproject, `version = "0.1.0"`, `dynamic = ["readme"]`, 1), uvLock, ReasonDynamicMetadata},
 		{"dynamic is not a list", strings.Replace(uvPyproject, `version = "0.1.0"`, `dynamic = "version"`, 1), uvLock, ReasonDynamicMetadata},

@@ -265,7 +265,7 @@ dev = ["pytest"]
 `
 
 const uvLock = `version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]

@@ -251,6 +251,9 @@ func pySatisfies(v pyVersion, constraint string) (ok, evaluable bool) {
 	if constraint == "" {
 		return true, true
 	}
+	if len(constraint) > maxSpecifierBytes || strings.Count(constraint, ",") >= maxSpecifierClauses {
+		return false, false
+	}
 	ok = true
 	for _, clause := range strings.Split(constraint, ",") {
 		cl, _, valid := parseSpecifierClause(clause)

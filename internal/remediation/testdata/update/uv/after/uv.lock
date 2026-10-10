@@ -1,0 +1,23 @@
+version = 1
+revision = 5
+requires-python = ">=3.9"
+
+[[package]]
+name = "fixture-uv"
+version = "1.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "urllib3" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "urllib3", specifier = ">=1.26,<2" }]
+
+[[package]]
+name = "urllib3"
+version = "1.26.17"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/19/9e5c8b813a8bddbfb035fa2b0c29077836ae7c4def1a55ae4632167b3511/urllib3-1.26.17.tar.gz", hash = "sha256:24d6a242c28d29af46c3fae832c36db3bbebcc533dd1bb549172cd739c82df21", size = 305031, upload-time = "2023-10-02T17:22:30.961Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/fe/a5c6cc46e9fe9171d7ecf0f33ee7aae14642f8d74baa7af4d7840f9358be/urllib3-1.26.17-py2.py3-none-any.whl", hash = "sha256:94a757d178c9be92ef5539b8840d48dc9cf1b2709c9d6b588232a055c524458b", size = 143431, upload-time = "2023-10-02T17:22:28.101Z" },
+]

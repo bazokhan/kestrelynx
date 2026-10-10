@@ -85,6 +85,7 @@ var planCountOrder = []remediation.Category{
 
 // planLanguageOrder is the order of the language summary of the webhook.
 var planLanguageOrder = []remediation.Category{
+	remediation.CategoryPRCandidate,
 	remediation.CategoryDependencyUpdateCandidate,
 	remediation.CategoryRebuildExpected,
 	remediation.CategoryManual,

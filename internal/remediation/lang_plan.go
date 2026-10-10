@@ -233,8 +233,9 @@ type LanguagePackage struct {
 	// vulnerability, taken from the reported fixes. It is where candidate
 	// selection starts, not a version anything was updated to.
 	SelectionLowerBound string `json:"selection_lower_bound,omitempty"`
-	// AdoptedVersion is the version an update actually resolved to. Nothing
-	// is run in a plan, so it is never set here.
+	// AdoptedVersion is the version an update actually resolved to: the
+	// lowest version of the package the updated files hold. Nothing is run in
+	// a plan, so only the update stage sets it.
 	AdoptedVersion string             `json:"adopted_version,omitempty"`
 	Relation       Relation           `json:"relation,omitempty"`
 	Occurrences    []SourceOccurrence `json:"occurrences,omitempty"`
@@ -272,11 +273,23 @@ type LanguageItem struct {
 	Source   SourceRecord      `json:"source"`
 	Packages []LanguagePackage `json:"packages,omitempty"`
 
-	// UpdateExecuted and PostUpdateCheckExecuted are false in a plan: no
-	// package manager was run and no result was inspected, so a candidate
-	// shows what the files list, not what an update would produce.
+	// UpdateExecuted and PostUpdateCheckExecuted are false in a plan the
+	// update stage has not handled: no package manager was run and no result
+	// was inspected, so a candidate shows what the files list, not what an
+	// update would produce. The update stage sets UpdateExecuted when the
+	// update step ran to the end, and PostUpdateCheckExecuted when it got the
+	// result of the job and inspected it (the inspection may have rejected
+	// it).
 	UpdateExecuted          bool `json:"update_executed"`
 	PostUpdateCheckExecuted bool `json:"post_update_check_executed"`
+
+	// The following are set by the update stage. Artifacts are the files to
+	// write for a pr_candidate (their content is not part of the stored
+	// plan), Update records the run and SourceCheck the filesystem check of
+	// the dependency files before and after.
+	Artifacts   []ArtifactFile  `json:"artifacts,omitempty"`
+	Update      *LanguageUpdate `json:"update,omitempty"`
+	SourceCheck *SourceCheck    `json:"source_check,omitempty"`
 }
 
 // Count returns how many of the item's packages have action a.

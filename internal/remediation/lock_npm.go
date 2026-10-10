@@ -2,6 +2,7 @@ package remediation
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"sort"
 	"strings"
@@ -24,17 +25,14 @@ func parseNpm(manifest, lock []byte) (*lockfile, error) {
 		return nil, unsupported(ReasonWorkspaceUnsupported, "package.json declares workspaces")
 	}
 
-	var doc struct {
-		LockfileVersion int                `json:"lockfileVersion"`
-		Packages        map[string]npmPack `json:"packages"`
+	doc, err := readNpmLock(lock)
+	if err != nil {
+		return nil, unsupported(ReasonUnparsableSource, "%v", err)
 	}
-	if err := json.Unmarshal(lock, &doc); err != nil {
-		return nil, unsupported(ReasonUnparsableSource, "package-lock.json cannot be read: %v", err)
+	if doc.version != 2 && doc.version != 3 {
+		return nil, unsupported(ReasonUnsupportedLockfile, "package-lock.json has lockfileVersion %d; only 2 and 3 are read", doc.version)
 	}
-	if doc.LockfileVersion != 2 && doc.LockfileVersion != 3 {
-		return nil, unsupported(ReasonUnsupportedLockfile, "package-lock.json has lockfileVersion %d; only 2 and 3 are read", doc.LockfileVersion)
-	}
-	root, ok := doc.Packages[""]
+	root, ok := doc.entries[""]
 	if !ok {
 		return nil, unsupported(ReasonUnsupportedLockfile, "package-lock.json has no root entry in its packages map")
 	}
@@ -46,8 +44,8 @@ func parseNpm(manifest, lock []byte) (*lockfile, error) {
 		}
 	}
 
-	keys := make([]string, 0, len(doc.Packages))
-	for k := range doc.Packages {
+	keys := make([]string, 0, len(doc.entries))
+	for k := range doc.entries {
 		if k == "" {
 			continue
 		}
@@ -59,9 +57,14 @@ func parseNpm(manifest, lock []byte) (*lockfile, error) {
 	}
 	sort.Strings(keys)
 
+	bundles := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		bundles[k] = entryBundlesAnything(doc.entries[k].m)
+	}
+
 	l := newLockfile(ManagerNpm)
 	for _, k := range keys {
-		e := doc.Packages[k]
+		e := doc.entries[k]
 		name := k[strings.LastIndex(k, npmModules)+len(npmModules):]
 		if name == "" {
 			return nil, unsupported(ReasonUnparsableSource, "package-lock.json has the entry %q without a package name", k)
@@ -79,24 +82,24 @@ func parseNpm(manifest, lock []byte) (*lockfile, error) {
 				o.ManualReason, o.Detail = ReasonNonRegistrySource, why
 			}
 		}
+		if o.ManualReason == "" {
+			// A package bundled in another one is taken from that package's
+			// tarball, not fetched from the registry by itself.
+			if why := npmBundledProblem(bundles, k, e); why != "" {
+				o.ManualReason, o.Detail = ReasonNonRegistrySource, why
+			}
+		}
 		l.add(name, o)
 	}
 
-	for _, n := range overrideNames(pj.overrides) {
+	names, err := overrideNames(pj.overrides)
+	if err != nil {
+		return nil, unsupported(ReasonUnparsableSource, "%v", err)
+	}
+	for _, n := range names {
 		l.force(n, "package.json overrides it")
 	}
 	return l.finish(), nil
-}
-
-type npmPack struct {
-	Name                 string            `json:"name"`
-	Version              string            `json:"version"`
-	Resolved             string            `json:"resolved"`
-	Link                 bool              `json:"link"`
-	Dependencies         map[string]string `json:"dependencies"`
-	DevDependencies      map[string]string `json:"devDependencies"`
-	OptionalDependencies map[string]string `json:"optionalDependencies"`
-	PeerDependencies     map[string]string `json:"peerDependencies"`
 }
 
 // npmSourceProblem returns why a resolved URL is not the public registry, or
@@ -115,25 +118,57 @@ func npmSourceProblem(resolved string) string {
 	return ""
 }
 
+// Bounds on a package.json "overrides" object; the planner call has no
+// context, so depth and node count are the only limits.
+const (
+	maxOverrideDepth = 32
+	maxOverrideNodes = 100000
+)
+
 // overrideNames lists the package names an npm "overrides" object touches,
-// at any depth. A key may carry a range (name@range).
-func overrideNames(raw json.RawMessage) []string {
+// at any depth. A key may carry a range (name@range). The object is decoded
+// once and walked once; a nesting or size over the limits is an error.
+func overrideNames(raw json.RawMessage) ([]string, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, nil
 	}
-	var out []string
-	for k, v := range m {
-		if k != "." {
-			out = append(out, nameWithoutRange(k))
+	seen := map[string]bool{}
+	nodes := 0
+	type frame struct {
+		v     any
+		depth int
+	}
+	stack := []frame{{doc, 1}}
+	for len(stack) > 0 {
+		f := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		m, ok := f.v.(map[string]any)
+		if !ok {
+			continue
 		}
-		out = append(out, overrideNames(v)...)
+		if f.depth > maxOverrideDepth {
+			return nil, fmt.Errorf("package.json overrides nest over %d levels", maxOverrideDepth)
+		}
+		for k, v := range m {
+			if nodes++; nodes > maxOverrideNodes {
+				return nil, fmt.Errorf("package.json overrides hold over %d entries", maxOverrideNodes)
+			}
+			if k != "." {
+				seen[nameWithoutRange(k)] = true
+			}
+			stack = append(stack, frame{v, f.depth + 1})
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // nameWithoutRange strips an "@range" suffix from a package name; a leading
@@ -158,8 +193,8 @@ var manifestDepFields = []string{"dependencies", "devDependencies", "optionalDep
 // null or anything else, and each dependency field present must be an object
 // of string versions; a manifest that is not shaped like that is not read.
 func readManifest(data []byte) (*manifest, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(data, &top); err != nil {
+	top, err := strictObject(data)
+	if err != nil {
 		return nil, unsupported(ReasonUnparsableSource, "package.json cannot be read: %v", err)
 	}
 	if top == nil {
@@ -172,8 +207,8 @@ func readManifest(data []byte) (*manifest, error) {
 		if !ok {
 			continue
 		}
-		var vals map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &vals); err != nil || vals == nil {
+		vals, err := nameMap(raw)
+		if err != nil || vals == nil {
 			return nil, unsupported(ReasonUnparsableSource, "package.json field %s is not an object of version strings", f)
 		}
 		deps := make(map[string]string, len(vals))
@@ -189,4 +224,25 @@ func readManifest(data []byte) (*manifest, error) {
 		m.deps[f] = deps
 	}
 	return m, nil
+}
+
+// npmBundledProblem returns why the entry at path k is, or may be, installed
+// from the tarball of a package, or "" when it is not: the entry says inBundle,
+// it bundles something itself, or a package it is nested in bundles something
+// (see entryBundlesAnything for why the names listed are not consulted).
+// bundles holds, for the paths of the file, whether the entry bundles
+// anything, and is filled once for the file.
+func npmBundledProblem(bundles map[string]bool, k string, e npmGraphEntry) string {
+	if b, err := optBool(e.m, "inBundle"); err != nil || b {
+		return "bundled in another package"
+	}
+	if bundles[k] {
+		return "bundles dependencies itself"
+	}
+	for _, anc := range npmAncestors(k) {
+		if bundles[anc] {
+			return "nested in " + clip(anc, 100) + ", which bundles dependencies"
+		}
+	}
+	return ""
 }

@@ -2,8 +2,6 @@ package remediation
 
 import (
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // parsePnpm reads pnpm-lock.yaml (lockfileVersion '9.0') of a single project
@@ -17,34 +15,34 @@ func parsePnpm(manifest, lock []byte) (*lockfile, error) {
 	if pj.workspaces {
 		return nil, unsupported(ReasonWorkspaceUnsupported, "package.json declares workspaces")
 	}
-	var doc struct {
-		LockfileVersion     yaml.Node               `yaml:"lockfileVersion"`
-		Importers           map[string]pnpmImporter `yaml:"importers"`
-		Packages            map[string]pnpmPackage  `yaml:"packages"`
-		Snapshots           map[string]yaml.Node    `yaml:"snapshots"`
-		Overrides           map[string]yaml.Node    `yaml:"overrides"`
-		Catalogs            yaml.Node               `yaml:"catalogs"`
-		PatchedDependencies map[string]yaml.Node    `yaml:"patchedDependencies"`
-	}
-	if err := yaml.Unmarshal(lock, &doc); err != nil {
+	doc, err := readPnpmLock(lock)
+	if err != nil {
 		return nil, unsupported(ReasonUnparsableSource, "pnpm-lock.yaml cannot be read: %v", err)
 	}
-	if doc.LockfileVersion.Kind != yaml.ScalarNode || doc.LockfileVersion.Value != "9.0" {
-		return nil, unsupported(ReasonUnsupportedLockfile, "pnpm-lock.yaml has lockfileVersion %q; only '9.0' is read", doc.LockfileVersion.Value)
+	if !doc.versionIsScalar || doc.versionText != "9.0" {
+		return nil, unsupported(ReasonUnsupportedLockfile, "pnpm-lock.yaml has lockfileVersion %q; only '9.0' is read", doc.versionText)
 	}
-	if len(doc.Importers) != 1 {
-		return nil, unsupported(ReasonWorkspaceUnsupported, "pnpm-lock.yaml has %d importers; only the single importer \".\" is read", len(doc.Importers))
+	importers := gmap(doc.top["importers"])
+	if len(importers) != 1 {
+		return nil, unsupported(ReasonWorkspaceUnsupported, "pnpm-lock.yaml has %d importers; only the single importer \".\" is read", len(importers))
 	}
-	imp, ok := doc.Importers["."]
+	rawImp, ok := importers["."]
 	if !ok {
 		return nil, unsupported(ReasonWorkspaceUnsupported, "pnpm-lock.yaml has no importer \".\"")
 	}
-	if doc.Catalogs.Kind != 0 {
+	imp := pnpmImporterOf(gmap(rawImp))
+	if _, present := doc.top["catalogs"]; present {
 		return nil, unsupported(ReasonUnsupportedLockfile, "pnpm-lock.yaml uses catalogs")
 	}
-	if len(doc.PatchedDependencies) > 0 {
+	if len(gmap(doc.top["patchedDependencies"])) > 0 {
 		return nil, unsupported(ReasonUnsupportedLockfile, "pnpm-lock.yaml records patched dependencies")
 	}
+	packages := map[string]pnpmPackage{}
+	for k, v := range gmap(doc.top["packages"]) {
+		packages[k] = pnpmPackageOf(gmap(v))
+	}
+	snapshots := gmap(doc.top["snapshots"])
+	overrides := gmap(doc.top["overrides"])
 
 	if err := checkPnpmManifest(pj.deps["dependencies"], pj.deps["devDependencies"], pj.deps["optionalDependencies"], pj.deps["peerDependencies"], imp); err != nil {
 		return nil, err
@@ -69,20 +67,20 @@ func parsePnpm(manifest, lock []byte) (*lockfile, error) {
 	}
 
 	hasSnapshot := map[string]bool{}
-	for key := range doc.Snapshots {
+	for key := range snapshots {
 		base := pnpmBase(key)
 		name, ver, ok := splitPnpmKey(base)
 		if !ok {
 			return nil, unsupported(ReasonUnparsableSource, "pnpm-lock.yaml has the snapshot key %q", key)
 		}
-		pk, ok := doc.Packages[base]
+		pk, ok := packages[base]
 		if !ok {
 			return nil, unsupported(ReasonUnparsableSource, "pnpm-lock.yaml has the snapshot %q without a packages entry", key)
 		}
 		hasSnapshot[base] = true
 		l.add(name, pnpmOccurrence(key, ver, directKeys[key], pk))
 	}
-	for key, pk := range doc.Packages {
+	for key, pk := range packages {
 		if hasSnapshot[key] {
 			continue
 		}
@@ -93,7 +91,7 @@ func parsePnpm(manifest, lock []byte) (*lockfile, error) {
 		l.add(name, pnpmOccurrence(key, ver, directKeys[key], pk))
 	}
 
-	for k := range doc.Overrides {
+	for k := range overrides {
 		// Keys look like name, name@range or parent>name.
 		if i := strings.LastIndex(k, ">"); i >= 0 {
 			k = k[i+1:]
@@ -104,23 +102,47 @@ func parsePnpm(manifest, lock []byte) (*lockfile, error) {
 }
 
 type pnpmImporter struct {
-	Dependencies         map[string]pnpmDep `yaml:"dependencies"`
-	DevDependencies      map[string]pnpmDep `yaml:"devDependencies"`
-	OptionalDependencies map[string]pnpmDep `yaml:"optionalDependencies"`
+	Dependencies         map[string]pnpmDep
+	DevDependencies      map[string]pnpmDep
+	OptionalDependencies map[string]pnpmDep
 }
 
 type pnpmDep struct {
-	Specifier string `yaml:"specifier"`
-	Version   string `yaml:"version"`
+	Specifier string
+	Version   string
 }
 
 type pnpmPackage struct {
 	Resolution struct {
-		Integrity string `yaml:"integrity"`
-		Tarball   string `yaml:"tarball"`
-		Directory string `yaml:"directory"`
-		Type      string `yaml:"type"`
-	} `yaml:"resolution"`
+		Integrity string
+		Tarball   string
+		Directory string
+		Type      string
+	}
+}
+
+// gmap and gstr read a converted YAML value.
+func gmap(v any) map[string]any { m, _ := v.(map[string]any); return m }
+func gstr(v any) string         { s, _ := v.(string); return s }
+
+func pnpmImporterOf(m map[string]any) pnpmImporter {
+	deps := func(v any) map[string]pnpmDep {
+		out := map[string]pnpmDep{}
+		for name, d := range gmap(v) {
+			dm := gmap(d)
+			out[name] = pnpmDep{Specifier: gstr(dm["specifier"]), Version: gstr(dm["version"])}
+		}
+		return out
+	}
+	return pnpmImporter{Dependencies: deps(m["dependencies"]), DevDependencies: deps(m["devDependencies"]), OptionalDependencies: deps(m["optionalDependencies"])}
+}
+
+func pnpmPackageOf(m map[string]any) pnpmPackage {
+	var pk pnpmPackage
+	r := gmap(m["resolution"])
+	pk.Resolution.Integrity, pk.Resolution.Tarball = gstr(r["integrity"]), gstr(r["tarball"])
+	pk.Resolution.Directory, pk.Resolution.Type = gstr(r["directory"]), gstr(r["type"])
+	return pk
 }
 
 // pnpmBase drops the peer-context suffix of a snapshot key.
