@@ -1,6 +1,7 @@
 package remediation
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -79,10 +80,15 @@ type PRStageInput struct {
 	Plan       Plan
 	Containers []inventory.Container
 	Mappings   []ComposeMapping
+	// Repositories are further repositories to examine and, for their units,
+	// to write to: those the Dockerfile mappings name, which a Compose mapping
+	// need not share. A repository of a unit is always examined.
+	Repositories []string
 }
 
 // PRStage opens and tracks pull requests that update the image tag of
-// Compose services to an adopted candidate.
+// Compose services, and the base image tag of Dockerfiles, to an adopted
+// candidate. Both kinds share the stage's records, limits and writes.
 //
 // Every external write is preceded by a saved intent and followed by a saved
 // result, so a crash at any point leaves records from which the next cycle
@@ -389,13 +395,23 @@ func (rs *repoState) ours(pr github.PullRequest) bool {
 func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 	r := &prRun{s: s, ctx: ctx, byKey: map[string]*repoState{}}
 	units := buildComposeUnits(in.Plan, in.Containers, in.Mappings)
-	for _, m := range in.Mappings {
-		k := strings.ToLower(m.Repository)
+	units = append(units, buildDockerfileUnits(in.Plan)...)
+	addRepo := func(name string) {
+		k := strings.ToLower(name)
 		if r.byKey[k] == nil {
-			rs := &repoState{name: m.Repository, blockedTargets: map[string]string{}, resumable: map[string]bool{}}
+			rs := &repoState{name: name, blockedTargets: map[string]string{}, resumable: map[string]bool{}}
 			r.byKey[k] = rs
 			r.repos = append(r.repos, rs)
 		}
+	}
+	for _, m := range in.Mappings {
+		addRepo(m.Repository)
+	}
+	for _, name := range in.Repositories {
+		addRepo(name)
+	}
+	for _, u := range units {
+		addRepo(u.repo)
 	}
 
 	unlock, err := s.cfg.Store.Lock()
@@ -509,6 +525,9 @@ func unitView(u *composeUnit) PRUnit {
 		Key: u.key, Repo: u.repo, BaseBranch: u.baseBranch, Path: u.path,
 		Services: u.services, Locations: u.locations, Workloads: u.workloads, AlsoRunning: u.also,
 		Current: u.current,
+	}
+	if u.df != nil {
+		v.Kind = prKindDockerfile
 	}
 	if u.candidate != nil {
 		v.CandidateTag, v.CandidateDigest = u.candidate.Tag, u.candidate.TopDigest
@@ -668,7 +687,7 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		}
 		return v
 	}
-	c.targetKey = TargetKey(rs.info.ID, u.baseBranch, u.path, u.locations)
+	c.targetKey = TargetKeyOf(u.kind(), rs.info.ID, u.baseBranch, u.path, u.locations)
 	c.updateKey = UpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest)
 	v.TargetKey, v.UpdateKey = c.targetKey, c.updateKey
 
@@ -719,32 +738,42 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		r.readFailure(c, "resolve the base branch", err)
 		return
 	}
+	if u.df != nil && !r.dockerfileSourceUnchanged(c, base) {
+		return
+	}
 	file, err := r.s.cfg.Source.ReadFile(r.ctx, rs.name, base, u.path)
 	if err != nil {
 		var nr *github.NotRegularFileError
+		notFound, unusable, what := ReasonComposeFileNotFound, ReasonComposeFileUnusable, "read the Compose file"
+		if u.df != nil {
+			notFound, unusable, what = ReasonDockerfileFileNotFound, ReasonDockerfileFileUnusable, "read the Dockerfile"
+		}
 		switch {
 		case errors.Is(err, github.ErrNotFound):
-			c.set(PRStatusManual, ReasonComposeFileNotFound, err.Error())
+			c.set(PRStatusManual, notFound, err.Error())
 		case errors.As(err, &nr), errors.Is(err, github.ErrLFSPointer), errors.Is(err, github.ErrTooLarge):
-			c.set(PRStatusManual, ReasonComposeFileUnusable, err.Error())
+			c.set(PRStatusManual, unusable, err.Error())
 		default:
-			r.readFailure(c, "read the Compose file", err)
+			r.readFailure(c, what, err)
 		}
 		return
 	}
-	edit, prob := EditComposeImageTag(ComposeEditRequest{Content: file.Content, Services: u.services, Current: u.current, NewTag: u.candidate.Tag})
-	if prob != nil {
-		c.set(PRStatusManual, prob.Reason, prob.Error())
+	edited, change, ok := r.editSource(c, file.Content)
+	if !ok {
 		return
 	}
 	mode := file.Mode
 	if mode == "" {
 		mode = "100644"
 	}
-	newBlob := gitBlobSHA(edit.Content)
+	newBlob := gitBlobSHA(edited)
 	changes := []FileChange{{Path: u.path, Mode: mode, BlobSHA: newBlob}}
 	attemptKey := AttemptKey(c.updateKey, base, file.SHA, changes)
-	branch, err := BranchName(u.services, u.candidate.Tag, attemptKey)
+	branchName := BranchName
+	if u.df != nil {
+		branchName = DockerfileBranchName
+	}
+	branch, err := branchName(u.services, u.candidate.Tag, attemptKey)
 	if err != nil {
 		c.set(PRStatusFailed, ReasonGitHubError, err.Error())
 		return
@@ -818,7 +847,7 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 			AttemptKey: attemptKey, UpdateKey: c.updateKey, TargetKey: c.targetKey,
 			Repo: rs.name, RepoID: rs.info.ID, Branch: branch, BaseBranch: u.baseBranch, BaseSHA: base,
 			Path: u.path, Mode: mode, InputSHA: file.SHA, NewBlobSHA: newBlob, Status: AttemptIntent,
-			Services: u.services, Locations: u.locations, CurrentRef: u.current,
+			Services: u.services, Locations: u.locations, CurrentRef: u.current, Kind: recordedKind(u.kind()),
 			CandidateTag: u.candidate.Tag, CandidateDigest: u.candidate.TopDigest,
 			FixTargets: u.fixTargets(), Evidence: u.evidence(c.plan), CreatedAt: now, UpdatedAt: now,
 		}
@@ -828,13 +857,112 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 			*a = fresh
 		}
 		a = r.attempt(attemptKey)
-		if !r.buildCommit(c, a, baseCommit.Tree, edit.Content, recorded) {
+		if !r.buildCommit(c, a, baseCommit.Tree, edited, recorded) {
 			return
 		}
 	} else {
 		a.Evidence, a.FixTargets = u.evidence(c.plan), u.fixTargets()
 	}
-	r.openPull(c, a, imageRepo, edit.Changes)
+	r.openPull(c, a, imageRepo, change)
+}
+
+// maxMarkerWithLayers is the encoded size up to which a marker carries the
+// layers of its fix targets in full.
+const maxMarkerWithLayers = 20000
+
+// dockerfileSourceUnchanged checks, when the base branch is not at the commit
+// the plan was made from, that every file the plan read (the Dockerfile and
+// the Compose file its location was derived from or that showed the service has
+// no build section) still has the blob it had there. If one differs or is gone, the build section, the stage or the
+// platform may have changed since the comparison, so nothing is edited and the
+// next cycle plans again. ok is false after the unit's status was set.
+func (r *prRun) dockerfileSourceUnchanged(c *unitCtx, base string) bool {
+	df := c.u.df
+	moved := df.commit != "" && df.commit != base
+	for _, f := range df.files {
+		repo, sha := c.rs.name, base
+		if f.Repository != "" {
+			// A file of another repository has no commit of the plan to compare
+			// with: its current blob is.
+			var err error
+			repo = f.Repository
+			if sha, err = r.s.cfg.Source.ResolveBranch(r.ctx, repo, f.BaseBranch); err != nil {
+				r.readFailure(c, "resolve the branch of "+f.Path, err)
+				return false
+			}
+		} else if !moved {
+			continue
+		}
+		cur, err := r.s.cfg.Source.ReadFile(r.ctx, repo, sha, f.Path)
+		if err != nil {
+			if errors.Is(err, github.ErrNotFound) {
+				c.set(PRStatusDeferred, ReasonSourceChanged, fmt.Sprintf("%s is gone from %s, which moved from %s to %s since the plan", f.Path, c.u.baseBranch, df.commit, base))
+			} else {
+				r.readFailure(c, "read "+f.Path, err)
+			}
+			return false
+		}
+		if cur.SHA != f.BlobSHA {
+			c.set(PRStatusDeferred, ReasonSourceChanged, fmt.Sprintf("%s changed since the plan: %s moved from %s to %s", f.Path, c.u.baseBranch, df.commit, base))
+			return false
+		}
+	}
+	return true
+}
+
+// prChange is the change an edit made, as the pull request body describes it.
+type prChange struct {
+	compose    []ComposeChange
+	dockerfile DockerfileChange
+}
+
+// editSource edits the file the unit proposes a change to. ok is false after
+// the unit's status was set.
+func (r *prRun) editSource(c *unitCtx, content []byte) ([]byte, prChange, bool) {
+	u := c.u
+	if u.df == nil {
+		edit, prob := EditComposeImageTag(ComposeEditRequest{Content: content, Services: u.services, Current: u.current, NewTag: u.candidate.Tag})
+		if prob != nil {
+			c.set(PRStatusManual, prob.Reason, prob.Error())
+			return nil, prChange{}, false
+		}
+		return edit.Content, prChange{compose: edit.Changes}, true
+	}
+
+	// Every build stage the unit's workloads name must lead to the same FROM,
+	// the one the plan found, and give the same file.
+	targets := u.df.targets
+	if len(targets) == 0 {
+		targets = []string{""}
+	}
+	var first DockerfileEdit
+	for i, target := range targets {
+		edit, prob := EditDockerfileBaseTag(DockerfileEditRequest{Content: content, Target: target, Current: u.current, NewTag: u.candidate.Tag})
+		if prob != nil {
+			c.set(PRStatusManual, prob.Reason, prob.Error())
+			return nil, prChange{}, false
+		}
+		// The stage and the platform are those the plan compared.
+		if d, prob := ParseDockerfile(content); prob == nil {
+			if b, prob := d.ResolveBase(target); prob == nil && (!strings.EqualFold(d.Stages[b.Stage].Name, u.df.stageName) || b.Platform != u.df.platform) {
+				c.set(PRStatusManual, ReasonDockerfileSourceMismatch,
+					fmt.Sprintf("the build stage %q now leads to stage %q with platform %q, not %q with %q the plan compared", target, d.Stages[b.Stage].Name, b.Platform, u.df.stageName, u.df.platform))
+				return nil, prChange{}, false
+			}
+		}
+		if edit.Change.Stage != u.df.stage {
+			c.set(PRStatusManual, ReasonDockerfileSourceMismatch,
+				fmt.Sprintf("the build stage %q now leads to the FROM of stage %d, not stage %d the plan was made for", target, edit.Change.Stage, u.df.stage))
+			return nil, prChange{}, false
+		}
+		if i == 0 {
+			first = edit
+		} else if !bytes.Equal(edit.Content, first.Content) {
+			c.set(PRStatusManual, ReasonDockerfileSourceMismatch, "the build stages of the workloads do not lead to one edit")
+			return nil, prChange{}, false
+		}
+	}
+	return first.Content, prChange{dockerfile: first.Change}, true
 }
 
 // buildCommit creates the blob, tree, commit and branch of an attempt. It
@@ -888,6 +1016,9 @@ func (r *prRun) buildCommit(c *unitCtx, a *AttemptRecord, baseTree string, conte
 		return false
 	}
 	title := composeUnitTitle(repoOfRef(a.CurrentRef), a.CandidateTag, a.Path)
+	if kindOf(a.Kind) == prKindDockerfile {
+		title = dockerfileUnitTitle(repoOfRef(a.CurrentRef), a.CandidateTag, a.Path)
+	}
 	commit, ok := step(OpCreateCommit, "create a commit of tree "+tree+" on "+a.BaseSHA, func() (string, error) {
 		return gh.CreateCommit(r.ctx, rs.name, title, tree, []string{a.BaseSHA})
 	})
@@ -966,7 +1097,7 @@ func repoOfRef(ref string) string {
 // openPull opens the pull request of an attempt whose branch points at its
 // commit, after checking that the base has not moved, the branch is still
 // ours, no pull request exists for it and the candidate is unchanged.
-func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, changes []ComposeChange) {
+func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change prChange) {
 	rs, gh := c.rs, r.s.cfg.GitHub
 	base, err := r.s.cfg.Source.ResolveBranch(r.ctx, rs.name, a.BaseBranch)
 	if err != nil {
@@ -975,6 +1106,13 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, changes
 	}
 	if base != a.BaseSHA {
 		c.set(PRStatusDeferred, ReasonBaseMoved, fmt.Sprintf("%s moved from %s to %s; the next cycle builds the change again", a.BaseBranch, a.BaseSHA, base))
+		return
+	}
+	// The inputs of a Dockerfile update are checked again now that the branch
+	// exists: one in another repository can change between the edit and the
+	// pull request. Nothing is opened then; the branch stays and the attempt
+	// is settled by the next cycle's reconciliation.
+	if c.u.df != nil && !r.dockerfileSourceUnchanged(c, base) {
 		return
 	}
 	sha, found, err := gh.Ref(r.ctx, rs.name, a.Branch)
@@ -1012,7 +1150,7 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, changes
 	}
 
 	marker := PRMarker{
-		V: markerV, RepoID: a.RepoID, BaseBranch: a.BaseBranch, Path: a.Path, Locations: a.Locations,
+		V: markerV, Kind: a.Kind, RepoID: a.RepoID, BaseBranch: a.BaseBranch, Path: a.Path, Locations: a.Locations,
 		CurrentRef: a.CurrentRef, CandidateTag: a.CandidateTag, CandidateDigest: a.CandidateDigest,
 		BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA, InputBlobSHA: a.InputSHA,
 		Changes:   []FileChange{{Path: a.Path, Mode: a.Mode, BlobSHA: a.NewBlobSHA}},
@@ -1021,17 +1159,44 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, changes
 	if marker.FixTargets == nil {
 		marker.FixTargets = []FixTarget{}
 	}
-	body, err := buildPRBody(prBodyInput{
-		Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
-		Services: a.Services, Locations: a.Locations, Workloads: c.u.workloads, AlsoRunning: c.u.also,
-		Changes: changes, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
-		UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
-	})
+	// The images a target is claimed for stay in the record; a recovered record
+	// is never replaced, so the marker does not carry them. The layers are part
+	// of a target's identity and are carried in full while the marker stays
+	// small, else as the digest of each target's layer set.
+	marker.FixTargets = append([]FixTarget(nil), marker.FixTargets...)
+	for i := range marker.FixTargets {
+		marker.FixTargets[i].Entities = nil
+	}
+	if len(encodeMarker(marker)) > maxMarkerWithLayers {
+		for i := range marker.FixTargets {
+			ft := &marker.FixTargets[i]
+			ft.LayersDigest, ft.Layers = ft.layerSetKey(), nil
+		}
+	}
+	if marker.FixTargets == nil {
+		marker.FixTargets = []FixTarget{}
+	}
+	var body, title string
+	if c.u.df != nil {
+		body, err = buildDockerfilePRBody(dockerfileBodyInput{
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
+			Workloads: c.u.workloads, Stage: c.u.df.stage, Change: change.dockerfile, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+		})
+		title = dockerfileUnitTitle(imageRepo, a.CandidateTag, a.Path)
+	} else {
+		body, err = buildPRBody(prBodyInput{
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
+			Services: a.Services, Locations: a.Locations, Workloads: c.u.workloads, AlsoRunning: c.u.also,
+			Changes: change.compose, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+		})
+		title = composeUnitTitle(imageRepo, a.CandidateTag, a.Path)
+	}
 	if err != nil {
 		c.set(PRStatusFailed, ReasonGitHubError, err.Error())
 		return
 	}
-	title := composeUnitTitle(imageRepo, a.CandidateTag, a.Path)
 
 	a.Status, a.UpdatedAt = AttemptPRRequested, r.now()
 	pr, opID, err := r.writePull(rs, a, github.NewPull{Title: title, Body: body, Head: a.Branch, Base: a.BaseBranch})
@@ -1093,7 +1258,7 @@ func (r *prRun) writePull(rs *repoState, a *AttemptRecord, np github.NewPull) (g
 func (r *prRun) recordFromAttempt(a *AttemptRecord, pr github.PullRequest) PRRecord {
 	now := r.now()
 	rec := PRRecord{
-		Repo: a.Repo, RepoID: a.RepoID, Kind: "compose", TargetKey: a.TargetKey, UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey,
+		Repo: a.Repo, RepoID: a.RepoID, Kind: kindOf(a.Kind), TargetKey: a.TargetKey, UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey,
 		Branch: a.Branch, Number: pr.Number, URL: pr.HTMLURL, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA,
 		Path: a.Path, Locations: a.Locations, State: pullState(pr), FixTargets: a.FixTargets, Services: a.Services,
 		CurrentRef: a.CurrentRef, CandidateTag: a.CandidateTag, CandidateDigest: a.CandidateDigest,

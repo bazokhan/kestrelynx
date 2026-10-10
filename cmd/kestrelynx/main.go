@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -196,6 +197,40 @@ func composeMappings(ms []config.RemediationMapping) []remediation.ComposeMappin
 	return out
 }
 
+// dockerfileMappings picks the mappings that name a Dockerfile. Config
+// validation has already checked the workload keys.
+func dockerfileMappings(ms []config.RemediationMapping) []remediation.DockerfileMapping {
+	var out []remediation.DockerfileMapping
+	for _, m := range ms {
+		if m.Dockerfile == nil {
+			continue
+		}
+		project, service, err := config.ParseWorkloadKey(m.Workload)
+		if err != nil {
+			continue
+		}
+		out = append(out, remediation.DockerfileMapping{
+			Workload: m.Workload, Project: project, Service: service,
+			Repository: m.Repository, BaseBranch: m.BaseBranch, Path: m.Dockerfile.Path, Target: m.Dockerfile.Target,
+		})
+	}
+	return out
+}
+
+// dockerfileRepositories lists the repositories of the Dockerfile mappings,
+// each once.
+func dockerfileRepositories(ms []remediation.DockerfileMapping) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range ms {
+		if k := strings.ToLower(m.Repository); !seen[k] {
+			seen[k] = true
+			out = append(out, m.Repository)
+		}
+	}
+	return out
+}
+
 // buildPullRequestConfig assembles the pull request stage. The write client
 // exists only here, so with pull requests off nothing in the process can
 // write to GitHub. Each cycle gets its own write and read clients, each with
@@ -218,8 +253,9 @@ func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConf
 			}
 			return stage, nil
 		},
-		Mappings: composeMappings(rc.Mappings),
-		Store:    store,
+		Mappings:     composeMappings(rc.Mappings),
+		Repositories: dockerfileRepositories(dockerfileMappings(rc.Mappings)),
+		Store:        store,
 	}
 }
 
@@ -249,7 +285,9 @@ func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 		pc.PullRequests = buildPullRequestConfig(rc)
 	}
 	pc.Dependencies = dependencyMappings(rc.Mappings)
-	if len(pc.Dependencies) > 0 {
+	pc.Dockerfiles = dockerfileMappings(rc.Mappings)
+	pc.Composes = composeMappings(rc.Mappings)
+	if len(pc.Dependencies) > 0 || len(pc.Dockerfiles) > 0 || len(pc.Composes) > 0 {
 		// One client per cycle: its request budget and file byte total are
 		// per-cycle counters. The token goes to this client alone.
 		token := rc.GitHub.Token.Value()

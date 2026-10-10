@@ -57,6 +57,9 @@ const (
 	ReasonGitHubRefused        Reason = "github_refused"
 	ReasonGitHubError          Reason = "github_error"
 	ReasonRegistryRecheck      Reason = "candidate_recheck_failed"
+	// ReasonSourceChanged: the base branch moved and a file the plan was made
+	// from is no longer the same.
+	ReasonSourceChanged Reason = "source_changed"
 )
 
 // PRState is the state of a pull request record.
@@ -102,16 +105,43 @@ func (s AttemptStatus) settled() bool {
 }
 
 // FixTarget is one vulnerability in one package, at one location of the
-// Compose file, that a pull request resolves according to its verified
+// edited file, that a pull request resolves according to its verified
 // comparison.
 type FixTarget struct {
 	Location string       `json:"location"`
 	VulnID   string       `json:"vuln_id"`
 	Package  PackageCoord `json:"package"`
+	// Layers are the filesystem layers of the running image the finding was
+	// found in (Dockerfile updates only) and are part of the target's
+	// identity. A marker too large to hold them carries LayersDigest, the
+	// digest of the sorted layer set, instead.
+	Layers       []string `json:"layers,omitempty"`
+	LayersDigest string   `json:"layers_digest,omitempty"`
+	// Entities are the running images (Dockerfile updates only) for which the
+	// comparison resolves the target; the target is claimed for each of them
+	// and for no other.
+	Entities []string `json:"entities,omitempty"`
+}
+
+// layerSetKey identifies the layer set of a Dockerfile target, "" for none.
+func (f FixTarget) layerSetKey() string {
+	if len(f.Layers) > 0 {
+		return layerSetDigest(f.Layers)
+	}
+	return f.LayersDigest
+}
+
+// layerSetDigest is the digest of a set of layer IDs, independent of order.
+func layerSetDigest(layers []string) string {
+	return hashCanonical(sortedCopy(layers))
 }
 
 func (f FixTarget) key() string {
-	return f.Location + "\x00" + f.VulnID + "\x00" + string(f.Package.Ecosystem) + "\x00" + string(f.Package.Class) + "\x00" + f.Package.Name
+	k := f.Location + "\x00" + f.VulnID + "\x00" + string(f.Package.Ecosystem) + "\x00" + string(f.Package.Class) + "\x00" + f.Package.Name
+	if l := f.layerSetKey(); l != "" {
+		k += "\x00" + l
+	}
+	return k
 }
 
 // ReplacementState is the progress of replacing one older pull request.
@@ -152,21 +182,34 @@ type VulnSummary struct {
 	Severity string       `json:"severity,omitempty"`
 	Priority Priority     `json:"priority,omitempty"`
 	KEV      bool         `json:"kev,omitempty"`
+	// Layers are the layers of the running image the finding was found in
+	// (Dockerfile updates only).
+	Layers []string `json:"layers,omitempty"`
 }
 
 // ItemEvidence is the verification of one running entity of a unit, kept
 // with the attempt and the pull request record so the evidence survives the
 // plan file being replaced.
 type ItemEvidence struct {
-	ItemKey       string        `json:"item_key"`
-	Current       ImageState    `json:"current"`
-	Candidate     ImageState    `json:"candidate"`
-	BaselineScan  string        `json:"baseline_scan,omitempty"`
-	CandidateScan string        `json:"candidate_scan,omitempty"`
-	Locations     []string      `json:"locations"`
-	Resolved      []VulnSummary `json:"resolved,omitempty"`
-	Remaining     []VulnSummary `json:"remaining,omitempty"`
-	Introduced    []VulnSummary `json:"introduced,omitempty"`
+	ItemKey string     `json:"item_key"`
+	Current ImageState `json:"current"`
+	// CurrentBase and Layers are set by Dockerfile updates: Current is then
+	// the running image, CurrentBase the base image the FROM names today and
+	// Candidate the candidate base; Layers is how the running image's layers
+	// were matched against CurrentBase's.
+	CurrentBase   *ImageState        `json:"current_base,omitempty"`
+	Layers        *LayerConfirmation `json:"layers,omitempty"`
+	Candidate     ImageState         `json:"candidate"`
+	BaselineScan  string             `json:"baseline_scan,omitempty"`
+	CandidateScan string             `json:"candidate_scan,omitempty"`
+	Locations     []string           `json:"locations"`
+	Resolved      []VulnSummary      `json:"resolved,omitempty"`
+	Remaining     []VulnSummary      `json:"remaining,omitempty"`
+	// OtherRemaining (Dockerfile updates only) are findings of the compared
+	// base images that the running image has no target for and that remain in
+	// the candidate base: what stays whatever the update resolves.
+	OtherRemaining []VulnSummary `json:"other_remaining,omitempty"`
+	Introduced     []VulnSummary `json:"introduced,omitempty"`
 }
 
 // VerificationSummary is the compact evidence of a unit's comparison.
@@ -231,6 +274,8 @@ type PRRecord struct {
 // enough to find out after a crash what exists on GitHub without relying on
 // the operation log.
 type AttemptRecord struct {
+	// Kind is the kind of update; empty for a Compose tag update.
+	Kind       string `json:"kind,omitempty"`
 	AttemptKey string `json:"attempt_key"`
 	UpdateKey  string `json:"update_key"`
 	TargetKey  string `json:"target_key"`
@@ -340,9 +385,15 @@ type PRStageProblem struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// PRUnit is the outcome of one Compose update unit: the services of one
-// Compose file whose running image is the same reference.
+// PRUnit is the outcome of one update unit: the services of one Compose file
+// whose running image is the same reference, or the workloads built from one
+// FROM of a Dockerfile.
 type PRUnit struct {
+	// Kind is "dockerfile" for a base image update; empty for a Compose tag
+	// update. For a Dockerfile, Path is the Dockerfile, Locations hold the
+	// edited FROM's position, Services the services of Workloads and Current
+	// the base image the FROM names.
+	Kind string `json:"kind,omitempty"`
 	// Key identifies the unit by repository, branch, file and running
 	// reference; it does not depend on GitHub.
 	Key        string `json:"key"`

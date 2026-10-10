@@ -50,6 +50,9 @@ type PullRequestConfig struct {
 	NewStage func(resolver remediation.CandidateResolver) (PRStage, error)
 	// Mappings are the Compose mappings of the configuration.
 	Mappings []remediation.ComposeMapping
+	// Repositories are the repositories the Dockerfile mappings name, which
+	// the stage examines and writes to besides those of Mappings.
+	Repositories []string
 	// Store keeps the pull request records; the runner marks the operation
 	// events delivered in it after a notification was sent.
 	Store remediation.PRStorage
@@ -73,14 +76,19 @@ type PlanConfig struct {
 	// cuts off is deferred. Zero or less sets no deadline.
 	CycleTimeout time.Duration
 	// NewGitHub returns the read-only GitHub client for one cycle, used to
-	// read the sources of the configured dependency mappings; nil when no
-	// such mapping exists.
+	// read the sources of the configured dependency, Dockerfile and Compose
+	// mappings; nil when no such mapping exists.
 	NewGitHub func() remediation.GitHubReader
 	// Dependencies are the dependency mappings whose source files the plan
 	// reads through the GitHub client.
 	Dependencies []remediation.DependencyMapping
-	Plans        PlanStore
-	Delivered    DeliveredStore
+	// Dockerfiles are the Dockerfile mappings, and Composes the Compose
+	// mappings whose services' build sections can name a Dockerfile; the plan
+	// reads both through the GitHub client.
+	Dockerfiles []remediation.DockerfileMapping
+	Composes    []remediation.ComposeMapping
+	Plans       PlanStore
+	Delivered   DeliveredStore
 	// PullRequests, when set, opens and tracks pull requests for the
 	// update candidates of the plan; nil leaves the plan read-only.
 	PullRequests *PullRequestConfig
@@ -202,9 +210,10 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 	budget := registry.NewBudget(pc.MaxRegistryRequests)
 	reg := pc.NewRegistry(budget)
 	var gh remediation.GitHubReader
-	if pc.NewGitHub != nil && len(pc.Dependencies) > 0 {
+	if pc.NewGitHub != nil && (len(pc.Dependencies) > 0 || len(pc.Dockerfiles) > 0 || len(pc.Composes) > 0) {
 		// One client per cycle: its request budget and file byte total are
-		// per-cycle counters. A nil client leaves the language part off.
+		// per-cycle counters. A nil client leaves the language and Dockerfile
+		// parts off.
 		if c := pc.NewGitHub(); c != nil {
 			gh = c
 		}
@@ -218,6 +227,8 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		Intel:        r.planIntel(ctx, report),
 		GitHub:       gh,
 		Dependencies: pc.Dependencies,
+		Dockerfiles:  pc.Dockerfiles,
+		Composes:     pc.Composes,
 		Now:          r.now,
 	})
 	if err != nil {
@@ -232,6 +243,8 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		"update_candidate", plan.Count(remediation.CategoryPRCandidate),
 		"dependency_units", len(plan.LanguageItems),
 		"dependency_update_candidates", plan.CountLanguage(remediation.CategoryDependencyUpdateCandidate),
+		"dockerfile_items", len(plan.DockerfileItems),
+		"dockerfile_update_candidates", plan.CountDockerfile(remediation.CategoryPRCandidate),
 		"candidate_scans", plan.Usage.CandidateScans,
 		"baseline_rescans", plan.Usage.BaselineRescans,
 		"registry_requests", plan.Usage.RegistryRequests)
@@ -275,7 +288,7 @@ func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, res
 		}}
 		return
 	}
-	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings})
+	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Repositories: cfg.Repositories})
 	res.Attach(plan)
 	created := 0
 	for _, u := range res.Units {

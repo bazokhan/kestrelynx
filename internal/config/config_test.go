@@ -623,6 +623,7 @@ func TestParse_RemediationUnknownKeyRejected(t *testing.T) {
 	for _, body := range []string{
 		"remediation:\n  plan:\n    enabled: true\n",
 		"remediation:\n  limits:\n    max_candidates: 1\n",
+		"remediation:\n  mappings:\n    - workload: compose/a/b\n      repository: x/y\n      base_branch: main\n      dockerfile:\n        path: Dockerfile\n        stage: x\n",
 		"remediation:\n  mappings:\n    - workload: compose/a/b\n      repository: x/y\n      base_branch: main\n      dependencies:\n        dir: .\n",
 	} {
 		if _, err := Parse([]byte(minimal + "\n" + body)); err == nil {
@@ -736,6 +737,103 @@ func TestParse_RemediationMappingInvalid(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "remediation.mappings[") {
 			t.Errorf("%s: err = %v, want it to name the mapping", name, err)
+		}
+	}
+}
+
+const dockerfileRoute = "      dockerfile:\n        path: Dockerfile\n        target: runtime\n"
+
+func TestParse_RemediationDockerfileMapping(t *testing.T) {
+	c, err := Parse(remediationWith(
+		mapping("compose/p/web", "ex/app", "main", dockerfileRoute),
+		mapping("compose/p/web", "ex/app", "main", depsRoute),
+		mapping("compose/p/api", "ex/app", "main", "      dockerfile:\n        path: services/api/Dockerfile\n"),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := c.Remediation.Mappings
+	if ms[0].Dockerfile == nil || ms[0].Dockerfile.Path != "Dockerfile" || ms[0].Dockerfile.Target != "runtime" || ms[0].Compose != nil || ms[0].Dependencies != nil {
+		t.Errorf("mapping 0 = %+v", ms[0])
+	}
+	if ms[2].Dockerfile == nil || ms[2].Dockerfile.Path != "services/api/Dockerfile" || ms[2].Dockerfile.Target != "" {
+		t.Errorf("mapping 2 = %+v", ms[2])
+	}
+}
+
+func TestParse_RemediationDockerfileMappingValid(t *testing.T) {
+	cases := map[string][]string{
+		"all three routes for one workload": {
+			mapping("compose/p/web", "ex/deploy", "main", composeRoute),
+			mapping("compose/p/web", "ex/app", "main", depsRoute),
+			mapping("compose/p/web", "ex/app", "main", dockerfileRoute),
+		},
+		"workloads sharing a Dockerfile and stage": {
+			mapping("compose/p/web", "ex/app", "main", dockerfileRoute),
+			mapping("compose/p/api", "EX/App", "main", dockerfileRoute),
+		},
+		"workloads sharing a Dockerfile, other stages": {
+			mapping("compose/p/web", "ex/app", "main", dockerfileRoute),
+			mapping("compose/p/api", "ex/app", "main", "      dockerfile:\n        path: Dockerfile\n        target: Api-1.x\n"),
+		},
+		"same path in another repository and branch": {
+			mapping("compose/p/web", "ex/app", "main", dockerfileRoute),
+			mapping("compose/p/api", "ex/other", "dev", dockerfileRoute),
+		},
+	}
+	for name, ms := range cases {
+		if _, err := Parse(remediationWith(ms...)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestParse_RemediationDockerfileMappingInvalid(t *testing.T) {
+	df := func(body string) string { return "      dockerfile:\n" + body }
+	cases := map[string][]string{
+		"no path":             {mapping("compose/p/web", "ex/app", "main", df("        target: runtime\n"))},
+		"empty dockerfile":    {mapping("compose/p/web", "ex/app", "main", "      dockerfile: {}\n")},
+		"root path":           {mapping("compose/p/web", "ex/app", "main", df("        path: .\n"))},
+		"absolute path":       {mapping("compose/p/web", "ex/app", "main", df("        path: /Dockerfile\n"))},
+		"parent path":         {mapping("compose/p/web", "ex/app", "main", df("        path: ../Dockerfile\n"))},
+		"unnormalized path":   {mapping("compose/p/web", "ex/app", "main", df("        path: ./Dockerfile\n"))},
+		"backslash path":      {mapping("compose/p/web", "ex/app", "main", df("        path: 'a\\Dockerfile'\n"))},
+		"control char path":   {mapping("compose/p/web", "ex/app", "main", df("        path: \"a\\nDockerfile\"\n"))},
+		"target with space":   {mapping("compose/p/web", "ex/app", "main", df("        path: Dockerfile\n        target: \"a b\"\n"))},
+		"target with dollar":  {mapping("compose/p/web", "ex/app", "main", df("        path: Dockerfile\n        target: $T\n"))},
+		"target leading dash": {mapping("compose/p/web", "ex/app", "main", df("        path: Dockerfile\n        target: -x\n"))},
+		"with compose":        {mapping("compose/p/web", "ex/app", "main", composeRoute+dockerfileRoute)},
+		"with dependencies":   {mapping("compose/p/web", "ex/app", "main", depsRoute+dockerfileRoute)},
+		"duplicate dockerfile": {
+			mapping("compose/p/web", "ex/a", "main", dockerfileRoute),
+			mapping("compose/p/web", "ex/b", "main", dockerfileRoute),
+		},
+		"Dockerfile with two branches": {
+			mapping("compose/p/web", "ex/a", "main", dockerfileRoute),
+			mapping("compose/p/api", "ex/a", "dev", dockerfileRoute),
+		},
+	}
+	for name, ms := range cases {
+		_, err := Parse(remediationWith(ms...))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "remediation.mappings[") {
+			t.Errorf("%s: err = %v, want it to name the mapping", name, err)
+		}
+	}
+}
+
+func TestValidStageName(t *testing.T) {
+	for _, ok := range []string{"a", "build", "Runtime", "go-1.22_x", strings.Repeat("a", 128)} {
+		if !ValidStageName(ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"", "1a", "-a", ".a", "_a", "a b", "a$b", "a/b", "a:b", "é", strings.Repeat("a", 129)} {
+		if ValidStageName(bad) {
+			t.Errorf("%q accepted", bad)
 		}
 	}
 }

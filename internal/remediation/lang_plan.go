@@ -122,6 +122,11 @@ var _ GitHubReader = (*github.Client)(nil)
 type SourceFile struct {
 	Path    string `json:"path"`
 	BlobSHA string `json:"blob_sha"`
+	// Repository and BaseBranch name where the file was read when that is not
+	// the repository and branch of the item that lists it (a Compose file in a
+	// deployment repository beside a Dockerfile elsewhere); empty otherwise.
+	Repository string `json:"repository,omitempty"`
+	BaseBranch string `json:"base_branch,omitempty"`
 }
 
 // SourceRecord says where a unit's dependency files came from. The mapping
@@ -296,5 +301,6 @@ func (p Plan) CountLanguage(c Category) int {
 	return n
 }
 
-// CountAll returns how many items, image and language, are in category c.
-func (p Plan) CountAll(c Category) int { return p.Count(c) + p.CountLanguage(c) }
+// CountAll returns how many items, image, language and Dockerfile, are in
+// category c.
+func (p Plan) CountAll(c Category) int { return p.Count(c) + p.CountLanguage(c) + p.CountDockerfile(c) }

@@ -26,10 +26,12 @@ const deliveredVersion = 1
 // pull request units add their status, reason, pull request number and state
 // and what they replaced, and the stage's problems their code and
 // repository and target; operation events are delivered by sequence number instead and
-// are not part of it. A plan with nothing in it has the empty fingerprint,
+// are not part of it. The Dockerfile items add their edit location, the base
+// image and candidate, each running image's layer check, category and
+// counts. A plan with nothing in it has the empty fingerprint,
 // the same as nothing delivered.
 func Fingerprint(p Plan) string {
-	if len(p.Items) == 0 && len(p.LanguageItems) == 0 && len(p.PullRequests) == 0 && len(p.PRProblems) == 0 {
+	if len(p.Items) == 0 && len(p.LanguageItems) == 0 && len(p.DockerfileItems) == 0 && len(p.PullRequests) == 0 && len(p.PRProblems) == 0 {
 		return ""
 	}
 	type image struct {
@@ -71,6 +73,29 @@ func Fingerprint(p Plan) string {
 		Reason    Reason            `json:"reason,omitempty"`
 		Packages  []langPackage     `json:"packages,omitempty"`
 	}
+	type dfEntity struct {
+		Running    image    `json:"running"`
+		Base       *image   `json:"base,omitempty"`
+		Candidate  *image   `json:"candidate,omitempty"`
+		Layers     string   `json:"layers"`
+		Category   Category `json:"category"`
+		Reason     Reason   `json:"reason,omitempty"`
+		Targets    int      `json:"targets,omitempty"`
+		Resolved   int      `json:"resolved,omitempty"`
+		Remaining  int      `json:"remaining,omitempty"`
+		Introduced int      `json:"introduced,omitempty"`
+	}
+	type dfItem struct {
+		Key       string           `json:"key"`
+		Category  Category         `json:"category"`
+		Reason    Reason           `json:"reason,omitempty"`
+		Workloads []string         `json:"workloads"`
+		Path      string           `json:"path"`
+		Base      string           `json:"base,omitempty"`
+		Candidate *image           `json:"candidate,omitempty"`
+		Entities  []dfEntity       `json:"entities,omitempty"`
+		Counts    DockerfileCounts `json:"counts"`
+	}
 	type prUnit struct {
 		Key          string       `json:"key"`
 		UpdateKey    string       `json:"update_key,omitempty"`
@@ -92,6 +117,7 @@ func Fingerprint(p Plan) string {
 		Counts       map[Category]int `json:"counts"`
 		Items        []item           `json:"items"`
 		Language     []langItem       `json:"language,omitempty"`
+		Dockerfile   []dfItem         `json:"dockerfile,omitempty"`
 		PullRequests []prUnit         `json:"pull_requests,omitempty"`
 		PRProblems   []prProblem      `json:"pr_problems,omitempty"`
 	}{Counts: map[Category]int{}}
@@ -115,6 +141,37 @@ func Fingerprint(p Plan) string {
 		}
 		return a.Target < b.Target
 	})
+	for _, di := range p.DockerfileItems {
+		fd := dfItem{Key: di.Key, Category: di.Category, Reason: di.Reason, Workloads: append([]string(nil), di.Workloads...),
+			Path: di.Source.Path, Base: di.BaseRef, Counts: di.Counts}
+		sort.Strings(fd.Workloads)
+		if c := di.Candidate; c != nil {
+			fd.Candidate = &image{Ref: c.Ref, Config: c.ConfigDigest, Manifest: c.ManifestDigest, Top: c.TopDigest}
+		}
+		for _, e := range di.Entities {
+			fe := dfEntity{Running: image{Ref: e.Running.Ref, Entity: e.Running.Entity, Config: e.Running.ConfigDigest},
+				Layers: e.Layers.Status, Category: e.Category, Reason: e.Reason, Targets: len(e.Targets)}
+			if b := e.CurrentBase; b != nil {
+				fe.Base = &image{Ref: b.Ref, Config: b.ConfigDigest, Manifest: b.ManifestDigest, Top: b.TopDigest}
+			}
+			if c := e.CandidateBase; c != nil {
+				fe.Candidate = &image{Ref: c.Ref, Config: c.ConfigDigest, Manifest: c.ManifestDigest, Top: c.TopDigest}
+			}
+			if e.Comparison != nil {
+				fe.Resolved, fe.Remaining, fe.Introduced = e.Comparison.Counts()
+			}
+			fd.Entities = append(fd.Entities, fe)
+		}
+		sort.Slice(fd.Entities, func(i, j int) bool {
+			a, b := fd.Entities[i], fd.Entities[j]
+			if a.Running.Ref != b.Running.Ref {
+				return a.Running.Ref < b.Running.Ref
+			}
+			return a.Running.Entity < b.Running.Entity
+		})
+		out.Dockerfile = append(out.Dockerfile, fd)
+	}
+	sort.Slice(out.Dockerfile, func(i, j int) bool { return out.Dockerfile[i].Key < out.Dockerfile[j].Key })
 	for _, li := range p.LanguageItems {
 		fl := langItem{Key: li.Key, Workloads: append([]string(nil), li.Workloads...), Manager: li.Manager, Category: li.Category, Reason: li.Reason}
 		sort.Strings(fl.Workloads)

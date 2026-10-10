@@ -43,7 +43,7 @@ func (p *PlanInfo) visible() bool {
 	if p == nil {
 		return false
 	}
-	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 ||
+	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 || len(p.Plan.DockerfileItems) > 0 ||
 		len(p.Plan.PullRequests) > 0 || len(p.Plan.PRProblems) > 0 || len(shownOperations(*p.Plan)) > 0 || p.Changed
 }
 
@@ -201,11 +201,15 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 			}
 		}
 	}
+	dfWarn, dfAdopted, dfAdvice := dockerfileLines(plan, msg)
+	warn = append(warn, dfWarn...)
+	adopted = append(adopted, dfAdopted...)
 	for _, li := range plan.LanguageItems {
 		if line := dependencyLine(li, msg); line != "" {
 			adopted = append(adopted, line)
 		}
 	}
+	adopted = append(adopted, dfAdvice...)
 	all := append(warn, adopted...)
 	total, shown := len(all), len(all)
 	if shown > slackTopItems {
@@ -370,9 +374,14 @@ func pullRequestLines(plan remediation.Plan, msg messages) (lines []string, coun
 				continue
 			}
 			image, old := splitImageRef(u.Current)
-			listed = append(listed, fmt.Sprintf(format,
+			line := fmt.Sprintf(format,
 				mrkdwnLink(u.URL, fmt.Sprintf("#%d", u.Number)),
-				escMrkdwn(image), escMrkdwn(old), escMrkdwn(u.CandidateTag), escMrkdwn(u.Path)))
+				escMrkdwn(image), escMrkdwn(old), escMrkdwn(u.CandidateTag), escMrkdwn(u.Path))
+			if u.Kind == "dockerfile" {
+				// The scope of the claim stays with the pull request.
+				line += msg.PlanDockerfilePRNote
+			}
+			listed = append(listed, line)
 		}
 	}
 	shown := len(listed)
@@ -566,6 +575,12 @@ type remediationPayload struct {
 	LanguageSummary map[string]int        `json:"language_summary,omitempty"`
 	LanguageItems   []languageItemPayload `json:"language_items,omitempty"`
 
+	// DockerfileSummary counts the Dockerfile base image items by category;
+	// the items themselves are in DockerfileItems. Both are left out without
+	// such an item.
+	DockerfileSummary map[string]int          `json:"dockerfile_summary,omitempty"`
+	DockerfileItems   []dockerfileItemPayload `json:"dockerfile_items,omitempty"`
+
 	// PullRequestSummary counts the pull request units by status. The units
 	// are in PullRequests, the operation events not yet delivered in
 	// Operations and the conditions that stop writes in Problems; all
@@ -700,6 +715,15 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 			out.LanguageItems = append(out.LanguageItems, languageItemPayloadOf(li))
 		}
 	}
+	if len(plan.DockerfileItems) > 0 {
+		out.DockerfileSummary = map[string]int{}
+		for _, c := range planSlackOrder {
+			out.DockerfileSummary[string(c)] = plan.CountDockerfile(c)
+		}
+		for _, di := range plan.DockerfileItems {
+			out.DockerfileItems = append(out.DockerfileItems, dockerfileItemPayloadOf(di, scans, plan.PullRequests))
+		}
+	}
 	if len(plan.PullRequests) > 0 {
 		out.PullRequestSummary = map[string]int{}
 		for _, u := range plan.PullRequests {
@@ -721,6 +745,10 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 const maxWebhookFixTargets = 100
 
 type prUnitPayload struct {
+	// Kind is "dockerfile" for a base image update; absent for a Compose tag
+	// update. For a Dockerfile, Path is the Dockerfile, Services the services
+	// of its workloads and CurrentRef the base image its FROM names.
+	Kind       string   `json:"kind,omitempty"`
 	Key        string   `json:"key"`
 	Repo       string   `json:"repo"`
 	BaseBranch string   `json:"base_branch"`
@@ -769,7 +797,8 @@ type replacingPayload struct {
 
 func prUnitPayloadOf(u remediation.PRUnit) prUnitPayload {
 	out := prUnitPayload{
-		Key: u.Key, Repo: u.Repo, BaseBranch: u.BaseBranch, Path: u.Path,
+		Kind: u.Kind,
+		Key:  u.Key, Repo: u.Repo, BaseBranch: u.BaseBranch, Path: u.Path,
 		Services: u.Services, Workloads: u.Workloads, AlsoRunning: u.AlsoRunning,
 		CurrentRef: u.Current, CandidateTag: u.CandidateTag, CandidateDigest: u.CandidateDigest,
 		Status: string(u.Status), Reason: string(u.Reason), Detail: u.Detail,
@@ -965,7 +994,15 @@ func remediationItemPayloadOf(it remediation.Item, scans map[string]remediation.
 	if it.Comparison != nil {
 		out.Comparison = comparisonPayloadOf(it)
 	}
-	for _, id := range []string{it.BaselineScan, it.CandidateScan} {
+	out.Scans = scanEntries(scans, it.BaselineScan, it.CandidateScan)
+	return out
+}
+
+// scanEntries lists the recorded scans with the given IDs, skipping unknown
+// ones.
+func scanEntries(scans map[string]remediation.ScanExecution, ids ...string) []remediationScanEntry {
+	var out []remediationScanEntry
+	for _, id := range ids {
 		s, ok := scans[id]
 		if !ok {
 			continue
@@ -981,24 +1018,29 @@ func remediationItemPayloadOf(it remediation.Item, scans map[string]remediation.
 		if s.ScannedAt != nil {
 			e.ScannedAt = s.ScannedAt.Format(time.RFC3339)
 		}
-		out.Scans = append(out.Scans, e)
+		out = append(out, e)
 	}
 	return out
 }
 
 func comparisonPayloadOf(it remediation.Item) *comparisonPayload {
-	vr := *it.Comparison
+	return comparisonPayloadFor(*it.Comparison, it.Decision, len(it.Targets))
+}
+
+// comparisonPayloadFor renders a comparison with the decision made on it and
+// the number of targets it was judged on.
+func comparisonPayloadFor(vr remediation.VerificationResult, dec *remediation.Decision, targets int) *comparisonPayload {
 	resolved, remaining, introduced := vr.Counts()
 	out := &comparisonPayload{
 		Comparable: vr.Comparable,
 		Reason:     string(vr.Reason),
 		Scope:      vr.Scope,
-		Targets:    len(it.Targets),
+		Targets:    targets,
 		Resolved:   resolved,
 		Remaining:  remaining,
 		Introduced: introduced,
 	}
-	if d := it.Decision; d != nil {
+	if d := dec; d != nil {
 		out.Decision = string(d.Kind)
 		out.Resolved, out.Remaining = d.Resolved, d.Remaining
 		out.Unknown, out.Undetected = d.Unknown, d.Undetected

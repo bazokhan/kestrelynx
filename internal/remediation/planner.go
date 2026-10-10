@@ -65,6 +65,11 @@ type Config struct {
 	GitHub GitHubReader
 	// Dependencies are the configured dependency mappings.
 	Dependencies []DependencyMapping
+	// Dockerfiles are the configured Dockerfile mappings and Composes the
+	// Compose mappings whose services' build sections can name a Dockerfile;
+	// the Dockerfile part is skipped when GitHub is nil or both are empty.
+	Dockerfiles []DockerfileMapping
+	Composes    []ComposeMapping
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -127,8 +132,15 @@ type run struct {
 	cands    map[string]scanned
 	bases    map[string]scanned
 	halted   *halt
-	// srcHalt stops all further GitHub reads of the language-package part.
+	// srcHalt stops all further GitHub reads of the language-package part and
+	// the Dockerfile part.
 	srcHalt *halt
+
+	// The Dockerfile part's per-cycle caches: commits by branch, files by
+	// commit and path, and the scans of base images by role and content.
+	dfSHA   map[string]dfShaEntry
+	dfFiles map[string]*dfFileEntry
+	dfScans map[string]scanned
 }
 
 // Plan builds the plan for the cycle's images. Images without a target
@@ -186,8 +198,9 @@ func (p *Planner) Plan(ctx context.Context, inputs []ImageInput) Plan {
 		}
 		r.plan.Items = append(r.plan.Items, it)
 	}
-	r.plan.Usage.RegistryRequests = p.cfg.Budget.Used() - startUsed
 	r.languagePart(inputs)
+	r.dockerfilePart(inputs)
+	r.plan.Usage.RegistryRequests = p.cfg.Budget.Used() - startUsed
 	return r.plan
 }
 

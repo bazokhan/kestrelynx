@@ -40,8 +40,10 @@ func TestBuildPlanConfig(t *testing.T) {
 	cfg.Remediation.Mappings = []config.RemediationMapping{
 		{Workload: "compose/p/web", Repository: "ex/deploy", BaseBranch: "main", Compose: &config.RemediationComposeSource{Path: "c.yml", Service: "web"}},
 	}
-	if buildPlanConfig(cfg).NewGitHub != nil {
-		t.Error("a GitHub client is built for a compose-only mapping")
+	// A Compose mapping is read too: the build section of its service may name
+	// a Dockerfile.
+	if pc := buildPlanConfig(cfg); pc.NewGitHub == nil || len(pc.Composes) != 1 || len(pc.Dockerfiles) != 0 {
+		t.Errorf("a compose-only mapping gives no GitHub client or no compose mapping: %+v", pc)
 	}
 	cfg.Remediation.Mappings = append(cfg.Remediation.Mappings,
 		config.RemediationMapping{Workload: "compose/p/api", Repository: "ex/app", BaseBranch: "main", Dependencies: &config.RemediationDependenciesSource{Directory: "."}})
@@ -134,4 +136,43 @@ type fakeResolver struct{}
 
 func (fakeResolver) Resolve(context.Context, string, string, inventory.Platform) (registry.Resolution, error) {
 	return registry.Resolution{}, nil
+}
+
+func TestDockerfileMappings(t *testing.T) {
+	ms := []config.RemediationMapping{
+		{Workload: "compose/shop/web", Repository: "ex/deploy", BaseBranch: "main", Compose: &config.RemediationComposeSource{Path: "c.yml", Service: "web"}},
+		{Workload: "compose/shop/api", Repository: "ex/app", BaseBranch: "release", Dockerfile: &config.RemediationDockerfileSource{Path: "api/Dockerfile", Target: "runtime"}},
+		{Workload: "compose/shop/worker", Repository: "EX/App", BaseBranch: "release", Dockerfile: &config.RemediationDockerfileSource{Path: "api/Dockerfile"}},
+		{Workload: "not-a-key", Repository: "ex/app", BaseBranch: "main", Dockerfile: &config.RemediationDockerfileSource{Path: "Dockerfile"}},
+	}
+	got := dockerfileMappings(ms)
+	if len(got) != 2 {
+		t.Fatalf("mappings = %+v, want the two valid Dockerfile mappings", got)
+	}
+	want := remediation.DockerfileMapping{Workload: "compose/shop/api", Project: "shop", Service: "api", Repository: "ex/app", BaseBranch: "release", Path: "api/Dockerfile", Target: "runtime"}
+	if got[0] != want {
+		t.Errorf("mapping = %+v, want %+v", got[0], want)
+	}
+	if repos := dockerfileRepositories(got); len(repos) != 1 || repos[0] != "ex/app" {
+		t.Errorf("repositories = %v, want the repository once", repos)
+	}
+
+	cfg := config.Config{
+		State: config.StateConfig{Path: "/var/lib/kestrelynx/state.json"},
+		Remediation: config.RemediationConfig{
+			Enabled: true, StorageDir: "/data/remediation",
+			GitHub:   config.RemediationGitHubConfig{Token: "ghp_exampletoken"},
+			Limits:   config.RemediationLimits{NewPRsPerCycle: 2, OpenPRs: 5},
+			Mappings: ms[:3],
+		},
+	}
+	pc := buildPlanConfig(cfg)
+	if len(pc.Dockerfiles) != 2 || pc.NewGitHub == nil {
+		t.Errorf("plan config = %+v, want the Dockerfile mappings and a GitHub client", pc)
+	}
+	cfg.Remediation.PullRequests.Enabled = true
+	pc = buildPlanConfig(cfg)
+	if pc.PullRequests == nil || len(pc.PullRequests.Repositories) != 1 || pc.PullRequests.Repositories[0] != "ex/app" {
+		t.Errorf("pull request config = %+v, want the Dockerfile repository", pc.PullRequests)
+	}
 }

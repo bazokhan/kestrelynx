@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -432,7 +433,7 @@ func TestResolve_OCIIndex(t *testing.T) {
 		ManifestDigest: fx.manifest["linux/amd64/"], ConfigDigest: fx.config["linux/amd64/"],
 		PlatformVerified: true,
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v\nwant %+v", got, want)
 	}
 

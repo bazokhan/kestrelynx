@@ -43,6 +43,15 @@ type Resolution struct {
 	// against ConfigDigest, names the requested OS and architecture. It is
 	// always true in a successful result.
 	PlatformVerified bool
+	// RootFSType and DiffIDs are the verified config's rootfs.type and
+	// rootfs.diff_ids, verbatim and unvalidated: "layers" and the filesystem
+	// layer IDs from the bottom up for an ordinary image. Both are empty when
+	// the config carries none.
+	RootFSType string
+	DiffIDs    []string
+	// OnBuild is true when the config's config.OnBuild lists any trigger
+	// instruction.
+	OnBuild bool
 }
 
 type manifestDoc struct {
@@ -148,41 +157,88 @@ func (c *Client) Resolve(ctx context.Context, repo, tagOrDigest string, platform
 	if !digestRE.MatchString(m.Config.Digest) {
 		return Resolution{}, fmt.Errorf("%w: manifest from %s has no usable config digest", ErrBadResponse, t.host)
 	}
-	if err := c.verifyConfig(ctx, t, m.Config.Digest, platform); err != nil {
+	info, err := c.verifyConfig(ctx, t, m.Config.Digest, platform)
+	if err != nil {
 		return Resolution{}, err
 	}
 	res.ManifestDigest = img.digest
 	res.ConfigDigest = m.Config.Digest
 	res.PlatformVerified = true
+	res.RootFSType, res.DiffIDs, res.OnBuild = info.rootFSType, info.diffIDs, info.onBuild
 	return res, nil
 }
 
+// configInfo is what Resolve keeps of a verified image config besides its
+// platform.
+type configInfo struct {
+	rootFSType string
+	diffIDs    []string
+	onBuild    bool
+}
+
 // verifyConfig fetches the config blob, checks that it hashes to digest and
-// that its platform is the requested one with no variant.
-func (c *Client) verifyConfig(ctx context.Context, t target, digest string, platform inventory.Platform) error {
+// that its platform is the requested one with no variant. It returns the
+// config's rootfs and ONBUILD triggers from the same verified body.
+func (c *Client) verifyConfig(ctx context.Context, t target, digest string, platform inventory.Platform) (configInfo, error) {
 	r, err := c.get(ctx, t, t.base()+"/blobs/"+digest, "", c.opts.MaxConfigBytes)
 	if err != nil {
-		return fmt.Errorf("fetch image config %s: %w", digest, err)
+		return configInfo{}, fmt.Errorf("fetch image config %s: %w", digest, err)
 	}
 	sum := sha256.Sum256(r.body)
 	if got := "sha256:" + hex.EncodeToString(sum[:]); got != digest {
-		return fmt.Errorf("%w: %s sent config for %s that hashes to %s", ErrDigestMismatch, t.host, digest, got)
+		return configInfo{}, fmt.Errorf("%w: %s sent config for %s that hashes to %s", ErrDigestMismatch, t.host, digest, got)
 	}
 	var cfg struct {
 		OS           string `json:"os"`
 		Architecture string `json:"architecture"`
 		Variant      string `json:"variant"`
+		// These two are read leniently below: a malformed one must not fail
+		// the platform check, it only leaves the layers unusable.
+		RootFS json.RawMessage `json:"rootfs"`
+		Config json.RawMessage `json:"config"`
 	}
 	if err := json.Unmarshal(r.body, &cfg); err != nil {
-		return fmt.Errorf("%w: image config from %s is not JSON", ErrBadResponse, t.host)
+		return configInfo{}, fmt.Errorf("%w: image config from %s is not JSON", ErrBadResponse, t.host)
 	}
 	if cfg.OS != platform.OS || cfg.Architecture != platform.Architecture {
-		return fmt.Errorf("%w: config says %s/%s, requested %s/%s", ErrPlatformMismatch, cfg.OS, cfg.Architecture, platform.OS, platform.Architecture)
+		return configInfo{}, fmt.Errorf("%w: config says %s/%s, requested %s/%s", ErrPlatformMismatch, cfg.OS, cfg.Architecture, platform.OS, platform.Architecture)
 	}
 	if cfg.Variant != "" {
-		return &VariantError{Observed: cfg.Variant}
+		return configInfo{}, &VariantError{Observed: cfg.Variant}
 	}
-	return nil
+	info := configInfo{onBuild: configHasOnBuild(cfg.Config)}
+	var rootfs struct {
+		Type    string   `json:"type"`
+		DiffIDs []string `json:"diff_ids"`
+	}
+	if json.Unmarshal(cfg.RootFS, &rootfs) == nil {
+		info.rootFSType, info.diffIDs = rootfs.Type, rootfs.DiffIDs
+	}
+	return info, nil
+}
+
+// configHasOnBuild reports whether the config object lists ONBUILD triggers.
+// An absent or null config, or an empty trigger list, has none; a value that
+// cannot be read as a list of strings is taken to have some, because the
+// answer is used to hold back an automatic recommendation.
+func configHasOnBuild(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var c struct {
+		OnBuild json.RawMessage `json:"OnBuild"`
+	}
+	if json.Unmarshal(raw, &c) != nil {
+		return string(raw) != "null"
+	}
+	if len(c.OnBuild) == 0 || string(c.OnBuild) == "null" {
+		return false
+	}
+	var triggers []string
+	if json.Unmarshal(c.OnBuild, &triggers) != nil {
+		return true
+	}
+	return len(triggers) > 0
 }
 
 func contains(s []string, v string) bool {

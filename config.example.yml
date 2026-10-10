@@ -136,8 +136,8 @@ runtime:
 # would resolve the findings. By default nothing is pulled, changed or created;
 # the plan appears as a short "Fix plan" section in Slack and a `remediation`
 # object in the generic webhook payload. With pull_requests enabled, KestreLynx
-# also opens pull requests that change the image tag of Compose services (see
-# below). Docker only (not supported with
+# also opens pull requests that change the image tag of Compose services and
+# the base image tag of Dockerfiles (see below). Docker only (not supported with
 # kubernetes.enabled). Public registries only; it needs outbound HTTPS to the
 # image registries and downloads the Trivy databases before each cycle.
 # Disabled by default; with it off, scans and notifications are unchanged.
@@ -145,9 +145,9 @@ runtime:
 # remediation:
 #   enabled: true
 #   # Open one pull request per Compose file and running image that updates
-#   # services.<service>.image to the adopted newer patch tag. Only the tag of
-#   # the mapped services is edited; nothing is merged and no existing branch
-#   # is changed. Needs remediation.enabled, Docker mode, compose
+#   # services.<service>.image to the adopted newer patch tag, and one per
+#   # Dockerfile FROM that updates the base image's tag the same way. Only that
+#   # tag is edited; nothing is merged and no existing branch is changed. Needs remediation.enabled, Docker mode, compose
 #   # mappings below and github.token. Opening a pull request can start the
 #   # repository's CI (workflows that run on pull_request events), so enable it
 #   # only for repositories where that is acceptable. Off by default.
@@ -164,10 +164,29 @@ runtime:
 #   # Where the plan and delivery records are kept (an absolute path).
 #   storage_dir: /var/lib/kestrelynx/remediation
 #   # Where each running Compose workload's source lives. Read and validated at
-#   # startup; no source is fetched yet. Each entry sets exactly one of
-#   # compose (the Compose file and service that deploy it) or dependencies
-#   # (the directory holding its lockfiles). Paths are repository-relative and
-#   # normalized; "." is the repository root. Example names only.
+#   # startup. Each entry sets exactly one of compose (the Compose file and
+#   # service that deploy it), dependencies (the directory holding its lockfiles)
+#   # or dockerfile (the Dockerfile that builds its image). Paths are
+#   # repository-relative and normalized; "." is the repository root. Example
+#   # names only.
+#   #
+#   # For an image you build yourself, the findings in the layers of its base
+#   # image are not fixed by a package update; a newer base image is. A
+#   # dockerfile mapping names the Dockerfile and, optionally, the build stage
+#   # (target) the running image comes from; without a target the last stage is
+#   # used. KestreLynx follows the stage's FROM, through earlier stages that
+#   # build on one another, to the base image, checks that the running image's
+#   # layers start with the base's layers, and compares the current base with
+#   # the newest patch of the same series, with a pull request that changes the
+#   # tag in that FROM when pull_requests is enabled. The image rebuilt from the
+#   # new Dockerfile is not built or scanned. For a service of a compose mapping
+#   # whose build: is static (a context path, an optional dockerfile and target,
+#   # no variables, no remote context, no dockerfile_inline), the Dockerfile is
+#   # read from the build section and no dockerfile mapping is needed; a
+#   # dockerfile mapping for the same workload must then agree with it. A base
+#   # with a floating tag (for example python:3.12) gets no pull request; the
+#   # plan says whether the tag still points at the base the image was built from
+#   # and suggests rebuilding with `docker compose build --pull` if it does not.
 #   mappings:
 #     - workload: compose/example/web
 #       repository: example/deployment
@@ -180,6 +199,12 @@ runtime:
 #       base_branch: main
 #       dependencies:
 #         directory: .
+#     - workload: compose/example/app
+#       repository: example/application
+#       base_branch: main
+#       dockerfile:
+#         path: docker/Dockerfile
+#         target: runtime
 #   # Per-cycle limits (provisional defaults shown). Every value must be
 #   # positive. Work past a limit is reported as deferred, not dropped.
 #   # tag_pages_per_repository applies to each repository separately;

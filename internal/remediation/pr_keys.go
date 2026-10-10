@@ -29,8 +29,44 @@ import (
 // branchPrefix starts every branch this stage creates.
 const branchPrefix = "kestrelynx/"
 
-// composeBranchPrefix starts the branches of Compose updates.
-const composeBranchPrefix = branchPrefix + "compose/"
+// composeBranchPrefix starts the branches of Compose updates and
+// dockerfileBranchPrefix those of Dockerfile base image updates.
+const (
+	composeBranchPrefix    = branchPrefix + "compose/"
+	dockerfileBranchPrefix = branchPrefix + "dockerfile/"
+)
+
+// The kinds of update the stage opens pull requests for. The empty kind of an
+// attempt or a marker is a Compose update: records and pull requests made
+// before Dockerfile updates existed carry none.
+const (
+	prKindCompose    = "compose"
+	prKindDockerfile = "dockerfile"
+)
+
+// kindOf normalizes the kind recorded in an attempt or a marker.
+func kindOf(recorded string) string {
+	if recorded == "" {
+		return prKindCompose
+	}
+	return recorded
+}
+
+// recordedKind is the kind as attempts and markers store it: empty for a
+// Compose update.
+func recordedKind(kind string) string {
+	if kind == prKindCompose {
+		return ""
+	}
+	return kind
+}
+
+func branchPrefixOf(kind string) string {
+	if kind == prKindDockerfile {
+		return dockerfileBranchPrefix
+	}
+	return composeBranchPrefix
+}
 
 // FileChange is one file of a commit: its path, mode and new blob.
 type FileChange struct {
@@ -57,13 +93,20 @@ func sortedCopy(s []string) []string {
 
 // TargetKey identifies the image locations of one Compose file.
 func TargetKey(repoID int64, baseBranch, path string, locations []string) string {
+	return TargetKeyOf(prKindCompose, repoID, baseBranch, path, locations)
+}
+
+// TargetKeyOf identifies what an update of the given kind edits: the image
+// locations of a Compose file, or the FROM of a Dockerfile (its position among
+// the stages, as the location).
+func TargetKeyOf(kind string, repoID int64, baseBranch, path string, locations []string) string {
 	return hashCanonical(struct {
 		RepoID     int64    `json:"repo_id"`
 		BaseBranch string   `json:"base_branch"`
 		Kind       string   `json:"kind"`
 		Path       string   `json:"path"`
 		Locations  []string `json:"locations"`
-	}{repoID, baseBranch, "compose", path, sortedCopy(locations)})
+	}{repoID, baseBranch, kind, path, sortedCopy(locations)})
 }
 
 // UpdateKey identifies one proposed update of a target.
@@ -108,6 +151,18 @@ func AttemptKey(updateKey, baseSHA, inputBlobSHA string, changes []FileChange) s
 // lower-case letters, digits and hyphens, and shortened when the whole name
 // would be too long; nothing else is ever cut.
 func BranchName(services []string, tag, attemptKey string) (string, error) {
+	return branchNameFor(composeBranchPrefix, services, tag, attemptKey)
+}
+
+// DockerfileBranchName is the branch of a Dockerfile attempt:
+// kestrelynx/dockerfile/<display>-<tag>-<12 hex of the attempt key>, with the
+// display part built as BranchName builds it, from the services of the
+// workloads.
+func DockerfileBranchName(services []string, tag, attemptKey string) (string, error) {
+	return branchNameFor(dockerfileBranchPrefix, services, tag, attemptKey)
+}
+
+func branchNameFor(prefix string, services []string, tag, attemptKey string) (string, error) {
 	if len(attemptKey) < 12 {
 		return "", fmt.Errorf("remediation: attempt key %q is too short", attemptKey)
 	}
@@ -129,7 +184,7 @@ func BranchName(services []string, tag, attemptKey string) (string, error) {
 		tag = strings.ReplaceAll(tag, "..", ".")
 	}
 	suffix := "-" + tag + "-" + attemptKey[:12]
-	room := 255 - len(composeBranchPrefix) - len(suffix)
+	room := 255 - len(prefix) - len(suffix)
 	if room < 1 {
 		return "", fmt.Errorf("remediation: tag %q leaves no room for a branch name", tag)
 	}
@@ -139,7 +194,7 @@ func BranchName(services []string, tag, attemptKey string) (string, error) {
 			display = "s"
 		}
 	}
-	name := composeBranchPrefix + display + suffix
+	name := prefix + display + suffix
 	if !github.ValidBranch(name) {
 		return "", fmt.Errorf("remediation: %q is not a valid branch name", name)
 	}
@@ -171,6 +226,22 @@ func gitBlobSHA(content []byte) string {
 	fmt.Fprintf(h, "blob %d\x00", len(content))
 	h.Write(content)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// dockerfileUnitTitle is the pull request title and commit message of a base
+// image update.
+func dockerfileUnitTitle(imageRepo, tag, path string) string {
+	t := fmt.Sprintf("Update base image %s to %s in %s", imageRepo, tag, path)
+	t = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, t)
+	if rs := []rune(t); len(rs) > 250 {
+		t = string(rs[:250]) + "..."
+	}
+	return t
 }
 
 // composeUnitTitle is the pull request title and commit message.

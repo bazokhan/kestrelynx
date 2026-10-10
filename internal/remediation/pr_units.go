@@ -27,6 +27,10 @@ type ComposeMapping struct {
 // composeUnit is one update unit: the mapped services of one Compose file
 // (repository, branch, path) whose running image is the same reference.
 type composeUnit struct {
+	// A Dockerfile unit (df is set) reuses the fields below: path is the
+	// Dockerfile, locations hold the edited FROM's position, current is the
+	// base image the FROM names, candidate the candidate base, and services and
+	// workloads the workloads built through it.
 	key        string
 	repo       string // as the first mapping spells it
 	baseBranch string
@@ -51,6 +55,9 @@ type composeUnit struct {
 	manualDetail string
 
 	candidate *ImageState // shared by every item when the unit is adopted
+
+	// df is set for a Dockerfile unit.
+	df *dockerfileUnitData
 }
 
 // normalizedRef is the reference in the form units are grouped by: the
@@ -227,6 +234,9 @@ func (u *composeUnit) checkAdopted() {
 // service resolves in its verified comparison: a fix is claimed for a
 // location only when it holds for all of the location's running entities.
 func (u *composeUnit) fixTargets() []FixTarget {
+	if u.df != nil {
+		return u.df.fixTargets
+	}
 	return u.perLocation(func(it *Item) map[verdictKey]bool {
 		res := resolvedPairs(it)
 		out := map[verdictKey]bool{}
@@ -286,6 +296,9 @@ func resolvedPairs(it *Item) map[verdictKey]bool {
 
 // evidence summarizes the comparison of every item of the unit.
 func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
+	if u.df != nil {
+		return u.df.evidence
+	}
 	vs := &VerificationSummary{
 		TrivyVersion:    plan.Conditions.TrivyVersion,
 		Severities:      append([]string(nil), plan.Conditions.Severities...),
@@ -364,4 +377,12 @@ func sortServiceRefs(s []ServiceRef) {
 
 func sortFixTargets(f []FixTarget) {
 	sort.Slice(f, func(i, j int) bool { return f[i].key() < f[j].key() })
+}
+
+// kind is the kind of update the unit proposes.
+func (u *composeUnit) kind() string {
+	if u.df != nil {
+		return prKindDockerfile
+	}
+	return prKindCompose
 }

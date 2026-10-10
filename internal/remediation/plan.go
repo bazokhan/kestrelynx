@@ -189,6 +189,9 @@ type Plan struct {
 	// LanguageItems are the dependency units of the language-package part,
 	// one per repository directory, in the order they were handled.
 	LanguageItems []LanguageItem `json:"language_items,omitempty"`
+	// DockerfileItems are the base image edit locations of the Dockerfile
+	// part, in the order they were handled.
+	DockerfileItems []DockerfileItem `json:"dockerfile_items,omitempty"`
 	// PullRequests are the Compose update units of the pull request stage,
 	// in plan order; empty when pull requests are not enabled.
 	PullRequests []PRUnit `json:"pull_requests,omitempty"`

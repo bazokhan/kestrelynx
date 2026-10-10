@@ -48,9 +48,12 @@ func osPackages(ver string) []scanner.ResultPackages {
 // planScanner is the fake comparison-mode scanner: running images come back
 // as the configured scan, candidates (remote targets) as a clean image.
 type planScanner struct {
-	events     []string
-	local      map[string]scanner.ImageScan
-	candidate  []scanner.Finding
+	events    []string
+	local     map[string]scanner.ImageScan
+	candidate []scanner.Finding
+	// byRef, when it has an entry for a remote target's reference, gives that
+	// scan's findings instead of candidate.
+	byRef      map[string][]scanner.Finding
 	prepareErr error
 	verifyOK   bool
 	verifyErr  error
@@ -61,9 +64,13 @@ type planScanner struct {
 func (p *planScanner) Scan(_ context.Context, t scanner.ScanTarget) scanner.ImageScan {
 	p.events = append(p.events, "scan:"+t.Subject.Ref)
 	if t.Source == scanner.SourceRemote {
+		fs := p.candidate
+		if v, ok := p.byRef[t.Subject.Ref]; ok {
+			fs = v
+		}
 		return scanner.ImageScan{
 			Image: t.Subject.Ref, Subject: t.Subject, ScannedKey: t.Subject.Key, Pinned: true,
-			Source: scanner.SourceRemote, Platform: linuxAmd64, OSFamily: "debian", Findings: p.candidate, Packages: osPackages("2"),
+			Source: scanner.SourceRemote, Platform: linuxAmd64, OSFamily: "debian", Findings: fs, Packages: osPackages("2"),
 		}
 	}
 	if s, ok := p.local[t.Subject.Ref]; ok {

@@ -63,6 +63,10 @@ type Target struct {
 	// sorted. A comparison can judge the target only if both scans listed
 	// packages of these types.
 	Types []string `json:"types,omitempty"`
+	// Layers are the filesystem layers (diff IDs, sorted) the findings were
+	// reported in; set only for the base-image route, which selects findings
+	// by layer.
+	Layers []string `json:"layers,omitempty"`
 }
 
 // SelectTargets returns the entry points of a scan: the findings whose

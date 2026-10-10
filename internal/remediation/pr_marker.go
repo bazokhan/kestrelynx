@@ -29,7 +29,12 @@ var (
 
 // PRMarker is the marker of a pull request body.
 type PRMarker struct {
-	V               int          `json:"v"`
+	V int `json:"v"`
+	// Kind is "dockerfile" for a base image update and absent for a Compose
+	// tag update, so a Compose marker is the same as before the kind existed.
+	// For a Dockerfile, Path is the Dockerfile, Locations hold the edited
+	// FROM's position and CurrentRef is the base image the FROM names.
+	Kind            string       `json:"kind,omitempty"`
 	RepoID          int64        `json:"repo_id"`
 	BaseBranch      string       `json:"base_branch"`
 	Path            string       `json:"path"`
@@ -131,6 +136,8 @@ func parsePRMarker(body string) (PRMarker, error) {
 
 func (m PRMarker) wellFormed() error {
 	switch {
+	case m.Kind != "" && m.Kind != prKindDockerfile:
+		return fmt.Errorf("unknown kind %q", m.Kind)
 	case m.RepoID <= 0:
 		return errors.New("no repository ID")
 	case !github.ValidBranch(m.BaseBranch):
@@ -162,7 +169,7 @@ func (m PRMarker) verify(repoID int64) error {
 	if m.RepoID != repoID {
 		return fmt.Errorf("the marker names repository ID %d, the repository is %d", m.RepoID, repoID)
 	}
-	tk := TargetKey(m.RepoID, m.BaseBranch, m.Path, m.Locations)
+	tk := TargetKeyOf(kindOf(m.Kind), m.RepoID, m.BaseBranch, m.Path, m.Locations)
 	uk := UpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest)
 	ak := AttemptKey(uk, m.BaseSHA, m.InputBlobSHA, m.Changes)
 	if tk != m.TargetKey || uk != m.UpdateKey || ak != m.AttemptKey {
@@ -172,9 +179,9 @@ func (m PRMarker) verify(repoID int64) error {
 }
 
 // branchMatches reports whether a head ref is a branch of the marker's
-// attempt: a Compose branch ending in the attempt key's 12 hex digits.
+// attempt: a branch of its kind ending in the attempt key's 12 hex digits.
 func (m PRMarker) branchMatches(ref string) bool {
-	return len(m.AttemptKey) >= 12 && strings.HasPrefix(ref, composeBranchPrefix) && strings.HasSuffix(ref, "-"+m.AttemptKey[:12])
+	return len(m.AttemptKey) >= 12 && strings.HasPrefix(ref, branchPrefixOf(kindOf(m.Kind))) && strings.HasSuffix(ref, "-"+m.AttemptKey[:12])
 }
 
 // supersedeComment is the comment posted on a pull request being replaced.

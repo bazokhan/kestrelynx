@@ -234,7 +234,8 @@ func (s Secret) MarshalText() ([]byte, error) { return []byte(s.redacted()), nil
 func (s Secret) LogValue() slog.Value         { return slog.StringValue(s.redacted()) }
 
 // RemediationMapping ties a running Compose workload to the repository that
-// holds its source. Exactly one of Compose and Dependencies is set.
+// holds its source. Exactly one of Compose, Dependencies and Dockerfile is
+// set.
 type RemediationMapping struct {
 	// Workload is the running workload, compose/<project>/<service>.
 	Workload string
@@ -247,6 +248,8 @@ type RemediationMapping struct {
 	// Dependencies names the directory whose lockfiles resolve the
 	// workload's language packages.
 	Dependencies *RemediationDependenciesSource
+	// Dockerfile names the Dockerfile that builds the workload's image.
+	Dockerfile *RemediationDockerfileSource
 }
 
 // RemediationComposeSource locates a service in a Compose file.
@@ -258,6 +261,13 @@ type RemediationComposeSource struct {
 // RemediationDependenciesSource locates a dependency root.
 type RemediationDependenciesSource struct {
 	Directory string // repository-relative, normalized; "." is the root
+}
+
+// RemediationDockerfileSource locates the Dockerfile that builds a workload's
+// image.
+type RemediationDockerfileSource struct {
+	Path   string // repository-relative, normalized
+	Target string // the build stage of the running image; empty means the last stage
 }
 
 // RemediationLimits caps the work of one plan cycle. Every value is positive;
@@ -349,6 +359,10 @@ type rawConfig struct {
 			Dependencies *struct {
 				Directory string `yaml:"directory"`
 			} `yaml:"dependencies"`
+			Dockerfile *struct {
+				Path   string `yaml:"path"`
+				Target string `yaml:"target"`
+			} `yaml:"dockerfile"`
 		} `yaml:"mappings"`
 		// The limits are pointers so an explicit 0 (rejected) is told apart
 		// from an omitted key (defaulted).
@@ -484,6 +498,9 @@ func Parse(data []byte) (Config, error) {
 		}
 		if m.Dependencies != nil {
 			rm.Dependencies = &RemediationDependenciesSource{Directory: m.Dependencies.Directory}
+		}
+		if m.Dockerfile != nil {
+			rm.Dockerfile = &RemediationDockerfileSource{Path: m.Dockerfile.Path, Target: m.Dockerfile.Target}
 		}
 		c.Remediation.Mappings = append(c.Remediation.Mappings, rm)
 	}

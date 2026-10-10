@@ -366,6 +366,17 @@ type messages struct {
 	PlanDepMore                 string // " and %d more" (other packages of the same unit)
 	PlanRebuildLine             string // "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s" (service names, requirements file, package, installed, lowest fixed version, the "and more" clause)
 
+	// Base image updates of Dockerfiles. The counts are those of the
+	// comparison of the current base image with the candidate base image on
+	// the findings the running image has in the base's layers; the image
+	// rebuilt from the new Dockerfile is not checked, and none of these lines
+	// is a statement about it.
+	PlanDockerfileLine        string // "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves all %[4]d base findings (final image not yet verified)" (service names, base image, candidate tag, count)
+	PlanDockerfilePartialLine string // "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves %[4]d of %[5]d base findings (final image not yet verified)" (service names, base image, candidate tag, resolved, targeted)
+	PlanDockerfileKEVLine     string // "• %[1]s (Dockerfile): updating the base %[2]s to %[3]s introduces a KEV-listed vulnerability — manual review" (service names, base image, candidate tag)
+	PlanDockerfilePRNote      string // " — base image comparison; final image not yet verified" (appended to the line of a base image pull request)
+	PlanDockerfileRebuildLine string // "• %[1]s (Dockerfile): %[2]s — which base the running image was built from could not be confirmed; rebuilding with `docker compose build --pull` picks up the current base" (service names, base image)
+
 	// Pull requests of the fix plan (only with pull requests enabled). A
 	// line names the pull request link, the image, the old and new tag and
 	// the Compose file; none of them says a finding is resolved.
@@ -699,6 +710,11 @@ var enMessages = messages{
 	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet",
 	PlanDepMore:                 " and %d more",
 	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s",
+	PlanDockerfileLine:          "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves all %[4]d base findings (final image not yet verified)",
+	PlanDockerfilePartialLine:   "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves %[4]d of %[5]d base findings (final image not yet verified)",
+	PlanDockerfilePRNote:        " — base image comparison; final image not yet verified",
+	PlanDockerfileKEVLine:       "• %[1]s (Dockerfile): updating the base %[2]s to %[3]s introduces a KEV-listed vulnerability — manual review",
+	PlanDockerfileRebuildLine:   "• %[1]s (Dockerfile): %[2]s — which base the running image was built from could not be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
 
 	PlanHeadingPR:           "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n",
 	PlanPRCounts:            "Pull requests: %s",
@@ -1027,6 +1043,11 @@ var jaMessages = messages{
 	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — 更新は未実行",
 	PlanDepMore:                 " ほか%d件",
 	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — 再ビルドで %[5]s 以上が入る見込み",
+	PlanDockerfileLine:          "• %[1]s (Dockerfile): %[2]s → %[3]s — ベースイメージの比較で %[4]d件すべてが解消見込み(最終イメージは未検証)",
+	PlanDockerfilePartialLine:   "• %[1]s (Dockerfile): %[2]s → %[3]s — ベースイメージの比較で %[5]d件中 %[4]d件が解消見込み(最終イメージは未検証)",
+	PlanDockerfilePRNote:        " — ベースイメージの比較による。最終イメージは未検証",
+	PlanDockerfileKEVLine:       "• %[1]s (Dockerfile): ベース %[2]s を %[3]s に更新するとKEV掲載の脆弱性が新たに入る — 要確認",
+	PlanDockerfileRebuildLine:   "• %[1]s (Dockerfile): %[2]s — 稼働中のイメージがどのベースから作られたかを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
 
 	PlanHeadingPR:           "\n*🔧 修正計画* (候補の提示とPull Requestの作成のみ — マージとデプロイは自動では行わない)\n",
 	PlanPRCounts:            "Pull Request: %s",

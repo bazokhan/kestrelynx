@@ -89,6 +89,13 @@ type Finding struct {
 	// didn't report one (typically OS packages, and any language package
 	// resolved without a distinct file path).
 	PkgPath string
+	// LayerDiffID and LayerDigest are Trivy's Layer.DiffID and Layer.Digest of
+	// the layer the vulnerable package was attributed to, verbatim. Either is
+	// empty when the report carried none (Trivy attributes a package to a
+	// layer only for images it could read layer by layer). LayerDiffID is the
+	// value that can be looked up in ImageScan.DiffIDs.
+	LayerDiffID string
+	LayerDigest string
 }
 
 // PackageRef is f's aggregation identity: Ecosystem (Type normalized through
@@ -151,6 +158,10 @@ type ImageScan struct {
 	Pinned bool
 	Source ScanSource // where this scan's bytes came from
 
+	// DiffIDs is Metadata.DiffIDs, the image's filesystem layer IDs from the
+	// bottom layer up, verbatim; nil when the report carried none.
+	DiffIDs []string
+
 	// TrivyVersion is the report's Trivy.Version, "" when the report did not
 	// carry one.
 	TrivyVersion string
@@ -211,6 +222,7 @@ type trivyReport struct {
 			EOSL   bool   `json:"EOSL"`
 		} `json:"OS"`
 		ImageID     string   `json:"ImageID"`
+		DiffIDs     []string `json:"DiffIDs"`
 		RepoDigests []string `json:"RepoDigests"`
 		ImageConfig struct {
 			OS           string `json:"os"`
@@ -239,6 +251,10 @@ type trivyReport struct {
 			Severity         string `json:"Severity"`
 			PrimaryURL       string `json:"PrimaryURL"`
 			Title            string `json:"Title"`
+			Layer            struct {
+				Digest string `json:"Digest"`
+				DiffID string `json:"DiffID"`
+			} `json:"Layer"`
 		} `json:"Vulnerabilities"`
 	} `json:"Results"`
 }
@@ -252,6 +268,11 @@ func ParseReport(data []byte) (ImageScan, error) {
 		return ImageScan{}, fmt.Errorf("parse trivy report: %w", err)
 	}
 
+	var diffIDs []string
+	if len(r.Metadata.DiffIDs) > 0 {
+		diffIDs = append([]string(nil), r.Metadata.DiffIDs...)
+	}
+
 	var registryDigests []string
 	if len(r.Metadata.RepoDigests) > 0 {
 		registryDigests = append([]string(nil), r.Metadata.RepoDigests...)
@@ -263,6 +284,7 @@ func ParseReport(data []byte) (ImageScan, error) {
 		OSFamily:        r.Metadata.OS.Family,
 		OSEOSL:          r.Metadata.OS.EOSL,
 		TrivyVersion:    r.Trivy.Version,
+		DiffIDs:         diffIDs,
 		RegistryDigests: registryDigests,
 		Platform: inventory.Platform{
 			OS:           r.Metadata.ImageConfig.OS,
@@ -321,6 +343,8 @@ func ParseReport(data []byte) (ImageScan, error) {
 				Type:         res.Type,
 				Target:       target,
 				PkgPath:      trimLeadingSlash(v.PkgPath),
+				LayerDiffID:  v.Layer.DiffID,
+				LayerDigest:  v.Layer.Digest,
 			})
 		}
 	}

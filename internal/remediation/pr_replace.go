@@ -60,8 +60,27 @@ func newerPatch(a, b string) bool {
 	return ok1 && ok2 && va.Prefix == vb.Prefix && va.Suffix == vb.Suffix && va.Major == vb.Major && va.Minor == vb.Minor && vb.Patch > va.Patch
 }
 
-// replaceable reports whether old may be replaced by rec.
-func replaceable(rec, old *PRRecord, resolved map[string]bool) bool {
+// resolvedEntitiesFromEvidence is, for a Dockerfile update, the running
+// images each target is resolved for. The key is a FixTarget's identity.
+func resolvedEntitiesFromEvidence(ev *VerificationSummary) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, it := range ev.Items {
+		for _, loc := range it.Locations {
+			for _, v := range it.Resolved {
+				k := FixTarget{Location: loc, VulnID: v.VulnID, Package: v.Package, Layers: v.Layers}.key()
+				if out[k] == nil {
+					out[k] = map[string]bool{}
+				}
+				out[k][it.ItemKey] = true
+			}
+		}
+	}
+	return out
+}
+
+// replaceable reports whether old may be replaced by rec. inherits says
+// whether rec resolves a target old claimed.
+func replaceable(rec, old *PRRecord, inherits func(FixTarget) bool) bool {
 	if old == rec || old.RepoID != rec.RepoID || old.State != PRStateOpen || old.UserModified || old.MarkerOnly ||
 		rec.UserModified || rec.MarkerOnly ||
 		old.TargetKey != rec.TargetKey || old.UpdateKey == rec.UpdateKey ||
@@ -74,7 +93,7 @@ func replaceable(rec, old *PRRecord, resolved map[string]bool) bool {
 		return false
 	}
 	for _, f := range old.FixTargets {
-		if !resolved[f.key()] {
+		if !inherits(f) {
 			return false
 		}
 	}
@@ -88,11 +107,31 @@ func (r *prRun) decideReplacements(rec *PRRecord) {
 		r.targetBlocked(rec.RepoID, rec.TargetKey) {
 		return
 	}
-	resolved := resolvedFromEvidence(rec.Evidence)
+	inherits := func(f FixTarget) bool { return false }
+	if kindOf(rec.Kind) == prKindDockerfile {
+		// Every target the old pull request resolved for an image must be
+		// resolved for that image by the new one.
+		resolved := resolvedEntitiesFromEvidence(rec.Evidence)
+		inherits = func(f FixTarget) bool {
+			have := resolved[f.key()]
+			if len(f.Entities) == 0 {
+				return len(have) > 0
+			}
+			for _, e := range f.Entities {
+				if !have[e] {
+					return false
+				}
+			}
+			return true
+		}
+	} else {
+		resolved := resolvedFromEvidence(rec.Evidence)
+		inherits = func(f FixTarget) bool { return resolved[f.key()] }
+	}
 	changed := false
 	for i := range r.file.PRs {
 		old := &r.file.PRs[i]
-		if !replaceable(rec, old, resolved) || r.replacementOf(old) != nil {
+		if !replaceable(rec, old, inherits) || r.replacementOf(old) != nil {
 			continue
 		}
 		rec.Replacing = append(rec.Replacing, Replacement{OldNumber: old.Number, State: ReplacementPending})

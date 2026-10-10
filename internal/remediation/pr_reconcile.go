@@ -190,7 +190,7 @@ func (r *prRun) verifiedMarker(rs *repoState, pr github.PullRequest) (PRMarker, 
 func (r *prRun) recordFromPull(rs *repoState, pr github.PullRequest, m PRMarker) PRRecord {
 	now := r.now()
 	rec := PRRecord{
-		Repo: rs.name, RepoID: rs.info.ID, Kind: "compose", TargetKey: m.TargetKey, UpdateKey: m.UpdateKey, AttemptKey: m.AttemptKey,
+		Repo: rs.name, RepoID: rs.info.ID, Kind: kindOf(m.Kind), TargetKey: m.TargetKey, UpdateKey: m.UpdateKey, AttemptKey: m.AttemptKey,
 		Branch: pr.HeadRef, Number: pr.Number, URL: pr.HTMLURL, BaseBranch: m.BaseBranch, BaseSHA: m.BaseSHA, HeadSHA: m.HeadSHA,
 		Path: m.Path, Locations: sortedCopy(m.Locations), State: pullState(pr), FixTargets: m.FixTargets,
 		CurrentRef: m.CurrentRef, CandidateTag: m.CandidateTag, CandidateDigest: m.CandidateDigest,
