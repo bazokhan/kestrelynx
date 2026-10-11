@@ -60,6 +60,33 @@ const (
 	// ReasonSourceChanged: the base branch moved and a file the plan was made
 	// from is no longer the same.
 	ReasonSourceChanged Reason = "source_changed"
+	// ReasonArtifactContentMissing: a language update's files are not held in
+	// memory (the item was read back from a stored plan), so nothing can be
+	// written from it. The next cycle updates again.
+	ReasonArtifactContentMissing Reason = "artifact_content_missing"
+	// ReasonArtifactsUnusable: the files of a language update are not what the
+	// stage can write: no lockfile among the plan's files, a file the plan did
+	// not read, a size or hash that differs from the record, or no change.
+	ReasonArtifactsUnusable Reason = "artifacts_unusable"
+	// ReasonOpenPRNotInherited: an open pull request of this tool for the same
+	// lockfile fixes something this update does not, so a second pull request
+	// for the file would only conflict with it.
+	ReasonOpenPRNotInherited Reason = "open_pr_not_inherited"
+	// ReasonLanguageSetTooLarge: the set of fixed packages is too large for
+	// the marker of a pull request description.
+	ReasonLanguageSetTooLarge Reason = "language_set_too_large"
+	// ReasonWorkImageNotConfigured and ReasonWorkImageUnavailable: language
+	// package updates cannot run because no work image is configured or the
+	// configured one could not be made ready; nothing is run in this process
+	// instead.
+	// ReasonUpdateAlreadyProposed: the item's inputs are those a pull request of
+	// this tool was made from, so the update was not run again; the pull
+	// request stands for it. ReasonProposalNotFound: that pull request is no
+	// longer in the records, and the next cycle updates again.
+	ReasonUpdateAlreadyProposed  Reason = "update_already_proposed"
+	ReasonProposalNotFound       Reason = "proposal_not_found"
+	ReasonWorkImageNotConfigured Reason = "work_image_not_configured"
+	ReasonWorkImageUnavailable   Reason = "work_image_unavailable"
 )
 
 // PRState is the state of a pull request record.
@@ -266,8 +293,18 @@ type PRRecord struct {
 	// never commented on, closed, or used to replace another.
 	MarkerOnly bool                 `json:"marker_only,omitempty"`
 	Evidence   *VerificationSummary `json:"evidence,omitempty"`
-	CreatedAt  time.Time            `json:"created_at"`
-	UpdatedAt  time.Time            `json:"updated_at"`
+	// InputVerified marks a record rebuilt from a marker whose update this
+	// program has since run itself and found to have the same update key,
+	// target key, repository ID and manager; the input fingerprint it holds is
+	// then its own, not the marker's. MarkerOnly keeps its meaning.
+	InputVerified bool `json:"input_verified,omitempty"`
+	// Lang identifies a language update; the other kinds have none.
+	Lang *LangRecord `json:"lang,omitempty"`
+	// Language is what the pull request changes, for display; a record
+	// rebuilt from a marker has none.
+	Language  *PRLanguage `json:"language,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 // AttemptRecord is the recovery data of one attempt to open a pull request:
@@ -303,8 +340,22 @@ type AttemptRecord struct {
 	CandidateDigest string               `json:"candidate_digest"`
 	FixTargets      []FixTarget          `json:"fix_targets,omitempty"`
 	Evidence        *VerificationSummary `json:"evidence,omitempty"`
-	CreatedAt       time.Time            `json:"created_at"`
-	UpdatedAt       time.Time            `json:"updated_at"`
+	// Changes are the files of the commit when it holds more than the one
+	// file Path, Mode and NewBlobSHA describe (a language update); Lang is
+	// what identifies a language update.
+	Changes   []FileChange `json:"changes,omitempty"`
+	Lang      *LangRecord  `json:"lang,omitempty"`
+	Language  *PRLanguage  `json:"language,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
+// fileChanges are the files the attempt's commit changes.
+func (a *AttemptRecord) fileChanges() []FileChange {
+	if len(a.Changes) > 0 {
+		return a.Changes
+	}
+	return []FileChange{{Path: a.Path, Mode: a.Mode, BlobSHA: a.NewBlobSHA}}
 }
 
 // OperationPhase says which part of an operation an event records.
@@ -386,11 +437,12 @@ type PRStageProblem struct {
 }
 
 // PRUnit is the outcome of one update unit: the services of one Compose file
-// whose running image is the same reference, or the workloads built from one
-// FROM of a Dockerfile.
+// whose running image is the same reference, the workloads built from one
+// FROM of a Dockerfile, or the packages updated in one lockfile.
 type PRUnit struct {
-	// Kind is "dockerfile" for a base image update; empty for a Compose tag
-	// update. For a Dockerfile, Path is the Dockerfile, Locations hold the
+	// Kind is "dockerfile" for a base image update, "language" for a
+	// lockfile update and empty for a Compose tag update. For a Dockerfile,
+	// Path is the Dockerfile, Locations hold the
 	// edited FROM's position, Services the services of Workloads and Current
 	// the base image the FROM names.
 	Kind string `json:"kind,omitempty"`
@@ -428,6 +480,31 @@ type PRUnit struct {
 	Replacing    []Replacement `json:"replacing,omitempty"`
 	// Replaced are the pull requests closed in favour of this one.
 	Replaced []int `json:"replaced,omitempty"`
+
+	// ItemKey and Language are set by a language update ("language"): ItemKey
+	// is the plan's language item, Path the lockfile, Locations the dependency
+	// directory and Services the services of Workloads.
+	ItemKey  string      `json:"item_key,omitempty"`
+	Language *PRLanguage `json:"language,omitempty"`
+}
+
+// PRLanguage describes what a language update changes, for display.
+type PRLanguage struct {
+	Manager       string              `json:"manager"`
+	Root          string              `json:"root"`
+	Packages      []PRLanguagePackage `json:"packages"`
+	ManifestEdits []LangEdit          `json:"manifest_edits,omitempty"`
+}
+
+// PRLanguagePackage is one package a language update moves.
+type PRLanguagePackage struct {
+	Name      string `json:"name"`
+	Ecosystem string `json:"ecosystem"`
+	Relation  string `json:"relation,omitempty"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	// Major marks a move to another major version (for 0.x, another minor).
+	Major bool `json:"major,omitempty"`
 }
 
 // PRStageResult is what one run of the pull request stage reports.

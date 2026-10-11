@@ -41,6 +41,43 @@ type PRStage interface {
 	Run(ctx context.Context, in remediation.PRStageInput) remediation.PRStageResult
 }
 
+// LanguageUpdater runs the dependency update stage over a plan, in place
+// (implemented by *remediation.LangUpdater).
+type LanguageUpdater interface {
+	Run(ctx context.Context, plan *remediation.Plan) remediation.LangUpdateUsage
+}
+
+// LanguageUpdateInput is what the update stage of one cycle is built from.
+type LanguageUpdateInput struct {
+	// Prepared are the cycle's scan conditions; the stage's scans of the
+	// dependency files are valid only under them.
+	Prepared scanner.ScanConditions
+	// Images are the environments of the cycle's scanned images by entity key.
+	Images map[string]remediation.ImageEnv
+	// GitHub rereads the files a dependency unit was planned from.
+	GitHub remediation.GitHubReader
+	Intel  remediation.IntelFunc
+}
+
+// LanguageUpdateConfig turns on the dependency update stage that runs
+// between the plan and the pull request stage. It exists only with pull
+// requests enabled: the stage starts work containers.
+type LanguageUpdateConfig struct {
+	// Unavailable, when set, says why no update can run in this process (no
+	// work image is configured, the Docker client could not be set up). Every
+	// update candidate is then deferred with it; nothing is run instead.
+	Unavailable *LanguageUnavailable
+	// NewUpdater returns the stage for one cycle. An error (the work image
+	// cannot be made ready) defers the cycle's update candidates.
+	NewUpdater func(ctx context.Context, in LanguageUpdateInput) (LanguageUpdater, error)
+}
+
+// LanguageUnavailable is the reason dependency updates cannot run.
+type LanguageUnavailable struct {
+	Reason remediation.Reason
+	Detail string
+}
+
 // PullRequestConfig turns on the pull request stage of the plan. A PlanConfig
 // without it never writes to GitHub.
 type PullRequestConfig struct {
@@ -92,6 +129,10 @@ type PlanConfig struct {
 	// PullRequests, when set, opens and tracks pull requests for the
 	// update candidates of the plan; nil leaves the plan read-only.
 	PullRequests *PullRequestConfig
+	// Language, when set, updates the dependency units that are update
+	// candidates in work containers and checks the result, so that they can
+	// become pull requests; nil leaves them as candidates that were not run.
+	Language *LanguageUpdateConfig
 }
 
 // planCycle is the plan state of one cycle.
@@ -236,7 +277,8 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		return r.planUnavailable(notify.PlanNotBuilt)
 	}
 
-	plan := planner.Plan(ctx, planInputs(report, containers, scans, targets, cyc.scanConds))
+	inputs := planInputs(report, containers, scans, targets, cyc.scanConds)
+	plan := planner.Plan(ctx, inputs)
 	log.Info("fix plan built",
 		"items", len(plan.Items),
 		"pull_again", plan.Count(remediation.CategoryPullAgain),
@@ -248,6 +290,18 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		"candidate_scans", plan.Usage.CandidateScans,
 		"baseline_rescans", plan.Usage.BaselineRescans,
 		"registry_requests", plan.Usage.RegistryRequests)
+
+	// The dependency update stage follows the plan and comes before it is
+	// saved; the counts above are those of the plan alone.
+	if pc.Language != nil {
+		var store remediation.PRStorage
+		if pc.PullRequests != nil {
+			store = pc.PullRequests.Store
+		}
+		r.runLanguageUpdates(ctx, pc.Language, &plan, store, LanguageUpdateInput{
+			Prepared: cyc.prepared, Images: remediation.ImageEnvs(inputs), GitHub: gh, Intel: r.planIntel(ctx, report),
+		})
+	}
 
 	info := &notify.PlanInfo{Plan: &plan}
 	if pc.Plans != nil {
@@ -265,6 +319,58 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 	out.prLastSeq = lastOperationSeq(plan.PROperations)
 	out.prPending = len(plan.PROperations) > 0 || len(plan.PRProblems) > 0
 	return out
+}
+
+// runLanguageUpdates runs the dependency update stage over the plan, in
+// place. Nothing here fails the cycle: when the stage cannot be set up, the
+// update candidates are deferred with the reason and the rest of the plan is
+// untouched.
+func (r Runner) runLanguageUpdates(ctx context.Context, cfg *LanguageUpdateConfig, plan *remediation.Plan, store remediation.PRStorage, in LanguageUpdateInput) {
+	log := r.log()
+	if plan.CountLanguage(remediation.CategoryDependencyUpdateCandidate) == 0 {
+		return
+	}
+	// Candidates whose inputs a pull request was already made from are tied to
+	// it first, whatever the state of the work image: only what is left needs
+	// the stage.
+	order, bound := remediation.BindProposedLanguageUpdates(plan, store)
+	if len(order) == 0 {
+		log.Info("dependency update stage finished", "jobs", 0, "tied_to_existing_pull_requests", bound,
+			"pr_candidates", plan.CountLanguage(remediation.CategoryPRCandidate))
+		return
+	}
+	if cfg.Unavailable != nil {
+		n := remediation.DeferLanguageUpdates(plan, cfg.Unavailable.Reason, cfg.Unavailable.Detail)
+		log.Warn("dependency updates are not run", "reason", cfg.Unavailable.Reason, "deferred", n, "tied_to_existing_pull_requests", bound)
+		return
+	}
+	if in.GitHub == nil || cfg.NewUpdater == nil {
+		n := remediation.DeferLanguageUpdates(plan, remediation.ReasonWorkImageUnavailable, "the dependency update stage could not be set up")
+		log.Warn("dependency updates are not run: the stage could not be set up", "deferred", n, "tied_to_existing_pull_requests", bound)
+		return
+	}
+	updater, err := cfg.NewUpdater(ctx, in)
+	if err != nil {
+		n := remediation.DeferLanguageUpdates(plan, remediation.ReasonWorkImageUnavailable, "the work image could not be made ready: "+clipText(err.Error(), 300))
+		log.Warn("dependency updates are not run: the work image could not be made ready", "err", err, "deferred", n, "tied_to_existing_pull_requests", bound)
+		return
+	}
+	use := remediation.RunLanguageUpdatesInOrder(ctx, updater.Run, plan, order)
+	log.Info("dependency update stage finished",
+		"jobs", use.Jobs,
+		"tied_to_existing_pull_requests", bound,
+		"pr_candidates", plan.CountLanguage(remediation.CategoryPRCandidate),
+		"manual", plan.CountLanguage(remediation.CategoryManual),
+		"deferred", plan.CountLanguage(remediation.CategoryDeferred),
+		"failed", plan.CountLanguage(remediation.CategoryFailed))
+}
+
+// clipText shortens s to at most n runes.
+func clipText(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "..."
+	}
+	return s
 }
 
 // runPullRequests runs the pull request stage on the saved plan and attaches

@@ -3,7 +3,9 @@ package remediation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -1192,4 +1194,384 @@ func TestBundleListsAreJudgedByTheirTextOnce(t *testing.T) {
 	if recordBundlesAnything("") || recordBundlesAnything("[]") || !recordBundlesAnything(`["a"]`) {
 		t.Error("canonical text misjudged")
 	}
+}
+
+// --- packages that carry their own shrinkwrap ---
+
+func TestParsedRegistryVersionTellsWhetherItCarriesAShrinkwrap(t *testing.T) {
+	doc := func(extra string) []byte {
+		return []byte(`{"name":"p","version":"1.0.0","dist":{"tarball":"https://registry.npmjs.org/p/-/p-1.0.0.tgz","integrity":"sha512-x"}` + extra + `}`)
+	}
+	for extra, want := range map[string]bool{"": false, `,"_hasShrinkwrap":false`: false, `,"_hasShrinkwrap":null`: false, `,"_hasShrinkwrap":true`: true} {
+		d, err := parseNpmVersion(doc(extra), "p", "1.0.0")
+		if err != nil || d.HasShrinkwrap != want {
+			t.Errorf("%q: %v, %v", extra, d.HasShrinkwrap, err)
+		}
+	}
+	if !entryHasShrinkwrap(map[string]json.RawMessage{"hasShrinkwrap": json.RawMessage("true")}) ||
+		entryHasShrinkwrap(map[string]json.RawMessage{"hasShrinkwrap": json.RawMessage("false")}) ||
+		entryHasShrinkwrap(map[string]json.RawMessage{}) {
+		t.Error("entryHasShrinkwrap misjudged")
+	}
+}
+
+func TestEverythingBelowAPackageWithAShrinkwrapIsLeftToAPerson(t *testing.T) {
+	t.Run("the registry says the parent carries a shrinkwrap", func(t *testing.T) {
+		h := nestedMinimistHarness(t, nil)
+		d := h.npm.dists["mkdirp@0.5.5"]
+		d.HasShrinkwrap = true
+		h.npm.dists["mkdirp@0.5.5"] = d
+		it, _ := h.run()
+		wantCategory(t, it, CategoryManual, ReasonDistributionMismatch)
+		if !strings.Contains(it.Detail, "shrinkwrap") {
+			t.Errorf("detail = %q", it.Detail)
+		}
+	})
+	t.Run("the registry says the entry itself carries one", func(t *testing.T) {
+		h := nestedMinimistHarness(t, nil)
+		d := h.npm.dists["minimist@1.2.8"]
+		d.HasShrinkwrap = true
+		h.npm.dists["minimist@1.2.8"] = d
+		it, _ := h.run()
+		wantCategory(t, it, CategoryManual, ReasonDistributionMismatch)
+	})
+	t.Run("the grandparent carries one and the entry is two levels down", func(t *testing.T) {
+		h := deepMinimistHarness(t, nil)
+		d := h.npm.dists["mkdirp@0.5.5"]
+		d.HasShrinkwrap = true
+		h.npm.dists["mkdirp@0.5.5"] = d
+		it, _ := h.run()
+		wantCategory(t, it, CategoryManual, ReasonDistributionMismatch)
+	})
+	t.Run("the output records the flag on the entry", func(t *testing.T) {
+		it, _ := nestedMinimistHarness(t, func(parent, child map[string]any) { child["hasShrinkwrap"] = true }).run()
+		if it.Category != CategoryManual {
+			t.Fatalf("category/reason = %s/%s", it.Category, it.Reason)
+		}
+	})
+	t.Run("a registry that does not say so passes", func(t *testing.T) {
+		it, _ := nestedMinimistHarness(t, nil).run()
+		wantCategory(t, it, CategoryPRCandidate, ReasonUpdateVerified)
+	})
+}
+
+func TestPlanLeavesEverythingBelowAPackageWithAShrinkwrap(t *testing.T) {
+	for name, e := range map[string]func(mkdirp, a, child map[string]any){
+		"the grandparent carries a shrinkwrap": func(m, a, c map[string]any) { m["hasShrinkwrap"] = true },
+		"the parent carries one":               func(m, a, c map[string]any) { a["hasShrinkwrap"] = true },
+		"the entry carries one":                func(m, a, c map[string]any) { c["hasShrinkwrap"] = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if it := deepMinimistHarnessFiles(t, e); it.Category == CategoryDependencyUpdateCandidate {
+				t.Fatalf("offered as an update: %s", it.Detail)
+			}
+		})
+	}
+	if it := deepMinimistHarnessFiles(t, func(m, a, c map[string]any) { m["hasShrinkwrap"] = false }); it.Category != CategoryDependencyUpdateCandidate {
+		t.Errorf("a false flag stopped the update: %s %s", it.Category, it.Detail)
+	}
+}
+
+// --- the work of an edit is linear and bounded ---
+
+func TestEditsAreMadeWithOneSortAndOneScan(t *testing.T) {
+	// A hundred thousand replacements given in reverse order.
+	b := []byte(strings.Repeat("abcdefghij", 100000))
+	var reps []replacement
+	for i := 99999; i >= 0; i-- {
+		reps = append(reps, replacement{i * 10, i*10 + 1, "XY"})
+	}
+	start := time.Now()
+	out, err := applyReplacements(b, reps)
+	if err != nil || len(out) != len(b)+100000 || !strings.HasPrefix(string(out), "XYbcdefghijXYbc") {
+		t.Fatalf("%v, %d", err, len(out))
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if _, err := applyReplacements([]byte("abcdef"), []replacement{{1, 4, "x"}, {3, 5, "y"}}); err == nil {
+		t.Error("overlapping edits were applied")
+	}
+	if _, err := applyReplacements([]byte("abc"), []replacement{{2, 9, "x"}}); err == nil {
+		t.Error("an edit past the end was applied")
+	}
+
+	// The same requirement written the most times one update edits.
+	var doc strings.Builder
+	doc.WriteString("[project]\nname = \"p\"\ndependencies = [\n")
+	var idx []int
+	var edits []ManifestEdit
+	for i := 0; i < maxManifestEdits; i++ {
+		doc.WriteString("  \"urllib3==1.26.4\",\n")
+		idx = append(idx, i)
+		edits = append(edits, ManifestEdit{Section: "project.dependencies", Name: "urllib3", From: "urllib3==1.26.4", To: "urllib3==1.26.17"})
+	}
+	doc.WriteString("]\n")
+	start = time.Now()
+	got, err := editPyproject(bg, []byte(doc.String()), idx, edits)
+	if err != nil || strings.Count(string(got), "1.26.17") != maxManifestEdits || strings.Contains(string(got), "1.26.4") {
+		t.Fatalf("%v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	// One more is over the limit, whatever the document.
+	if _, err := editPyproject(bg, []byte(doc.String()), append(idx, 0), append(edits, edits[0])); !errors.Is(err, errManifestEditLimit) {
+		t.Errorf("over the limit: %v", err)
+	}
+
+	// package.json: many edits in a document with many members.
+	var pj strings.Builder
+	pj.WriteString(`{"dependencies":{`)
+	for i := 0; i < 100000; i++ {
+		fmt.Fprintf(&pj, `"p%d":"1.0.0",`, i)
+	}
+	pj.WriteString(`"minimist":"1.2.5"},"devDependencies":{"minimist":"1.2.5"},"optionalDependencies":{"minimist":"1.2.5"}}`)
+	var pedits []ManifestEdit
+	for _, sec := range []string{"dependencies", "devDependencies", "optionalDependencies"} {
+		pedits = append(pedits, ManifestEdit{Section: sec, Name: "minimist", From: "1.2.5", To: "1.2.6"})
+	}
+	for i := 0; i < 200; i++ {
+		pedits = append(pedits, ManifestEdit{Section: "dependencies", Name: fmt.Sprintf("p%d", i), From: "1.0.0", To: "1.0.1"})
+	}
+	start = time.Now()
+	pgot, err := editPackageJSON(bg, []byte(pj.String()), pedits)
+	if err != nil || strings.Count(string(pgot), `"1.2.6"`) != 3 {
+		t.Fatalf("%v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if _, err := editPackageJSON(bg, []byte(pj.String()), append(pedits, pedits...)); err == nil {
+		t.Error("more edits than the limit were made")
+	}
+	// A time that is over stops the edit.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := editPackageJSON(ctx, []byte(pj.String()), pedits[:1]); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: %v", err)
+	}
+	if _, err := editPyproject(ctx, []byte(doc.String()), idx[:1], edits[:1]); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: %v", err)
+	}
+}
+
+func TestMaskingEditedSpecifiersWalksTheRequirementsOnce(t *testing.T) {
+	var reqs []any
+	for i := 0; i < 200000; i++ {
+		reqs = append(reqs, map[string]any{"name": fmt.Sprintf("p%d", i), "specifier": ">=1"})
+	}
+	meta, _ := json.Marshal(map[string]any{"\x00root": map[string]any{"metadata": map[string]any{"requires-dist": reqs}}})
+	g := &depGraph{meta: string(meta)}
+	var edits []ManifestEdit
+	for i := 0; i < maxManifestEdits; i++ {
+		edits = append(edits, ManifestEdit{Section: "project.dependencies", Name: fmt.Sprintf("P%d", i*7)})
+	}
+	start := time.Now()
+	if err := g.maskEditedSpecs(bg, ManagerUv, edits); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if n := strings.Count(g.meta, editedMask[1:]); n != maxManifestEdits {
+		t.Errorf("masked %d", n)
+	}
+	if err := g.maskEditedSpecs(bg, ManagerUv, append(edits, edits[0])); err == nil {
+		t.Error("more edits than the limit were masked")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := g.maskEditedSpecs(ctx, ManagerUv, edits[:1]); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: %v", err)
+	}
+}
+
+func TestMoreEditsThanOneUpdateMakesDefersTheItem(t *testing.T) {
+	h := newHarness(t, "uv")
+	n := maxManifestEdits + 1
+	reqs := make([]string, n)
+	quoted := make([]string, n)
+	for i := range reqs {
+		reqs[i] = `{ name = "urllib3", specifier = "==1.26.4" }`
+		quoted[i] = `"urllib3==1.26.4"`
+	}
+	h.files["pyproject.toml"] = strings.Replace(h.files["pyproject.toml"], `dependencies = ["urllib3>=1.26,<2"]`, "dependencies = ["+strings.Join(quoted, ", ")+"]", 1)
+	h.files["uv.lock"] = strings.Replace(h.files["uv.lock"], `requires-dist = [{ name = "urllib3", specifier = ">=1.26,<2" }]`, "requires-dist = ["+strings.Join(reqs, ", ")+"]", 1)
+	h.gh = ghFor(h.files)
+	h.cfg.GitHub = h.gh
+	h.item = itemFor(t, ManagerUv, h.files, urllibGroup())
+	if h.item.Category != CategoryDependencyUpdateCandidate {
+		t.Fatalf("not a candidate: %s %s", h.item.Category, h.item.Detail)
+	}
+	it, _ := h.run()
+	wantCategory(t, it, CategoryDeferred, ReasonUpdateInputLimit)
+	if h.work.calls != 0 {
+		t.Error("a job ran")
+	}
+}
+
+// --- the job timeout the work program can be given ---
+
+func TestJobTimeoutMustFitTheWorkProgramsDeadlineLimit(t *testing.T) {
+	h := newHarness(t, "npm")
+	limit := time.Duration(worker.MaxDeadlineSeconds+30) * time.Second
+	for name, c := range map[string]struct {
+		timeout time.Duration
+		ok      bool
+	}{
+		"the default":             {0, true},
+		"exactly the limit":       {limit, true},
+		"a second over the limit": {limit + time.Second, false},
+		"an hour and a half":      {90 * time.Minute, false},
+		"a day":                   {24 * time.Hour, false},
+		"just under a minute":     {59 * time.Second, false},
+		"a minute":                {time.Minute, true},
+	} {
+		cfg := h.cfg
+		cfg.JobTimeout = c.timeout
+		u, err := NewLangUpdater(cfg)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if err == nil {
+			if d := u.newJob(worker.ManagerNpm, map[string][]byte{}, []worker.Step{{ID: "a", Op: worker.OpNpmRelock}}).DeadlineSeconds; d < 1 || d > worker.MaxDeadlineSeconds {
+				t.Errorf("%s: deadline %d", name, d)
+			}
+		}
+	}
+}
+
+// --- the planning of the manifest is linear in targets plus requirements ---
+
+// bigUvRun is an update of k packages of a project whose pyproject.toml lists
+// m requirements, k of them the targets, each pinned below its target.
+func bigUvRun(t *testing.T, k, m int) *updateRun {
+	t.Helper()
+	var doc strings.Builder
+	doc.WriteString("[project]\nname = \"p\"\nversion = \"1\"\nrequires-python = \">=3.9\"\ndependencies = [\n")
+	it := &LanguageItem{Manager: ManagerUv}
+	for i := 0; i < m; i++ {
+		name := fmt.Sprintf("pkg%d", i)
+		if i < k {
+			fmt.Fprintf(&doc, "  \"%s==1.0.0\",\n", name)
+			it.Packages = append(it.Packages, LanguagePackage{
+				Name: name, Normalized: name, Action: ActionUpdate, SelectionLowerBound: "1.0.1",
+				Occurrences: []SourceOccurrence{{Matched: true, Direct: true}},
+			})
+			continue
+		}
+		fmt.Fprintf(&doc, "  \"%s>=1\",\n", name)
+	}
+	doc.WriteString("]\n")
+	set, fail := newUpdateSet(it)
+	if fail != nil {
+		t.Fatal(fail.detail)
+	}
+	return &updateRun{it: it, set: set, upd: &LanguageUpdate{}, src: &sourceFiles{manifestName: "pyproject.toml", manifestPath: "pyproject.toml", manifest: []byte(doc.String())}}
+}
+
+func TestUvPlanningReadsEachRequirementOnce(t *testing.T) {
+	r := bigUvRun(t, worker.MaxPackages, 150000)
+	r.manifest = r.src.manifest
+	start := time.Now()
+	fail := r.planUvProject(bg)
+	d := time.Since(start)
+	if fail != nil {
+		t.Fatalf("%s %s", fail.reason, fail.detail)
+	}
+	if len(r.upd.ManifestEdits) != worker.MaxPackages {
+		t.Errorf("edits = %d", len(r.upd.ManifestEdits))
+	}
+	if d > 10*time.Second {
+		t.Errorf("planning took %v", d)
+	}
+	// Over the bound on requirements the item is deferred, before any job.
+	r = bigUvRun(t, 2, maxManifestRequirements+1)
+	r.manifest = r.src.manifest
+	fail = r.planUvProject(bg)
+	if fail == nil || fail.category != CategoryDeferred || fail.reason != ReasonUpdateInputLimit {
+		t.Errorf("over the requirement limit: %+v", fail)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r = bigUvRun(t, 2, 5000)
+	r.manifest = r.src.manifest
+	if fail := r.planUvProject(ctx); fail == nil || fail.category != CategoryDeferred {
+		t.Errorf("canceled: %+v", fail)
+	}
+}
+
+func TestUpdateSetIsIndexedOnce(t *testing.T) {
+	r := bigUvRun(t, worker.MaxPackages, worker.MaxPackages)
+	start := time.Now()
+	for i := 0; i < 200; i++ {
+		for _, n := range r.set.names {
+			if !r.isDirect(n) || r.nameOf(n) != n || !r.targetSet()[n] {
+				t.Fatalf("%s", n)
+			}
+		}
+		r.packageArgs(nil, func(string) bool { return true })
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if got := r.nameOf("unknown"); got != "unknown" {
+		t.Errorf("nameOf = %q", got)
+	}
+	if len(r.set.byName["pkg3"]) != 1 {
+		t.Errorf("byName = %v", r.set.byName["pkg3"])
+	}
+}
+
+func TestLimitsAreCheckedBeforeTheManifestIsPlanned(t *testing.T) {
+	t.Run("more packages than one job takes", func(t *testing.T) {
+		h := newHarness(t, "npm")
+		for i := 0; i < worker.MaxPackages+1; i++ {
+			name := fmt.Sprintf("extra%d", i)
+			h.item.Packages = append(h.item.Packages, LanguagePackage{Name: name, Action: ActionUpdate, SelectionLowerBound: "1.0.1", Installed: "1.0.0"})
+		}
+		it, _ := h.run()
+		wantCategory(t, it, CategoryDeferred, ReasonUpdatePackageLimit)
+		if h.work.calls != 0 {
+			t.Error("a job ran")
+		}
+	})
+	t.Run("a manifest over the size limit", func(t *testing.T) {
+		for _, mgr := range []string{"npm", "pnpm", "uv"} {
+			h := newHarness(t, mgr)
+			name := map[string]string{"npm": "package.json", "pnpm": "package.json", "uv": "pyproject.toml"}[mgr]
+			h.files[name] += strings.Repeat(" ", maxManifestBytes)
+			h.gh = ghFor(h.files)
+			h.cfg.GitHub = h.gh
+			src := h.item.Source
+			src.Files = append([]SourceFile(nil), src.Files...)
+			for i := range src.Files {
+				if path.Base(src.Files[i].Path) == name {
+					src.Files[i].BlobSHA = gitBlobSHA([]byte(h.files[name]))
+				}
+			}
+			h.item.Source = src
+			it, _ := h.run()
+			wantCategory(t, it, CategoryDeferred, ReasonUpdateInputLimit)
+			if h.work.calls != 0 {
+				t.Errorf("%s: a job ran", mgr)
+			}
+		}
+	})
+	t.Run("an edit of a manifest over the size limit is a limit, not a failure", func(t *testing.T) {
+		big := []byte(strings.Repeat(" ", maxManifestBytes+1))
+		if _, err := editPackageJSON(bg, big, nil); !errors.Is(err, errManifestEditLimit) {
+			t.Errorf("package.json: %v", err)
+		}
+		if _, err := editPyproject(bg, big, nil, nil); !errors.Is(err, errManifestEditLimit) {
+			t.Errorf("pyproject.toml: %v", err)
+		}
+		r := &updateRun{it: &LanguageItem{Manager: ManagerNpm}, upd: &LanguageUpdate{}, src: &sourceFiles{manifestName: "package.json"}}
+		fail := r.applyManifestEdits(bg, []ManifestEdit{{Name: "a"}}, func() ([]byte, error) { return editPackageJSON(bg, big, nil) })
+		if fail == nil || fail.category != CategoryDeferred || fail.reason != ReasonUpdateInputLimit {
+			t.Errorf("fail = %+v", fail)
+		}
+	})
 }

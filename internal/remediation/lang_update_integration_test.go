@@ -105,15 +105,42 @@ func TestIntegrationLangUpdate(t *testing.T) {
 		// wantNote is a text one note of the run must contain.
 		mutate   func(map[string]string)
 		wantNote string
+		// wantEdit is "from>to" of the one manifest edit the run must make.
+		wantEdit string
 	}{
-		{"npm", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist", nil, ""},
-		{"pnpm", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist", nil, ""},
-		{"uv", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3", nil, ""},
-		{"pip", ManagerPip, "pip", []string{"requirements.txt"}, urllib3, "urllib3", nil, ""},
+		{"npm", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist", nil, "", ""},
+		{"pnpm", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist", nil, "", ""},
+		{"uv", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3", nil, "", ""},
+		{"pip", ManagerPip, "pip", []string{"requirements.txt"}, urllib3, "urllib3", nil, "", ""},
+		{"npm_direct_pinned_out_of_range", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			func(f map[string]string) {
+				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "1.2.5",
+    "mkdirp": "0.5.5"`, 1)
+				f["package-lock.json"] = strings.Replace(f["package-lock.json"], `"dependencies": {
+        "mkdirp": "0.5.5"`, `"dependencies": {
+        "minimist": "1.2.5",
+        "mkdirp": "0.5.5"`, 1)
+			}, "", "1.2.5>1.2.6"},
+		{"pnpm_direct_pinned_out_of_range", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) {
+				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "1.2.5",
+    "mkdirp": "0.5.5"`, 1)
+				f["pnpm-lock.yaml"] = strings.Replace(f["pnpm-lock.yaml"], `    dependencies:
+      mkdirp:`, `    dependencies:
+      minimist:
+        specifier: 1.2.5
+        version: 1.2.5
+      mkdirp:`, 1)
+			}, "", "1.2.5>1.2.6"},
+		{"uv_direct_pinned_out_of_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			func(f map[string]string) {
+				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], `"urllib3>=1.26,<2"`, `"urllib3==1.26.4"`, 1)
+				f["uv.lock"] = strings.Replace(f["uv.lock"], `specifier = ">=1.26,<2"`, `specifier = "==1.26.4"`, 1)
+			}, "", "urllib3==1.26.4>urllib3==1.26.17"},
 		{"pnpm_declared_manager", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			func(f map[string]string) {
 				f["package.json"] = strings.Replace(f["package.json"], `"private": true,`, `"private": true, "packageManager": "pnpm@9.0.0",`, 1)
-			}, "configured to use 9.0.0 of pnpm"},
+			}, "configured to use 9.0.0 of pnpm", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -150,6 +177,13 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			if !got.UpdateExecuted || !got.PostUpdateCheckExecuted {
 				t.Errorf("executed flags = %v %v", got.UpdateExecuted, got.PostUpdateCheckExecuted)
 			}
+			if c.wantEdit != "" {
+				edits := got.Update.ManifestEdits
+				if len(edits) != 1 || edits[0].From+">"+edits[0].To != c.wantEdit {
+					t.Errorf("manifest edits = %+v, want %s", edits, c.wantEdit)
+				}
+				t.Logf("edit %+v", edits[0])
+			}
 			if c.wantNote != "" {
 				found := false
 				for _, n := range got.Update.Notes {
@@ -166,7 +200,11 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			}
 			sc := got.SourceCheck
 			t.Logf("fs check: before=%v after=%v resolved=%v remaining=%v introduced=%v", sc.Before, sc.After, sc.Resolved, sc.Remaining, sc.Introduced)
-			if len(got.Artifacts) != 1 || len(got.Artifacts[0].Content) == 0 {
+			wantArtifacts := 1
+			if c.wantEdit != "" {
+				wantArtifacts = 2
+			}
+			if len(got.Artifacts) != wantArtifacts || len(got.Artifacts[0].Content) == 0 {
 				t.Fatalf("artifacts = %+v", got.Artifacts)
 			}
 			for _, cv := range p.CVEs {

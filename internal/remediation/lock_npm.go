@@ -59,7 +59,7 @@ func parseNpm(manifest, lock []byte) (*lockfile, error) {
 
 	bundles := make(map[string]bool, len(keys))
 	for _, k := range keys {
-		bundles[k] = entryBundlesAnything(doc.entries[k].m)
+		bundles[k] = entryBundlesAnything(doc.entries[k].m) || entryHasShrinkwrap(doc.entries[k].m)
 	}
 
 	l := newLockfile(ManagerNpm)
@@ -228,8 +228,9 @@ func readManifest(data []byte) (*manifest, error) {
 
 // npmBundledProblem returns why the entry at path k is, or may be, installed
 // from the tarball of a package, or "" when it is not: the entry says inBundle,
-// it bundles something itself, or a package it is nested in bundles something
-// (see entryBundlesAnything for why the names listed are not consulted).
+// it bundles something or carries a shrinkwrap itself, or a package it is
+// nested in does (see entryBundlesAnything for why the names listed are not
+// consulted).
 // bundles holds, for the paths of the file, whether the entry bundles
 // anything, and is filled once for the file.
 func npmBundledProblem(bundles map[string]bool, k string, e npmGraphEntry) string {
@@ -237,11 +238,11 @@ func npmBundledProblem(bundles map[string]bool, k string, e npmGraphEntry) strin
 		return "bundled in another package"
 	}
 	if bundles[k] {
-		return "bundles dependencies itself"
+		return "bundles dependencies or carries its own npm-shrinkwrap.json"
 	}
 	for _, anc := range npmAncestors(k) {
 		if bundles[anc] {
-			return "nested in " + clip(anc, 100) + ", which bundles dependencies"
+			return "nested in " + clip(anc, 100) + ", which bundles dependencies or carries its own npm-shrinkwrap.json"
 		}
 	}
 	return ""

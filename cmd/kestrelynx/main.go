@@ -119,6 +119,9 @@ func main() {
 
 	if cfg.Remediation.Enabled {
 		r.Plan = buildPlanConfig(cfg)
+		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
+			r.Plan.Language = buildLanguageConfig(cfg, log)
+		}
 		l := cfg.Remediation.Limits
 		log.Info("fix plan enabled",
 			"candidate_scans_per_cycle", l.CandidateScansPerCycle,
@@ -131,7 +134,9 @@ func main() {
 			"github_token_set", cfg.Remediation.GitHub.Token != "",
 			"pull_requests", cfg.Remediation.PullRequests.Enabled,
 			"new_prs_per_cycle", l.NewPRsPerCycle,
-			"open_prs", l.OpenPRs)
+			"open_prs", l.OpenPRs,
+			"dependency_jobs_per_cycle", l.DependencyJobsPerCycle,
+			"job_timeout", l.JobTimeout)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -231,6 +236,28 @@ func dockerfileRepositories(ms []remediation.DockerfileMapping) []string {
 	return out
 }
 
+// pullRequestRepositories lists the repositories the pull request stage
+// examines besides those of the Compose mappings: those of the Dockerfile and
+// dependency mappings, each once. A repository with an open pull request of
+// this tool is reconciled even in a cycle that has nothing new to propose.
+func pullRequestRepositories(ms []config.RemediationMapping) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(repo string) {
+		if k := strings.ToLower(repo); !seen[k] {
+			seen[k] = true
+			out = append(out, repo)
+		}
+	}
+	for _, repo := range dockerfileRepositories(dockerfileMappings(ms)) {
+		add(repo)
+	}
+	for _, m := range dependencyMappings(ms) {
+		add(m.Repository)
+	}
+	return out
+}
+
 // buildPullRequestConfig assembles the pull request stage. The write client
 // exists only here, so with pull requests off nothing in the process can
 // write to GitHub. Each cycle gets its own write and read clients, each with
@@ -254,7 +281,7 @@ func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConf
 			return stage, nil
 		},
 		Mappings:     composeMappings(rc.Mappings),
-		Repositories: dockerfileRepositories(dockerfileMappings(rc.Mappings)),
+		Repositories: pullRequestRepositories(rc.Mappings),
 		Store:        store,
 	}
 }

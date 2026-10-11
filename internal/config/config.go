@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/worker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -166,6 +167,20 @@ type RemediationConfig struct {
 	// no effect unless Enabled.
 	Mappings []RemediationMapping
 	Limits   RemediationLimits
+	// Worker configures the work image language package updates run in.
+	Worker RemediationWorkerConfig
+}
+
+// RemediationWorkerConfig configures the work image. With pull requests
+// enabled, language package updates run in throwaway containers of this
+// image.
+type RemediationWorkerConfig struct {
+	// Image overrides the work image this build is released with. It is a
+	// digest-pinned reference, repository@sha256:<64 hex>, and is meant for
+	// testing a work image and for a mirror of the released one. Empty means
+	// the image the build carries; a build that carries none cannot run
+	// language package updates.
+	Image string
 }
 
 // RemediationPullRequestsConfig is the switch for pull requests.
@@ -280,6 +295,8 @@ type RemediationLimits struct {
 	CycleTimeout             time.Duration // deadline of the plan stage
 	NewPRsPerCycle           int           // pull requests one cycle may open
 	OpenPRs                  int           // pull requests of this tool that may be open at once
+	DependencyJobsPerCycle   int           // dependency update jobs (work containers) one cycle may run
+	JobTimeout               time.Duration // deadline of one work container, from creation to deletion
 }
 
 // rawConfig mirrors the YAML shape. Pointers are used where "absent" must be
@@ -348,7 +365,10 @@ type rawConfig struct {
 			Token yaml.Node `yaml:"token"`
 		} `yaml:"github"`
 		StorageDir string `yaml:"storage_dir"`
-		Mappings   []struct {
+		Worker     struct {
+			Image string `yaml:"image"`
+		} `yaml:"worker"`
+		Mappings []struct {
 			Workload   string `yaml:"workload"`
 			Repository string `yaml:"repository"`
 			BaseBranch string `yaml:"base_branch"`
@@ -374,6 +394,8 @@ type rawConfig struct {
 			CycleTimeout             *time.Duration `yaml:"cycle_timeout"`
 			NewPRsPerCycle           *int           `yaml:"new_prs_per_cycle"`
 			OpenPRs                  *int           `yaml:"open_prs"`
+			DependencyJobsPerCycle   *int           `yaml:"dependency_jobs_per_cycle"`
+			JobTimeout               *time.Duration `yaml:"job_timeout"`
 		} `yaml:"limits"`
 	} `yaml:"remediation"`
 }
@@ -408,7 +430,20 @@ const (
 	defaultCycleTimeout             = 30 * time.Minute
 	defaultNewPRsPerCycle           = 3
 	defaultOpenPRs                  = 10
-	defaultRemediationStorageDir    = "/var/lib/kestrelynx/remediation"
+	defaultDependencyJobsPerCycle   = 3
+	// defaultJobTimeout is the time one work container gets; it is the
+	// default of the update stage itself, and a test keeps the two equal.
+	defaultJobTimeout = 6 * time.Minute
+	// minJobTimeout is the shortest time the update stage accepts for one
+	// container.
+	minJobTimeout = time.Minute
+	// jobTimeoutMargin is the time the update stage keeps for itself within a
+	// container's time: the job's own deadline is the timeout less this.
+	jobTimeoutMargin = 30 * time.Second
+	// maxJobTimeout is the longest container time whose job deadline the work
+	// program accepts.
+	maxJobTimeout                = time.Duration(worker.MaxDeadlineSeconds)*time.Second + jobTimeoutMargin
+	defaultRemediationStorageDir = "/var/lib/kestrelynx/remediation"
 )
 
 var validSeverities = map[string]bool{
@@ -480,6 +515,7 @@ func Parse(data []byte) (Config, error) {
 			PullRequests: RemediationPullRequestsConfig{Enabled: boolOr(raw.Remediation.PullRequests.Enabled, false)},
 			GitHub:       RemediationGitHubConfig{Token: githubToken},
 			StorageDir:   raw.Remediation.StorageDir,
+			Worker:       RemediationWorkerConfig{Image: raw.Remediation.Worker.Image},
 			Limits: RemediationLimits{
 				CandidateScansPerCycle:   intOr(raw.Remediation.Limits.CandidateScansPerCycle, defaultCandidateScansPerCycle),
 				BaselineRescansPerCycle:  intOr(raw.Remediation.Limits.BaselineRescansPerCycle, defaultBaselineRescansPerCycle),
@@ -488,6 +524,8 @@ func Parse(data []byte) (Config, error) {
 				CycleTimeout:             durationOr(raw.Remediation.Limits.CycleTimeout, defaultCycleTimeout),
 				NewPRsPerCycle:           intOr(raw.Remediation.Limits.NewPRsPerCycle, defaultNewPRsPerCycle),
 				OpenPRs:                  intOr(raw.Remediation.Limits.OpenPRs, defaultOpenPRs),
+				DependencyJobsPerCycle:   intOr(raw.Remediation.Limits.DependencyJobsPerCycle, defaultDependencyJobsPerCycle),
+				JobTimeout:               durationOr(raw.Remediation.Limits.JobTimeout, defaultJobTimeout),
 			},
 		},
 	}
@@ -645,6 +683,7 @@ func validateRemediation(c *Config) error {
 		{"tag_pages_per_repository", r.Limits.TagPagesPerRepository},
 		{"new_prs_per_cycle", r.Limits.NewPRsPerCycle},
 		{"open_prs", r.Limits.OpenPRs},
+		{"dependency_jobs_per_cycle", r.Limits.DependencyJobsPerCycle},
 	} {
 		if l.val <= 0 {
 			return fmt.Errorf("config: remediation.limits.%s must be positive, got %d", l.key, l.val)
@@ -653,8 +692,20 @@ func validateRemediation(c *Config) error {
 	if r.Limits.CycleTimeout <= 0 {
 		return fmt.Errorf("config: remediation.limits.cycle_timeout must be positive, got %s", r.Limits.CycleTimeout)
 	}
+	if r.Limits.JobTimeout < minJobTimeout || r.Limits.JobTimeout > maxJobTimeout {
+		return fmt.Errorf("config: remediation.limits.job_timeout must be between %s and %s, got %s", minJobTimeout, maxJobTimeout, r.Limits.JobTimeout)
+	}
+	if img := r.Worker.Image; img != "" {
+		if !workImageRE.MatchString(img) {
+			return fmt.Errorf("config: remediation.worker.image must be a digest-pinned reference, repository@sha256:<64 hex digits>")
+		}
+	}
 	return validateMappings(r.Mappings)
 }
+
+// workImageRE is the form of a work image reference: a repository (with an
+// optional registry host and port) and a SHA-256 digest, never a tag.
+var workImageRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}$`)
 
 func boolOr(p *bool, def bool) bool {
 	if p != nil {

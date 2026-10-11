@@ -87,10 +87,18 @@ func replaceable(rec, old *PRRecord, inherits func(FixTarget) bool) bool {
 		old.BaseBranch != rec.BaseBranch || old.Path != rec.Path || strings.Join(old.Locations, "\x00") != strings.Join(rec.Locations, "\x00") {
 		return false
 	}
-	ok, _ := inventory.RepositoryKey(old.CurrentRef)
-	nk, _ := inventory.RepositoryKey(rec.CurrentRef)
-	if ok == "" || ok != nk || !newerPatch(old.CandidateTag, rec.CandidateTag) || len(old.FixTargets) == 0 {
-		return false
+	if kindOf(rec.Kind) == prKindLanguage {
+		// A language update replaces an older one of the same lockfile when it
+		// fixes everything the older one fixes; there is no tag series.
+		if kindOf(old.Kind) != prKindLanguage || len(old.FixTargets) == 0 {
+			return false
+		}
+	} else {
+		ok, _ := inventory.RepositoryKey(old.CurrentRef)
+		nk, _ := inventory.RepositoryKey(rec.CurrentRef)
+		if ok == "" || ok != nk || !newerPatch(old.CandidateTag, rec.CandidateTag) || len(old.FixTargets) == 0 {
+			return false
+		}
 	}
 	for _, f := range old.FixTargets {
 		if !inherits(f) {
@@ -103,12 +111,22 @@ func replaceable(rec, old *PRRecord, inherits func(FixTarget) bool) bool {
 // decideReplacements adds every replaceable older pull request to the new
 // record's replacements. Nothing is sent here.
 func (r *prRun) decideReplacements(rec *PRRecord) {
-	if rec == nil || rec.UserModified || rec.MarkerOnly || rec.State != PRStateOpen || rec.Evidence == nil ||
+	if rec == nil || rec.UserModified || rec.MarkerOnly || rec.State != PRStateOpen || (rec.Evidence == nil && rec.Lang == nil) ||
 		r.targetBlocked(rec.RepoID, rec.TargetKey) {
 		return
 	}
 	inherits := func(f FixTarget) bool { return false }
-	if kindOf(rec.Kind) == prKindDockerfile {
+	switch {
+	case kindOf(rec.Kind) == prKindLanguage:
+		// Every target the old pull request fixed, at the same place in the
+		// lockfile and for the same vulnerability, must be fixed by the new
+		// one; the new one's update passed the check of its final files.
+		have := map[string]bool{}
+		for _, f := range rec.FixTargets {
+			have[f.key()] = true
+		}
+		inherits = func(f FixTarget) bool { return have[f.key()] }
+	case kindOf(rec.Kind) == prKindDockerfile:
 		// Every target the old pull request resolved for an image must be
 		// resolved for that image by the new one.
 		resolved := resolvedEntitiesFromEvidence(rec.Evidence)
@@ -124,7 +142,7 @@ func (r *prRun) decideReplacements(rec *PRRecord) {
 			}
 			return true
 		}
-	} else {
+	default:
 		resolved := resolvedFromEvidence(rec.Evidence)
 		inherits = func(f FixTarget) bool { return resolved[f.key()] }
 	}
@@ -264,24 +282,33 @@ func (r *prRun) replace(rs *repoState, rec *PRRecord, rp *Replacement) {
 	if !r.eligiblePair(rec, old, rp) {
 		return
 	}
-	if rec.Evidence == nil || len(rec.Evidence.Items) == 0 {
-		r.abandonReplacement(rec, rp, "the new pull request has no verification record")
-		return
-	}
-	cand := rec.Evidence.Items[0].Candidate
-	platform, ok := parsePlatform(cand.Platform)
-	if !ok {
-		r.abandonReplacement(rec, rp, "the candidate's platform is not known")
-		return
-	}
-	res, err := r.s.cfg.Resolver.Resolve(r.ctx, repoOfRef(rec.CurrentRef), rec.CandidateTag, platform)
-	if err != nil {
-		r.haltFor(err)
-		return // tried again next cycle
-	}
-	if res.TopDigest != rec.CandidateDigest {
-		r.abandonReplacement(rec, rp, fmt.Sprintf("tag %s now points at %s, not the verified %s", rec.CandidateTag, res.TopDigest, rec.CandidateDigest))
-		return
+	if kindOf(rec.Kind) == prKindLanguage {
+		// The new pull request carries the targets it fixes; there is no tag
+		// to resolve again.
+		if rec.Lang == nil || len(rec.FixTargets) == 0 {
+			r.abandonReplacement(rec, rp, "the new pull request has no record of what it fixes")
+			return
+		}
+	} else {
+		if rec.Evidence == nil || len(rec.Evidence.Items) == 0 {
+			r.abandonReplacement(rec, rp, "the new pull request has no verification record")
+			return
+		}
+		cand := rec.Evidence.Items[0].Candidate
+		platform, ok := parsePlatform(cand.Platform)
+		if !ok {
+			r.abandonReplacement(rec, rp, "the candidate's platform is not known")
+			return
+		}
+		res, err := r.s.cfg.Resolver.Resolve(r.ctx, repoOfRef(rec.CurrentRef), rec.CandidateTag, platform)
+		if err != nil {
+			r.haltFor(err)
+			return // tried again next cycle
+		}
+		if res.TopDigest != rec.CandidateDigest {
+			r.abandonReplacement(rec, rp, fmt.Sprintf("tag %s now points at %s, not the verified %s", rec.CandidateTag, res.TopDigest, rec.CandidateDigest))
+			return
+		}
 	}
 
 	if rp.State == ReplacementPending {

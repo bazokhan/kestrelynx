@@ -29,11 +29,13 @@ import (
 // branchPrefix starts every branch this stage creates.
 const branchPrefix = "kestrelynx/"
 
-// composeBranchPrefix starts the branches of Compose updates and
-// dockerfileBranchPrefix those of Dockerfile base image updates.
+// composeBranchPrefix starts the branches of Compose updates,
+// dockerfileBranchPrefix those of Dockerfile base image updates and
+// languageBranchPrefix those of lockfile updates.
 const (
 	composeBranchPrefix    = branchPrefix + "compose/"
 	dockerfileBranchPrefix = branchPrefix + "dockerfile/"
+	languageBranchPrefix   = branchPrefix + "language/"
 )
 
 // The kinds of update the stage opens pull requests for. The empty kind of an
@@ -42,6 +44,7 @@ const (
 const (
 	prKindCompose    = "compose"
 	prKindDockerfile = "dockerfile"
+	prKindLanguage   = "language"
 )
 
 // kindOf normalizes the kind recorded in an attempt or a marker.
@@ -62,8 +65,11 @@ func recordedKind(kind string) string {
 }
 
 func branchPrefixOf(kind string) string {
-	if kind == prKindDockerfile {
+	switch kind {
+	case prKindDockerfile:
 		return dockerfileBranchPrefix
+	case prKindLanguage:
+		return languageBranchPrefix
 	}
 	return composeBranchPrefix
 }

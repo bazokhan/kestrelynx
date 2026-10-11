@@ -193,7 +193,7 @@ func (r *prRun) recordFromPull(rs *repoState, pr github.PullRequest, m PRMarker)
 		Repo: rs.name, RepoID: rs.info.ID, Kind: kindOf(m.Kind), TargetKey: m.TargetKey, UpdateKey: m.UpdateKey, AttemptKey: m.AttemptKey,
 		Branch: pr.HeadRef, Number: pr.Number, URL: pr.HTMLURL, BaseBranch: m.BaseBranch, BaseSHA: m.BaseSHA, HeadSHA: m.HeadSHA,
 		Path: m.Path, Locations: sortedCopy(m.Locations), State: pullState(pr), FixTargets: m.FixTargets,
-		CurrentRef: m.CurrentRef, CandidateTag: m.CandidateTag, CandidateDigest: m.CandidateDigest,
+		CurrentRef: m.CurrentRef, CandidateTag: m.CandidateTag, CandidateDigest: m.CandidateDigest, Lang: m.Lang,
 		Recovered: true, MarkerOnly: true, CreatedAt: now, UpdatedAt: now,
 	}
 	markModified(&rec, pr)

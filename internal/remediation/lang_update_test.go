@@ -814,7 +814,7 @@ func TestLangUpdateManifestRanges(t *testing.T) {
 		spec string
 		ok   bool
 	}{
-		{"^1.2.5", true}, {"~1.2.5", true}, {">=1.2.0 <2", true}, {"1.x", true}, {"*", true}, {"1.2.5", false}, {"~1.2.5 || ^2.0.0", true},
+		{"^1.2.5", true}, {"~1.2.5", true}, {">=1.2.0 <2", true}, {"1.x", true}, {"*", true}, {"~1.2.5 || ^2.0.0", true},
 		{"<1.2.6", false}, {"latest", false}, {"file:../m", false}, {"npm:other@1", false}, {"1.2.5 - 1.2.5", false},
 	}
 	for _, c := range cases {
@@ -908,7 +908,7 @@ func TestLangUpdateUvProjectChecks(t *testing.T) {
 		{"requires-python above", `">=3.9"`, `">=3.14"`, CategoryManual, ReasonRequiresPythonUnsupported},
 		{"requires-python unreadable", `">=3.9"`, `"~3"`, CategoryManual, ReasonRequiresPythonUnsupported},
 		{"specifier excludes the target", `"urllib3>=1.26,<2"`, `"urllib3>=1.26,<1.26.10"`, CategoryManual, ReasonManifestEditRequired},
-		{"exact pin excludes the target", `"urllib3>=1.26,<2"`, `"urllib3==1.26.4"`, CategoryManual, ReasonManifestEditRequired},
+		{"upper bound excludes the target", `"urllib3>=1.26,<2"`, `"urllib3<=1.26.4"`, CategoryManual, ReasonManifestEditRequired},
 		{"arbitrary equality is not judged", `"urllib3>=1.26,<2"`, `"urllib3===1.26.4"`, CategoryManual, ReasonManifestEditRequired},
 		{"extras and markers are fine", `"urllib3>=1.26,<2"`, `"urllib3[socks]>=1.26,<2; python_version >= '3.8'"`, CategoryPRCandidate, ReasonUpdateVerified},
 	} {

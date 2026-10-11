@@ -320,7 +320,7 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		rec, rerr := installRecord(e.m, pathName, e.Dependencies, "bundleDependencies")
 		n.install = rec
 		n.flags = map[string]bool{}
-		for _, f := range []string{"dev", "optional", "devOptional", "inBundle", "extraneous"} {
+		for _, f := range []string{"dev", "optional", "devOptional", "inBundle", "extraneous", "hasShrinkwrap"} {
 			b, ferr := optBool(e.m, f)
 			if ferr != nil && rerr == nil {
 				rerr = ferr
@@ -1148,6 +1148,65 @@ func (g *depGraph) dropDangling() {
 	for _, n := range g.nodes {
 		fix(n.deps)
 	}
+}
+
+// editedMask replaces a specifier this program edited when the part of a
+// lockfile outside its entries is compared.
+const editedMask = "\x00edited"
+
+// maskEditedSpecs replaces, in the part of the file outside its entries, the
+// recorded specifier of each edited dependency, so that the part compares
+// equal to the original's where nothing else changed.
+func (g *depGraph) maskEditedSpecs(ctx context.Context, m DependencyManager, edits []ManifestEdit) error {
+	if len(edits) > maxManifestEdits {
+		return errManifestEditLimit
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(g.meta), &meta); err != nil {
+		return err
+	}
+	switch m {
+	case ManagerNpm, ManagerPnpm:
+		key := "\x00root"
+		if m == ManagerPnpm {
+			key = "\x00importer"
+		}
+		root, _ := meta[key].(map[string]any)
+		for _, e := range edits {
+			if sec, _ := root[e.Section].(map[string]any); sec != nil {
+				if _, ok := sec[e.Name]; ok {
+					sec[e.Name] = editedMask
+				}
+			}
+		}
+	case ManagerUv:
+		// The edited names are put in a set and the requirements are walked once.
+		names := make(map[string]bool, len(edits))
+		for _, e := range edits {
+			names[normalizePyName(e.Name)] = true
+		}
+		root, _ := meta["\x00root"].(map[string]any)
+		md, _ := root["metadata"].(map[string]any)
+		list, _ := md["requires-dist"].([]any)
+		for i, x := range list {
+			if i%1024 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			if d, _ := x.(map[string]any); d != nil {
+				if name, ok := d["name"].(string); ok && names[normalizePyName(name)] {
+					d["specifier"] = editedMask
+				}
+			}
+		}
+	}
+	out, err := canonicalJSON(meta)
+	if err != nil {
+		return err
+	}
+	g.meta = out
+	return nil
 }
 
 // edgeSig describes the edges of a node for comparison: an edge to a package

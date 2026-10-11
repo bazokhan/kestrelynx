@@ -209,7 +209,7 @@ func (r *updateRun) checkDirectRanges(ctx context.Context, g *depGraph, newLock 
 	budget := &rangeBudget{ctx: ctx}
 	switch r.it.Manager {
 	case ManagerNpm, ManagerPnpm:
-		pj, err := readManifest(r.src.manifest)
+		pj, err := readManifest(r.manifest)
 		if err != nil {
 			return manualFailure(ReasonDependencyFileUnusable, "%v", err)
 		}
@@ -263,7 +263,7 @@ func (r *updateRun) checkDirectRanges(ctx context.Context, g *depGraph, newLock 
 			}
 		}
 	case ManagerUv:
-		py, err := parseTOML(r.src.manifest)
+		py, err := parseTOML(r.manifest)
 		if err != nil {
 			return manualFailure(ReasonDependencyFileUnusable, "pyproject.toml cannot be read: %v", err)
 		}
@@ -783,7 +783,7 @@ func (r *updateRun) neverInForce(ctx context.Context, marker string) (bool, *upd
 		r.declMarkers = &markerBudget{ctx: ctx, max: maxMarkerEvals}
 		r.falseThrough = map[string]bool{}
 	}
-	py, perr := parseTOML(r.src.manifest)
+	py, perr := parseTOML(r.manifest)
 	if perr != nil {
 		return false, manualFailure(ReasonDependencyFileUnusable, "pyproject.toml cannot be read: %v", perr)
 	}
@@ -814,7 +814,7 @@ func (r *updateRun) neverInForce(ctx context.Context, marker string) (bool, *upd
 // uvProjectPython returns the lowest Python the project's requires-python
 // admits.
 func (r *updateRun) uvProjectPython() (string, *updateFailure) {
-	py, err := parseTOML(r.src.manifest)
+	py, err := parseTOML(r.manifest)
 	if err != nil {
 		return "", manualFailure(ReasonDependencyFileUnusable, "pyproject.toml cannot be read: %v", err)
 	}
@@ -1310,8 +1310,9 @@ func sameMap(a, b map[string]string) bool {
 }
 
 // checkNotBundled refuses an entry that npm may install from the tarball of
-// a package: one that bundles dependencies itself, or is nested below a
-// package that does. Which entries are in a bundle is not what the entry says
+// a package: one that bundles dependencies or carries its own
+// npm-shrinkwrap.json (which npm reads again after unpacking it), or is nested
+// below a package that does. Which entries are in a bundle is not what the entry says
 // (its inBundle flag is the tool's output) and not only the names a package
 // lists: npm puts what a bundled package needs in the same bundle. So the
 // rule is computed here and is the cautious one: if the entry, or any package
@@ -1324,20 +1325,23 @@ func (r *updateRun) checkNotBundled(ctx context.Context, g *depGraph, k string, 
 	if recordBundlesAnything(n.install["bundleDependencies"]) || recordBundlesAnything(d.Install["bundleDependencies"]) {
 		return mismatch(n, "%s bundles dependencies itself", k)
 	}
+	if n.flags["hasShrinkwrap"] || d.HasShrinkwrap {
+		return mismatch(n, "%s carries its own npm-shrinkwrap.json", k)
+	}
 	for _, anc := range npmAncestors(k) {
 		p := g.nodes[anc]
 		if p == nil {
 			return mismatch(n, "%s is nested in %s, which the file has no entry for", k, clip(anc, 100))
 		}
-		if recordBundlesAnything(p.install["bundleDependencies"]) {
-			return mismatch(n, "%s is nested in %s %s, which bundles dependencies according to the lockfile", k, p.name, p.version)
+		if recordBundlesAnything(p.install["bundleDependencies"]) || p.flags["hasShrinkwrap"] {
+			return mismatch(n, "%s is nested in %s %s, which bundles dependencies or carries its own npm-shrinkwrap.json according to the lockfile", k, p.name, p.version)
 		}
 		pd, err := r.npmRelease(ctx, p.name, p.version)
 		if err != nil {
 			return lookupFailure(ctx, err, p.name+" "+p.version+" in the npm registry")
 		}
-		if recordBundlesAnything(pd.Install["bundleDependencies"]) {
-			return mismatch(n, "%s is nested in %s %s, which bundles dependencies according to the registry", k, p.name, p.version)
+		if recordBundlesAnything(pd.Install["bundleDependencies"]) || pd.HasShrinkwrap {
+			return mismatch(n, "%s is nested in %s %s, which bundles dependencies or carries its own npm-shrinkwrap.json according to the registry", k, p.name, p.version)
 		}
 	}
 	return nil

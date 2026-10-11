@@ -88,7 +88,8 @@ type PRStageInput struct {
 
 // PRStage opens and tracks pull requests that update the image tag of
 // Compose services, and the base image tag of Dockerfiles, to an adopted
-// candidate. Both kinds share the stage's records, limits and writes.
+// candidate, and that write the lockfile (and manifest) a language package
+// update produced. All kinds share the stage's records, limits and writes.
 //
 // Every external write is preceded by a saved intent and followed by a saved
 // result, so a crash at any point leaves records from which the next cycle
@@ -396,6 +397,7 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 	r := &prRun{s: s, ctx: ctx, byKey: map[string]*repoState{}}
 	units := buildComposeUnits(in.Plan, in.Containers, in.Mappings)
 	units = append(units, buildDockerfileUnits(in.Plan)...)
+	units = append(units, buildLanguageUnits(in.Plan)...)
 	addRepo := func(name string) {
 		k := strings.ToLower(name)
 		if r.byKey[k] == nil {
@@ -528,6 +530,9 @@ func unitView(u *composeUnit) PRUnit {
 	}
 	if u.df != nil {
 		v.Kind = prKindDockerfile
+	}
+	if u.lang != nil {
+		v.Kind, v.ItemKey, v.Language = prKindLanguage, u.lang.item.Key, u.lang.view
 	}
 	if u.candidate != nil {
 		v.CandidateTag, v.CandidateDigest = u.candidate.Tag, u.candidate.TopDigest
@@ -688,10 +693,27 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		return v
 	}
 	c.targetKey = TargetKeyOf(u.kind(), rs.info.ID, u.baseBranch, u.path, u.locations)
-	c.updateKey = UpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest)
+	if u.lang != nil && u.lang.proposedFP != "" {
+		// The item was not updated again: it stands for the pull request made
+		// from the same inputs, whose keys it takes.
+		rec := r.fileProposal(rs, *u.lang.item, u.lang.proposedFP)
+		if rec == nil {
+			c.set(PRStatusDeferred, ReasonProposalNotFound, "the pull request this item was tied to is not in the records; the next cycle updates again")
+			return v
+		}
+		// The record matched the item's own target key; its update key is the
+		// update's.
+		c.updateKey = rec.UpdateKey
+		v.Language = languageViewOfTied(*u.lang.item, rec)
+	} else if u.lang != nil {
+		c.updateKey = LangUpdateKey(c.targetKey, u.lang.record.Packages, u.lang.record.ManifestEdits)
+	} else {
+		c.updateKey = UpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest)
+	}
 	v.TargetKey, v.UpdateKey = c.targetKey, c.updateKey
 
 	if rec := r.recordByUpdateKey(c.updateKey); rec != nil {
+		r.addInputFingerprint(c, rec)
 		switch rec.State {
 		case PRStateOpen:
 			c.set(PRStatusOpen, "", "")
@@ -713,6 +735,15 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		c.set(PRStatusWriteBlocked, ReasonAttemptUnsettled, detail)
 		return v
 	}
+	if u.lang != nil && u.lang.proposedFP != "" {
+		// Its pull request is gone from the records without any trace of what
+		// became of it; nothing is written for an item with no update.
+		c.set(PRStatusDeferred, ReasonProposalNotFound, "the pull request this item was tied to is not open; the next cycle updates again")
+		return v
+	}
+	if u.lang != nil && !r.languageNotInOpenPR(c) {
+		return v
+	}
 	if r.newPRs >= r.s.cfg.Limits.NewPRsPerCycle {
 		c.set(PRStatusDeferred, ReasonPRLimit, fmt.Sprintf("%d pull requests were opened this cycle (limit %d)", r.newPRs, r.s.cfg.Limits.NewPRsPerCycle))
 		return v
@@ -721,12 +752,24 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		c.set(PRStatusDeferred, ReasonPRLimit, fmt.Sprintf("%d pull requests are open (limit %d)", n, r.s.cfg.Limits.OpenPRs))
 		return v
 	}
+	if u.lang != nil {
+		r.createPull(c, "")
+		return v
+	}
 	imageRepo, _ := inventory.RepositoryOf(u.current)
 	if !r.recheckCandidate(c, imageRepo, *u.candidate) {
 		return v
 	}
 	r.createPull(c, imageRepo)
 	return v
+}
+
+// editedFile is one file of the commit an attempt builds.
+type editedFile struct {
+	Path    string
+	Mode    string
+	Content []byte
+	BlobSHA string
 }
 
 // createPull builds the edit and runs the attempt for it, resuming an
@@ -738,42 +781,65 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		r.readFailure(c, "resolve the base branch", err)
 		return
 	}
-	if u.df != nil && !r.dockerfileSourceUnchanged(c, base) {
-		return
-	}
-	file, err := r.s.cfg.Source.ReadFile(r.ctx, rs.name, base, u.path)
-	if err != nil {
-		var nr *github.NotRegularFileError
-		notFound, unusable, what := ReasonComposeFileNotFound, ReasonComposeFileUnusable, "read the Compose file"
-		if u.df != nil {
-			notFound, unusable, what = ReasonDockerfileFileNotFound, ReasonDockerfileFileUnusable, "read the Dockerfile"
+	var (
+		files    []editedFile
+		inputSHA string
+		change   prChange
+	)
+	if u.lang != nil {
+		var ok bool
+		if files, inputSHA, ok = r.languageFiles(c, base); !ok {
+			return
 		}
-		switch {
-		case errors.Is(err, github.ErrNotFound):
-			c.set(PRStatusManual, notFound, err.Error())
-		case errors.As(err, &nr), errors.Is(err, github.ErrLFSPointer), errors.Is(err, github.ErrTooLarge):
-			c.set(PRStatusManual, unusable, err.Error())
-		default:
-			r.readFailure(c, what, err)
+	} else {
+		if u.df != nil && !r.dockerfileSourceUnchanged(c, base) {
+			return
 		}
-		return
+		file, err := r.s.cfg.Source.ReadFile(r.ctx, rs.name, base, u.path)
+		if err != nil {
+			var nr *github.NotRegularFileError
+			notFound, unusable, what := ReasonComposeFileNotFound, ReasonComposeFileUnusable, "read the Compose file"
+			if u.df != nil {
+				notFound, unusable, what = ReasonDockerfileFileNotFound, ReasonDockerfileFileUnusable, "read the Dockerfile"
+			}
+			switch {
+			case errors.Is(err, github.ErrNotFound):
+				c.set(PRStatusManual, notFound, err.Error())
+			case errors.As(err, &nr), errors.Is(err, github.ErrLFSPointer), errors.Is(err, github.ErrTooLarge):
+				c.set(PRStatusManual, unusable, err.Error())
+			default:
+				r.readFailure(c, what, err)
+			}
+			return
+		}
+		edited, ch, ok := r.editSource(c, file.Content)
+		if !ok {
+			return
+		}
+		mode := file.Mode
+		if mode == "" {
+			mode = "100644"
+		}
+		files = []editedFile{{Path: u.path, Mode: mode, Content: edited, BlobSHA: gitBlobSHA(edited)}}
+		inputSHA, change = file.SHA, ch
 	}
-	edited, change, ok := r.editSource(c, file.Content)
-	if !ok {
-		return
+	contents := map[string][]byte{}
+	changes := make([]FileChange, 0, len(files))
+	for _, f := range files {
+		contents[f.Path] = f.Content
+		changes = append(changes, FileChange{Path: f.Path, Mode: f.Mode, BlobSHA: f.BlobSHA})
 	}
-	mode := file.Mode
-	if mode == "" {
-		mode = "100644"
+	mode, newBlob := changes[0].Mode, changes[0].BlobSHA
+	attemptKey := AttemptKey(c.updateKey, base, inputSHA, changes)
+	var branch string
+	switch {
+	case u.lang != nil:
+		branch, err = LanguageBranchName(u.services, string(u.lang.manager), attemptKey)
+	case u.df != nil:
+		branch, err = DockerfileBranchName(u.services, u.candidate.Tag, attemptKey)
+	default:
+		branch, err = BranchName(u.services, u.candidate.Tag, attemptKey)
 	}
-	newBlob := gitBlobSHA(edited)
-	changes := []FileChange{{Path: u.path, Mode: mode, BlobSHA: newBlob}}
-	attemptKey := AttemptKey(c.updateKey, base, file.SHA, changes)
-	branchName := BranchName
-	if u.df != nil {
-		branchName = DockerfileBranchName
-	}
-	branch, err := branchName(u.services, u.candidate.Tag, attemptKey)
 	if err != nil {
 		c.set(PRStatusFailed, ReasonGitHubError, err.Error())
 		return
@@ -830,7 +896,7 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 
 	need := 2 // the pull request
 	if !resume {
-		need = 10 // blob, tree, commit, ref and pull request
+		need = 2 * (len(changes) + 4) // blobs, tree, commit, ref and pull request
 	}
 	if !r.reserve(need) {
 		c.set(r.stop.status, r.stop.reason, r.stop.detail)
@@ -846,10 +912,15 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		fresh := AttemptRecord{
 			AttemptKey: attemptKey, UpdateKey: c.updateKey, TargetKey: c.targetKey,
 			Repo: rs.name, RepoID: rs.info.ID, Branch: branch, BaseBranch: u.baseBranch, BaseSHA: base,
-			Path: u.path, Mode: mode, InputSHA: file.SHA, NewBlobSHA: newBlob, Status: AttemptIntent,
+			Path: u.path, Mode: mode, InputSHA: inputSHA, NewBlobSHA: newBlob, Status: AttemptIntent,
 			Services: u.services, Locations: u.locations, CurrentRef: u.current, Kind: recordedKind(u.kind()),
-			CandidateTag: u.candidate.Tag, CandidateDigest: u.candidate.TopDigest,
 			FixTargets: u.fixTargets(), Evidence: u.evidence(c.plan), CreatedAt: now, UpdatedAt: now,
+		}
+		if u.candidate != nil {
+			fresh.CandidateTag, fresh.CandidateDigest = u.candidate.Tag, u.candidate.TopDigest
+		}
+		if u.lang != nil {
+			fresh.Changes, fresh.Lang, fresh.Language = changes, u.lang.record, u.lang.view
 		}
 		if a == nil {
 			r.file.Attempts = append(r.file.Attempts, fresh)
@@ -857,7 +928,7 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 			*a = fresh
 		}
 		a = r.attempt(attemptKey)
-		if !r.buildCommit(c, a, baseCommit.Tree, edited, recorded) {
+		if !r.buildCommit(c, a, baseCommit.Tree, contents, recorded) {
 			return
 		}
 	} else {
@@ -975,7 +1046,7 @@ func (r *prRun) editSource(c *unitCtx, content []byte) ([]byte, prChange, bool) 
 // and exactly the tree just built holds the same change, so that commit is
 // adopted as the attempt's commit. With a record, the recorded commit is the
 // only one accepted.
-func (r *prRun) buildCommit(c *unitCtx, a *AttemptRecord, baseTree string, content []byte, recorded bool) bool {
+func (r *prRun) buildCommit(c *unitCtx, a *AttemptRecord, baseTree string, contents map[string][]byte, recorded bool) bool {
 	rs, gh := c.rs, r.s.cfg.GitHub
 	step := func(kind OperationKind, intent string, fn func() (string, error)) (string, bool) {
 		ref, opID, err := r.write(OperationEvent{Kind: kind, Repo: rs.name, AttemptKey: a.AttemptKey, Intent: intent}, fn)
@@ -1000,13 +1071,23 @@ func (r *prRun) buildCommit(c *unitCtx, a *AttemptRecord, baseTree string, conte
 	if !advance(AttemptIntent) {
 		return false
 	}
-	if _, ok := step(OpCreateBlob, "store the edited "+a.Path+" as blob "+a.NewBlobSHA, func() (string, error) {
-		return gh.CreateBlob(r.ctx, rs.name, content)
-	}); !ok || !advance(AttemptBlobCreated) {
+	var entries []github.TreeEntry
+	var paths []string
+	for _, fc := range a.fileChanges() {
+		fc := fc
+		if _, ok := step(OpCreateBlob, "store the edited "+fc.Path+" as blob "+fc.BlobSHA, func() (string, error) {
+			return gh.CreateBlob(r.ctx, rs.name, contents[fc.Path])
+		}); !ok {
+			return false
+		}
+		entries = append(entries, github.TreeEntry{Path: fc.Path, Mode: fc.Mode, BlobSHA: fc.BlobSHA})
+		paths = append(paths, fc.Path)
+	}
+	if !advance(AttemptBlobCreated) {
 		return false
 	}
-	tree, ok := step(OpCreateTree, "create a tree on base "+a.BaseSHA+" with "+a.Path+" changed", func() (string, error) {
-		return gh.CreateTree(r.ctx, rs.name, baseTree, []github.TreeEntry{{Path: a.Path, Mode: a.Mode, BlobSHA: a.NewBlobSHA}})
+	tree, ok := step(OpCreateTree, "create a tree on base "+a.BaseSHA+" with "+strings.Join(paths, ", ")+" changed", func() (string, error) {
+		return gh.CreateTree(r.ctx, rs.name, baseTree, entries)
 	})
 	if !ok {
 		return false
@@ -1015,9 +1096,14 @@ func (r *prRun) buildCommit(c *unitCtx, a *AttemptRecord, baseTree string, conte
 	if !advance(AttemptTreeCreated) {
 		return false
 	}
-	title := composeUnitTitle(repoOfRef(a.CurrentRef), a.CandidateTag, a.Path)
-	if kindOf(a.Kind) == prKindDockerfile {
+	var title string
+	switch {
+	case c.u.lang != nil:
+		title = c.u.lang.title
+	case kindOf(a.Kind) == prKindDockerfile:
 		title = dockerfileUnitTitle(repoOfRef(a.CurrentRef), a.CandidateTag, a.Path)
+	default:
+		title = composeUnitTitle(repoOfRef(a.CurrentRef), a.CandidateTag, a.Path)
 	}
 	commit, ok := step(OpCreateCommit, "create a commit of tree "+tree+" on "+a.BaseSHA, func() (string, error) {
 		return gh.CreateCommit(r.ctx, rs.name, title, tree, []string{a.BaseSHA})
@@ -1145,7 +1231,7 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		c.set(PRStatusWriteBlocked, ReasonAttemptUnsettled, a.Detail)
 		return
 	}
-	if !r.recheckCandidate(c, imageRepo, ImageState{Tag: a.CandidateTag, TopDigest: a.CandidateDigest, Platform: c.u.candidate.Platform}) {
+	if c.u.lang == nil && !r.recheckCandidate(c, imageRepo, ImageState{Tag: a.CandidateTag, TopDigest: a.CandidateDigest, Platform: c.u.candidate.Platform}) {
 		return
 	}
 
@@ -1153,8 +1239,8 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		V: markerV, Kind: a.Kind, RepoID: a.RepoID, BaseBranch: a.BaseBranch, Path: a.Path, Locations: a.Locations,
 		CurrentRef: a.CurrentRef, CandidateTag: a.CandidateTag, CandidateDigest: a.CandidateDigest,
 		BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA, InputBlobSHA: a.InputSHA,
-		Changes:   []FileChange{{Path: a.Path, Mode: a.Mode, BlobSHA: a.NewBlobSHA}},
-		TargetKey: a.TargetKey, UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, FixTargets: a.FixTargets,
+		Changes:   a.fileChanges(),
+		TargetKey: a.TargetKey, UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, FixTargets: a.FixTargets, Lang: a.Lang,
 	}
 	if marker.FixTargets == nil {
 		marker.FixTargets = []FixTarget{}
@@ -1177,7 +1263,14 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		marker.FixTargets = []FixTarget{}
 	}
 	var body, title string
-	if c.u.df != nil {
+	if c.u.lang != nil {
+		body, err = buildLanguagePRBody(languageBodyInput{
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, LockPath: a.Path, Root: c.u.lang.root,
+			Item: c.u.lang.item, Record: c.u.lang.record, Files: a.fileChanges(), Workloads: c.u.workloads,
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+		})
+		title = c.u.lang.title
+	} else if c.u.df != nil {
 		body, err = buildDockerfilePRBody(dockerfileBodyInput{
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
 			Workloads: c.u.workloads, Stage: c.u.df.stage, Change: change.dockerfile, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
@@ -1262,7 +1355,7 @@ func (r *prRun) recordFromAttempt(a *AttemptRecord, pr github.PullRequest) PRRec
 		Branch: a.Branch, Number: pr.Number, URL: pr.HTMLURL, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA,
 		Path: a.Path, Locations: a.Locations, State: pullState(pr), FixTargets: a.FixTargets, Services: a.Services,
 		CurrentRef: a.CurrentRef, CandidateTag: a.CandidateTag, CandidateDigest: a.CandidateDigest,
-		Evidence: a.Evidence, CreatedAt: now, UpdatedAt: now,
+		Evidence: a.Evidence, Lang: a.Lang, Language: a.Language, CreatedAt: now, UpdatedAt: now,
 	}
 	return rec
 }

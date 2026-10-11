@@ -475,7 +475,7 @@ func TestParse_RemediationDefaults(t *testing.T) {
 	if r.StorageDir != "/var/lib/kestrelynx/remediation" {
 		t.Errorf("StorageDir = %q", r.StorageDir)
 	}
-	want := RemediationLimits{CandidateScansPerCycle: 10, BaselineRescansPerCycle: 10, RegistryRequestsPerCycle: 200, TagPagesPerRepository: 20, CycleTimeout: 30 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10}
+	want := RemediationLimits{CandidateScansPerCycle: 10, BaselineRescansPerCycle: 10, RegistryRequestsPerCycle: 200, TagPagesPerRepository: 20, CycleTimeout: 30 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10, DependencyJobsPerCycle: 3, JobTimeout: 6 * time.Minute}
 	if r.Limits != want {
 		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
 	}
@@ -517,7 +517,7 @@ remediation:
 	if r.GitHub.Token.Value() != "ghp_exampletoken" || r.StorageDir != "/data/remediation" {
 		t.Errorf("token/storage = %q/%q", r.GitHub.Token.Value(), r.StorageDir)
 	}
-	want := RemediationLimits{CandidateScansPerCycle: 3, BaselineRescansPerCycle: 4, RegistryRequestsPerCycle: 50, TagPagesPerRepository: 5, CycleTimeout: 45 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10}
+	want := RemediationLimits{CandidateScansPerCycle: 3, BaselineRescansPerCycle: 4, RegistryRequestsPerCycle: 50, TagPagesPerRepository: 5, CycleTimeout: 45 * time.Minute, NewPRsPerCycle: 3, OpenPRs: 10, DependencyJobsPerCycle: 3, JobTimeout: 6 * time.Minute}
 	if r.Limits != want {
 		t.Errorf("Remediation.Limits = %+v, want %+v", r.Limits, want)
 	}
@@ -879,7 +879,7 @@ func TestExampleConfig_RemediationBlockParses(t *testing.T) {
 	if !c.Remediation.Enabled {
 		t.Error("uncommented example: Remediation.Enabled = false, want true")
 	}
-	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20, 30 * time.Minute, 3, 10}) {
+	if c.Remediation.Limits != (RemediationLimits{10, 10, 200, 20, 30 * time.Minute, 3, 10, 3, 6 * time.Minute}) {
 		t.Errorf("uncommented example limits = %+v", c.Remediation.Limits)
 	}
 	if len(c.Remediation.Mappings) == 0 {

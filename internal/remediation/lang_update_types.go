@@ -123,6 +123,26 @@ type LanguageUpdate struct {
 	// as a package manager's warning about the declared packageManager.
 	Notes []string        `json:"notes,omitempty"`
 	Diff  *DependencyDiff `json:"diff,omitempty"`
+	// ManifestEdits are the version specifiers of direct dependencies this
+	// program changed in the manifest before the update ran, because the
+	// specifier did not allow a fixed version. Empty when the manifest was
+	// left as it was.
+	ManifestEdits []ManifestEdit `json:"manifest_edits,omitempty"`
+}
+
+// ManifestEdit is one version specifier changed in a manifest.
+type ManifestEdit struct {
+	File string `json:"file"` // repository-relative, as in Artifacts
+	// Section is where the dependency is declared: "dependencies",
+	// "optionalDependencies" and so on for package.json, "project.dependencies"
+	// for pyproject.toml.
+	Section string `json:"section"`
+	Name    string `json:"name"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	// MajorChange marks an edit whose new specifier no longer allows the
+	// major version (for 0.x, the minor version) the old one allowed.
+	MajorChange bool `json:"major_change,omitempty"`
 }
 
 // SourceVuln is one vulnerability a filesystem scan reported for a package.

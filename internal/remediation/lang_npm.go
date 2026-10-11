@@ -41,6 +41,10 @@ type NpmDist struct {
 	// Install is the registry's record of the fields that decide whether and
 	// how the version is installed (see installRecord).
 	Install map[string]string
+	// HasShrinkwrap is the registry's _hasShrinkwrap for the version: the
+	// package carries its own npm-shrinkwrap.json, which npm reads again after
+	// unpacking it.
+	HasShrinkwrap bool
 }
 
 // NpmRegistry tells what the registry publishes for a package version.
@@ -144,8 +148,13 @@ func parseNpmVersion(body []byte, name, version string) (NpmDist, error) {
 	if err != nil {
 		return NpmDist{}, fmt.Errorf("registry response: %w", err)
 	}
+	shrink := false
+	if raw, ok := members["_hasShrinkwrap"]; ok {
+		shrink = storedByNpm(raw)
+	}
 	return NpmDist{
-		Tarball: doc.Dist.Tarball, Integrity: doc.Dist.Integrity,
+		HasShrinkwrap: shrink,
+		Tarball:       doc.Dist.Tarball, Integrity: doc.Dist.Integrity,
 		Dependencies: doc.Dependencies, OptionalDependencies: doc.OptionalDependencies, PeerDependencies: doc.PeerDependencies, Install: rec,
 	}, nil
 }

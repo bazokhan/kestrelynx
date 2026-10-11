@@ -18,7 +18,10 @@ import (
 const (
 	stepBaseline = "baseline" // the original input checked as it is
 	stepUpdate   = "update"   // the update itself
-	stepCheck    = "check"    // the updated input checked again
+	// stepUpdateMore updates the targets whose specifier was not edited, after
+	// the step that relocks against the edited manifest.
+	stepUpdateMore = "update_more"
+	stepCheck      = "check" // the updated input checked again
 )
 
 // jobOutput is a finished job whose result passed the structural checks: the
@@ -43,7 +46,7 @@ func (o *jobOutput) finalFile(name string) ([]byte, bool) {
 // newJob builds a job for manager m. The deadline leaves the client time to
 // collect the result before its own limit.
 func (u *LangUpdater) newJob(m worker.Manager, inputs map[string][]byte, steps []worker.Step) worker.Job {
-	deadline := int(u.cfg.JobTimeout.Seconds()) - 30
+	deadline := jobDeadlineSeconds(u.cfg.JobTimeout)
 	job := worker.Job{
 		Protocol: worker.ProtocolVersion, Manager: m, Steps: steps,
 		Outputs:         worker.OutputNames(m),
@@ -349,7 +352,7 @@ func jobStatusFailure(res worker.Result) *updateFailure {
 	switch s.ID {
 	case stepBaseline:
 		return manualFailure(ReasonLockfileInconsistent, "the original input does not pass %s: %s", s.Op, detail)
-	case stepUpdate:
+	case stepUpdate, stepUpdateMore:
 		return manualFailure(ReasonUpdateStepFailed, "%s", detail)
 	}
 	return manualFailure(ReasonPostUpdateCheckFailed, "%s", detail)

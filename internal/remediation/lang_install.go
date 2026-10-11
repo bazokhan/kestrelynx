@@ -323,6 +323,16 @@ func entryBundlesAnything(m map[string]json.RawMessage) bool {
 	return false
 }
 
+// entryHasShrinkwrap reports whether the members of a lockfile entry of npm
+// say that the package carries its own npm-shrinkwrap.json (hasShrinkwrap).
+// npm reads that file again after it unpacks the package, so what is below the
+// package is decided by it and not by the entries of the outer lockfile; a
+// package with one is treated like a package that bundles dependencies.
+func entryHasShrinkwrap(m map[string]json.RawMessage) bool {
+	raw, ok := m["hasShrinkwrap"]
+	return ok && storedByNpm(raw)
+}
+
 // recordBundlesAnything is entryBundlesAnything for the canonical
 // bundled-dependencies text of an installRecord: absent or an empty list is
 // nothing, anything else is something.

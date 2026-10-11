@@ -159,6 +159,21 @@ type container struct {
 	Labels  map[string]string `json:"Labels"`
 }
 
+// isWorkContainer reports whether a listed container is a work container this
+// tool creates: it carries the management label and has the name the work
+// client gives its containers.
+func isWorkContainer(ct container) bool {
+	if ct.Labels[labelWork] != "1" {
+		return false
+	}
+	for _, n := range ct.Names {
+		if strings.HasPrefix(n, "/"+workNamePfx) {
+			return true
+		}
+	}
+	return false
+}
+
 // containerIDRE matches a well-formed 64-hex Docker container ID.
 var containerIDRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -309,6 +324,12 @@ func (c *Client) listContainers(ctx context.Context) ([]inventory.Container, err
 
 	containers := make([]inventory.Container, 0, len(raw))
 	for _, ct := range raw {
+		if isWorkContainer(ct) {
+			// A work container of the fix plan's update stage is this tool's own
+			// short-lived job, not a workload: it is never scanned, notified
+			// about or observed.
+			continue
+		}
 		img := inventory.RunningImage{Ref: ct.Image}
 		if d, ok := inventory.ParseDigest(inventory.DigestConfig, ct.ImageID); ok {
 			img.Config = d

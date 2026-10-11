@@ -23,6 +23,17 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 		return fail
 	}
 	r.src = src
+	r.manifest = src.manifest
+	// The sizes the planning below works over are checked first: the
+	// packages named, and the manifest read.
+	if len(r.set.names) > worker.MaxPackages {
+		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdatePackageLimit,
+			detail: fmt.Sprintf("the update names %d packages, more than the %d one job takes", len(r.set.names), worker.MaxPackages)}
+	}
+	if len(src.manifest) > maxManifestBytes {
+		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdateInputLimit,
+			detail: fmt.Sprintf("%s is over %d bytes", src.manifestName, maxManifestBytes)}
+	}
 	var out *updateFailure
 	switch r.it.Manager {
 	case ManagerNpm:
@@ -54,10 +65,14 @@ func (r *updateRun) exec(ctx context.Context, m worker.Manager, inputs map[strin
 }
 
 // packageArgs lists the packages the update step names, one per matching
-// name, with a version where withVersion says so.
-func (r *updateRun) packageArgs(withVersion func(name string) bool) []worker.Package {
+// name that keep accepts (all when it is nil), with a version where
+// withVersion says so.
+func (r *updateRun) packageArgs(keep func(name string) bool, withVersion func(name string) bool) []worker.Package {
 	var out []worker.Package
 	for _, n := range r.set.names {
+		if keep != nil && !keep(n) {
+			continue
+		}
 		p := worker.Package{Name: r.nameOf(n)}
 		if withVersion(n) {
 			p.Version = r.set.target[n]
@@ -69,41 +84,29 @@ func (r *updateRun) packageArgs(withVersion func(name string) bool) []worker.Pac
 
 // nameOf returns the name as the image reports it for a matching name.
 func (r *updateRun) nameOf(match string) string {
-	for _, i := range r.set.idx {
-		if p := r.it.Packages[i]; p.matchName() == match {
-			return p.Name
-		}
+	if n, ok := r.set.display[match]; ok {
+		return n
 	}
 	return match
 }
 
 // isDirect reports whether the package named by match is required by the
 // project itself in any occurrence that is being updated.
-func (r *updateRun) isDirect(match string) bool {
-	for _, i := range r.set.idx {
-		p := r.it.Packages[i]
-		if p.matchName() != match {
-			continue
-		}
-		for _, o := range p.Occurrences {
-			if o.Matched && o.Direct {
-				return true
-			}
-		}
-	}
-	return false
-}
+func (r *updateRun) isDirect(match string) bool { return r.set.direct[match] }
 
 // --- manifest checks (before the update) ---
 
-// checkNodeManifest requires the package.json range of every direct package
-// to allow its target: this stage does not edit a manifest.
-func (r *updateRun) checkNodeManifest() *updateFailure {
+// planNodeManifest settles the package.json the update runs on. The range of
+// every direct package must allow its target: where it does not, and is one of
+// the plain forms editNpmSpec handles, the specifier is edited here, before the
+// update runs; any other form is left to a person.
+func (r *updateRun) planNodeManifest(ctx context.Context) *updateFailure {
 	pj, err := readManifest(r.src.manifest)
 	if err != nil {
 		return manualFailure(ReasonDependencyFileUnusable, "%v", err)
 	}
 	f := &updateFailure{category: CategoryManual, reason: ReasonManifestEditRequired, pkgs: map[string]updateFailureDetail{}}
+	var edits []ManifestEdit
 	for _, n := range r.set.names {
 		if !r.isDirect(n) {
 			continue
@@ -118,19 +121,72 @@ func (r *updateRun) checkNodeManifest() *updateFailure {
 			if ok {
 				allowed, evaluable = npmRangeAllows(spec, tv)
 			}
-			switch {
-			case !evaluable:
-				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("package.json asks for %s %q in %s, which cannot be judged against %s", n, spec, field, r.set.target[n])}
-			case !allowed:
-				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("package.json asks for %s %q in %s, which does not allow %s; the manifest would have to be edited", n, spec, field, r.set.target[n])}
+			if evaluable && allowed {
+				continue
 			}
+			if npmEditableFields[field] {
+				if to, ok := npmEditedSpec(spec, r.set.target[n]); ok {
+					edits = append(edits, ManifestEdit{
+						File: r.src.manifestPath, Section: field, Name: n, From: spec, To: to,
+						MajorChange: releaseLine(semverRelease(spec)) != releaseLine(semverRelease(to)),
+					})
+					continue
+				}
+			}
+			why := "which does not allow " + r.set.target[n] + " and is not a form this program edits"
+			if !evaluable {
+				why = "which cannot be judged against " + r.set.target[n]
+			}
+			f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("package.json asks for %s %q in %s, %s", n, spec, field, why)}
 		}
 	}
-	if len(f.pkgs) == 0 {
+	if len(f.pkgs) != 0 {
+		f.detail = firstDetail(f.pkgs)
+		return f
+	}
+	return r.applyManifestEdits(ctx, edits, func() ([]byte, error) { return editPackageJSON(ctx, r.src.manifest, edits) })
+}
+
+// applyManifestEdits makes the edited manifest the one the update runs on and
+// records the edits.
+func (r *updateRun) applyManifestEdits(ctx context.Context, edits []ManifestEdit, edit func() ([]byte, error)) *updateFailure {
+	if len(edits) == 0 {
 		return nil
 	}
-	f.detail = firstDetail(f.pkgs)
-	return f
+	out, err := edit()
+	switch {
+	case errors.Is(err, errManifestEditLimit):
+		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdateInputLimit, detail: err.Error()}
+	case err != nil && ctx.Err() != nil:
+		return &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
+	case err != nil:
+		f := &updateFailure{category: CategoryManual, reason: ReasonManifestEditRequired, pkgs: map[string]updateFailureDetail{}}
+		for _, e := range edits {
+			f.pkgs[normalizeIfPython(r.it.Manager, e.Name)] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("%s cannot be edited without changing more than the specifier of %s: %v", r.src.manifestName, e.Name, err)}
+		}
+		f.detail = firstDetail(f.pkgs)
+		return f
+	}
+	r.manifest = out
+	r.upd.ManifestEdits = edits
+	return nil
+}
+
+func normalizeIfPython(m DependencyManager, name string) string {
+	if m.scheme() == schemePEP440 {
+		return normalizePyName(name)
+	}
+	return name
+}
+
+// editedNames are the matching names of the packages whose specifier was
+// edited.
+func (r *updateRun) editedNames() map[string]bool {
+	out := map[string]bool{}
+	for _, e := range r.upd.ManifestEdits {
+		out[normalizeIfPython(r.it.Manager, e.Name)] = true
+	}
+	return out
 }
 
 // firstDetail is the detail of the first package (by name) in a failure.
@@ -176,9 +232,48 @@ func pyprojectRequirements(py map[string]any) []string {
 	return out
 }
 
-// checkUvProject requires the project to be lockable in the work image and
-// the specifier of every direct package to allow its target.
-func (r *updateRun) checkUvProject() *updateFailure {
+// pyprojectRequirement is one requirement string of a pyproject.toml, with
+// the section it is in and its place in that section's list.
+type pyprojectRequirement struct {
+	section string
+	index   int
+	text    string
+}
+
+// pyprojectRequirementEntries lists the requirement strings of
+// pyprojectRequirements with where each is.
+func pyprojectRequirementEntries(py map[string]any) []pyprojectRequirement {
+	var out []pyprojectRequirement
+	add := func(section string, v any) {
+		list, _ := v.([]any)
+		for i, e := range list {
+			if s, ok := e.(string); ok {
+				out = append(out, pyprojectRequirement{section, i, s})
+			}
+		}
+	}
+	project, _ := py["project"].(map[string]any)
+	add("project.dependencies", project["dependencies"])
+	opt, _ := project["optional-dependencies"].(map[string]any)
+	for k, v := range opt {
+		add("project.optional-dependencies."+k, v)
+	}
+	groups, _ := py["dependency-groups"].(map[string]any)
+	for k, v := range groups {
+		add("dependency-groups."+k, v)
+	}
+	tool, _ := py["tool"].(map[string]any)
+	uv, _ := tool["uv"].(map[string]any)
+	add("tool.uv.dev-dependencies", uv["dev-dependencies"])
+	return out
+}
+
+// planUvProject requires the project to be lockable in the work image, and the
+// specifier of every direct package to allow its target; where it does not, and
+// is a requirement of [project] dependencies whose only version clause is
+// name==X or name~=X.Y, the version in it is edited here, before the update
+// runs.
+func (r *updateRun) planUvProject(ctx context.Context) *updateFailure {
 	py, err := parseTOML(r.src.manifest)
 	if err != nil {
 		return manualFailure(ReasonDependencyFileUnusable, "pyproject.toml cannot be read: %v", err)
@@ -202,60 +297,110 @@ func (r *updateRun) checkUvProject() *updateFailure {
 		return manualFailure(ReasonRequiresPythonUnsupported, "requires-python %q does not admit the work image's Python %s", spec, workImagePython)
 	}
 
-	reqs := pyprojectRequirements(py)
 	f := &updateFailure{category: CategoryManual, reason: ReasonManifestEditRequired, pkgs: map[string]updateFailureDetail{}}
+	var edits []ManifestEdit
+	var editIdx []int
+	// The requirements are read once and indexed by their normalized name; a
+	// target looks up its own, so the work is the number of requirements plus
+	// the number of targets, not their product.
+	entries := pyprojectRequirementEntries(py)
+	if len(entries) > maxManifestRequirements {
+		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdateInputLimit,
+			detail: fmt.Sprintf("pyproject.toml lists %d requirements, more than the %d one update reads", len(entries), maxManifestRequirements)}
+	}
+	type readRequirement struct {
+		pyprojectRequirement
+		constraint string
+		readable   bool
+	}
+	byName := map[string][]readRequirement{}
+	for i, e := range entries {
+		if i%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: err.Error()}
+			}
+		}
+		name, constraint, ok := pythonRequirement(e.text)
+		if !ok {
+			m := pipNameRE.FindStringSubmatch(strings.TrimSpace(e.text))
+			if m == nil {
+				continue
+			}
+			name = normalizePyName(m[1])
+		}
+		if r.set.targets[name] {
+			byName[name] = append(byName[name], readRequirement{e, constraint, ok})
+		}
+	}
 	for _, n := range r.set.names {
 		if !r.isDirect(n) {
 			continue
 		}
 		tv, tvOK := parsePEP440(r.set.target[n])
-		for _, s := range reqs {
-			name, constraint, ok := pythonRequirement(s)
-			if !ok {
-				m := pipNameRE.FindStringSubmatch(strings.TrimSpace(s))
-				if m == nil || normalizePyName(m[1]) != n {
-					continue
-				}
+		for _, e := range byName[n] {
+			s := e.text
+			if !e.readable {
 				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("pyproject.toml requires %q, which cannot be judged against %s", s, r.set.target[n])}
-				continue
-			}
-			if name != n {
 				continue
 			}
 			allowed, evaluable := false, false
 			if tvOK {
-				allowed, evaluable = pySatisfies(tv, constraint)
+				allowed, evaluable = pySatisfies(tv, e.constraint)
 			}
-			switch {
-			case !evaluable:
+			if evaluable && allowed {
+				continue
+			}
+			if e.section == "project.dependencies" {
+				if to, ok := uvEditedRequirement(s, r.set.target[n]); ok {
+					edits = append(edits, ManifestEdit{
+						File: r.src.manifestPath, Section: e.section, Name: n, From: s, To: to,
+						MajorChange: releaseLine(uvRequirementRelease(s)) != releaseLine(uvRequirementRelease(to)),
+					})
+					editIdx = append(editIdx, e.index)
+					continue
+				}
+			}
+			if !evaluable {
 				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("pyproject.toml requires %q, which cannot be judged against %s", s, r.set.target[n])}
-			case !allowed:
-				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("pyproject.toml requires %q, which does not allow %s; the manifest would have to be edited", s, r.set.target[n])}
+			} else {
+				f.pkgs[n] = updateFailureDetail{ReasonManifestEditRequired, fmt.Sprintf("pyproject.toml requires %q, which does not allow %s and is not a form this program edits", s, r.set.target[n])}
 			}
 		}
 	}
-	if len(f.pkgs) == 0 {
-		return nil
+	if len(f.pkgs) != 0 {
+		f.detail = firstDetail(f.pkgs)
+		return f
 	}
-	f.detail = firstDetail(f.pkgs)
-	return f
+	return r.applyManifestEdits(ctx, edits, func() ([]byte, error) { return editPyproject(ctx, r.src.manifest, editIdx, edits) })
 }
 
 // --- npm ---
 
 func (r *updateRun) runNpm(ctx context.Context) *updateFailure {
-	if fail := r.checkNodeManifest(); fail != nil {
+	if fail := r.planNodeManifest(ctx); fail != nil {
 		return fail
+	}
+	if len(r.upd.ManifestEdits) > 0 {
+		return r.runNpmEdited(ctx)
 	}
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true},
-		{ID: stepUpdate, Op: worker.OpNpmUpdate, Packages: r.packageArgs(func(string) bool { return false })},
+		{ID: stepUpdate, Op: worker.OpNpmUpdate, Packages: r.packageArgs(nil, func(string) bool { return false })},
 	}
 	inputs := map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock}
 	out, fail := r.exec(ctx, worker.ManagerNpm, inputs, steps, "update")
 	if fail != nil {
 		return fail
 	}
+	if fail := r.checkNpmBaseline(out); fail != nil {
+		return fail
+	}
+	return r.finishLockfile(ctx, out, nil, nil)
+}
+
+// checkNpmBaseline requires relocking the original input to leave its package
+// set as it is.
+func (r *updateRun) checkNpmBaseline(out *jobOutput) *updateFailure {
 	relocked, ok := out.stepFile(stepBaseline, "package-lock.json")
 	if !ok {
 		return failedFailure(ReasonUpdateResultInvalid, "the baseline step returned no package-lock.json")
@@ -263,7 +408,32 @@ func (r *updateRun) runNpm(ctx context.Context) *updateFailure {
 	if why := npmPackageSetDiff(r.src.lock, relocked); why != "" {
 		return manualFailure(ReasonLockfileInconsistent, "package-lock.json does not match package.json: relocking the original changes the package set (%s)", why)
 	}
-	return r.finishLockfile(ctx, out, nil)
+	return nil
+}
+
+// runNpmEdited updates with a package.json whose specifiers for some of the
+// targets were edited. The original input is checked as it is in a job of its
+// own; the update then relocks the original lockfile against the edited
+// manifest, and updates the targets whose specifier was not edited.
+func (r *updateRun) runNpmEdited(ctx context.Context) *updateFailure {
+	base, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock},
+		[]worker.Step{{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true}}, "base")
+	if fail != nil {
+		return fail
+	}
+	if fail := r.checkNpmBaseline(base); fail != nil {
+		return fail
+	}
+	edited := r.editedNames()
+	steps := []worker.Step{{ID: stepUpdate, Op: worker.OpNpmRelock}}
+	if rest := r.packageArgs(func(n string) bool { return !edited[n] }, func(string) bool { return false }); len(rest) > 0 {
+		steps = append(steps, worker.Step{ID: stepUpdateMore, Op: worker.OpNpmUpdate, Packages: rest})
+	}
+	out, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.manifest, "package-lock.json": r.src.lock}, steps, "update")
+	if fail != nil {
+		return fail
+	}
+	return r.finishLockfile(ctx, out, nil, nil)
 }
 
 // npmPackageSet reads the packages of a package-lock.json as path to
@@ -314,14 +484,17 @@ func npmPackageSetDiff(a, b []byte) string {
 // --- pnpm ---
 
 func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
-	if fail := r.checkNodeManifest(); fail != nil {
+	if fail := r.planNodeManifest(ctx); fail != nil {
 		return fail
+	}
+	if len(r.upd.ManifestEdits) > 0 {
+		return r.runPnpmEdited(ctx)
 	}
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true},
 		// A direct dependency is pinned to its target; pnpm refuses a version
 		// for a transitive one, which moves within what its dependents allow.
-		{ID: stepUpdate, Op: worker.OpPnpmUpdate, Packages: r.packageArgs(r.isDirect)},
+		{ID: stepUpdate, Op: worker.OpPnpmUpdate, Packages: r.packageArgs(nil, r.isDirect)},
 		{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true},
 	}
 	inputs := map[string][]byte{"package.json": r.src.manifest, "pnpm-lock.yaml": r.src.lock}
@@ -329,34 +502,75 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 	if fail != nil {
 		return fail
 	}
-	return r.finishLockfile(ctx, out, steps)
+	return r.finishLockfile(ctx, out, steps, nil)
+}
+
+// runPnpmEdited is the update with an edited package.json: the original input
+// is checked as it is in a job of its own, then the original lockfile is
+// relocked against the edited manifest, the targets whose specifier was not
+// edited are updated, and the result is checked again.
+func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
+	baseSteps := []worker.Step{{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true}}
+	base, fail := r.exec(ctx, worker.ManagerPnpm, map[string][]byte{"package.json": r.src.manifest, "pnpm-lock.yaml": r.src.lock}, baseSteps, "base")
+	if fail != nil {
+		return fail
+	}
+	edited := r.editedNames()
+	steps := []worker.Step{{ID: stepUpdate, Op: worker.OpPnpmRelock}}
+	if rest := r.packageArgs(func(n string) bool { return !edited[n] }, r.isDirect); len(rest) > 0 {
+		steps = append(steps, worker.Step{ID: stepUpdateMore, Op: worker.OpPnpmUpdate, Packages: rest})
+	}
+	steps = append(steps, worker.Step{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true})
+	out, fail := r.exec(ctx, worker.ManagerPnpm, map[string][]byte{"package.json": r.manifest, "pnpm-lock.yaml": r.src.lock}, steps, "update")
+	if fail != nil {
+		return fail
+	}
+	return r.finishLockfile(ctx, out, steps, base)
 }
 
 // --- uv ---
 
 func (r *updateRun) runUv(ctx context.Context) *updateFailure {
-	if fail := r.checkUvProject(); fail != nil {
+	if fail := r.planUvProject(ctx); fail != nil {
 		return fail
 	}
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpUvCheck, Scratch: true},
-		{ID: stepUpdate, Op: worker.OpUvUpgrade, Packages: r.packageArgs(func(string) bool { return true })},
+		{ID: stepUpdate, Op: worker.OpUvUpgrade, Packages: r.packageArgs(nil, func(string) bool { return true })},
 		{ID: stepCheck, Op: worker.OpUvCheck, Scratch: true},
+	}
+	if len(r.upd.ManifestEdits) > 0 {
+		// The original input is checked as it is in a job of its own; the
+		// update and its check run on the edited manifest.
+		base, fail := r.exec(ctx, worker.ManagerUv, map[string][]byte{"pyproject.toml": r.src.manifest, "uv.lock": r.src.lock}, steps[:1], "base")
+		if fail != nil {
+			return fail
+		}
+		out, fail := r.exec(ctx, worker.ManagerUv, map[string][]byte{"pyproject.toml": r.manifest, "uv.lock": r.src.lock}, steps[1:], "update")
+		if fail != nil {
+			return fail
+		}
+		return r.finishLockfile(ctx, out, steps, base)
 	}
 	inputs := map[string][]byte{"pyproject.toml": r.src.manifest, "uv.lock": r.src.lock}
 	out, fail := r.exec(ctx, worker.ManagerUv, inputs, steps, "update")
 	if fail != nil {
 		return fail
 	}
-	return r.finishLockfile(ctx, out, steps)
+	return r.finishLockfile(ctx, out, steps, nil)
 }
 
 // --- the checks every lockfile manager shares ---
 
 // finishLockfile inspects the result of an npm, pnpm or uv job. checked is
 // the job's steps when the manager has check steps whose lockfile must be the
-// original (before) and the final one (after); nil for npm.
-func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked []worker.Step) *updateFailure {
+// original (before) and the final one (after); nil for npm. The baseline
+// step's lockfile is read from base when the baseline ran in a job of its own,
+// and from out otherwise.
+func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked []worker.Step, base *jobOutput) *updateFailure {
+	if base == nil {
+		base = out
+	}
 	lockName, manifestName := r.src.lockName, r.src.manifestName
 	r.it.PostUpdateCheckExecuted = true
 
@@ -365,12 +579,12 @@ func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked 
 	if !ok1 || !ok2 {
 		return manualFailure(ReasonOutputFilesInvalid, "the final tree lacks %s or %s", manifestName, lockName)
 	}
-	if !bytes.Equal(finalManifest, r.src.manifest) {
-		return manualFailure(ReasonManifestChanged, "%s was changed by the update", manifestName)
+	if !bytes.Equal(finalManifest, r.manifest) {
+		return manualFailure(ReasonManifestChanged, "%s is not the manifest the update was given", manifestName)
 	}
 	if checked != nil {
-		base, ok := out.stepFile(stepBaseline, lockName)
-		if !ok || !bytes.Equal(base, r.src.lock) {
+		baseLock, ok := base.stepFile(stepBaseline, lockName)
+		if !ok || !bytes.Equal(baseLock, r.src.lock) {
 			return manualFailure(ReasonLockfileInconsistent, "the baseline check changed %s, so it was not consistent with %s", lockName, manifestName)
 		}
 		again, ok := out.stepFile(stepCheck, lockName)
@@ -389,11 +603,11 @@ func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked 
 func (r *updateRun) parseLockfile(lock []byte) (*lockfile, error) {
 	switch r.it.Manager {
 	case ManagerNpm:
-		return parseNpm(r.src.manifest, lock)
+		return parseNpm(r.manifest, lock)
 	case ManagerPnpm:
-		return parsePnpm(r.src.manifest, lock)
+		return parsePnpm(r.manifest, lock)
 	case ManagerUv:
-		return parseUv(r.src.manifest, lock)
+		return parseUv(r.manifest, lock)
 	}
 	return parseRequirements(lock)
 }
@@ -462,7 +676,7 @@ func (r *updateRun) verifyAndScan(ctx context.Context, newLock []byte) *updateFa
 	after := map[string][]byte{r.src.lockName: newLock}
 	if r.src.manifestName != "" {
 		before[r.src.manifestName] = r.src.manifest
-		after[r.src.manifestName] = r.src.manifest
+		after[r.src.manifestName] = r.manifest
 	}
 	return r.sourceCheck(ctx, before, after)
 }
@@ -512,6 +726,15 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 		}
 		return manualFailure(ReasonOutputFilesInvalid, "the dependency graph cannot be read: %v", errors.Join(err1, err2))
 	}
+	if len(r.upd.ManifestEdits) > 0 {
+		// The specifiers this program edited are compared with the manifest
+		// (see checkRanges), not with the original lockfile.
+		for _, g := range []*depGraph{gb, ga} {
+			if err := g.maskEditedSpecs(ctx, m, r.upd.ManifestEdits); err != nil {
+				return manualFailure(ReasonOutputFilesInvalid, "the project's own record in the lockfile cannot be compared: %v", err)
+			}
+		}
+	}
 	diff, reason, detail := diffGraphs(ctx, gb, ga, r.targetSet())
 	r.upd.Diff = &diff
 	if ctx.Err() != nil {
@@ -552,13 +775,7 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 }
 
 // targetSet is the updated packages' matching names as a set.
-func (r *updateRun) targetSet() map[string]bool {
-	out := map[string]bool{}
-	for _, n := range r.set.names {
-		out[n] = true
-	}
-	return out
-}
+func (r *updateRun) targetSet() map[string]bool { return r.set.targets }
 
 // checkVersions requires every occurrence of every updated package in the
 // updated file to be a registry version at or above the target and to meet
@@ -608,11 +825,8 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 			}
 		}
 		r.adopted[n] = lowStr
-		for _, i := range r.set.idx {
+		for _, i := range r.set.byName[n] {
 			p := it.Packages[i]
-			if p.matchName() != n {
-				continue
-			}
 			for _, c := range p.CVEs {
 				for _, v := range r.afterVersions[n] {
 					if !meetsFix(sc, v, c.FixedVers) {

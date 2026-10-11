@@ -380,19 +380,32 @@ type messages struct {
 	// Pull requests of the fix plan (only with pull requests enabled). A
 	// line names the pull request link, the image, the old and new tag and
 	// the Compose file; none of them says a finding is resolved.
-	PlanHeadingPR           string // "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n"
-	PlanPRCounts            string // "Pull requests: %s" (the joined segments)
-	PlanPRSegCreated        string // "%d created" (opened in this cycle)
-	PlanPRSegOpen           string // "%d open"
-	PlanPRSegMerged         string // "%d merged"
-	PlanPRSegClosed         string // "%d closed without merging"
-	PlanPRSegManual         string // "%d manual"
-	PlanPRSegDeferred       string // "%d deferred"
-	PlanPRSegBlocked        string // "%d blocked or failed"
-	PlanPRCreatedLine       string // "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet" (link, image, old tag, new tag, Compose file)
-	PlanPROpenLine          string // "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s"
-	PlanPRMergedLine        string // "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed"
-	PlanPRClosedLine        string // "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again"
+	PlanHeadingPR     string // "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n"
+	PlanPRCounts      string // "Pull requests: %s" (the joined segments)
+	PlanPRSegCreated  string // "%d created" (opened in this cycle)
+	PlanPRSegOpen     string // "%d open"
+	PlanPRSegMerged   string // "%d merged"
+	PlanPRSegClosed   string // "%d closed without merging"
+	PlanPRSegManual   string // "%d manual"
+	PlanPRSegDeferred string // "%d deferred"
+	PlanPRSegBlocked  string // "%d blocked or failed"
+	PlanPRCreatedLine string // "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet" (link, image, old tag, new tag, Compose file)
+	PlanPROpenLine    string // "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s"
+	PlanPRMergedLine  string // "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed"
+	PlanPRClosedLine  string // "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again"
+	// Pull requests that update a lockfile (language packages). A line names
+	// the link, the services, the lockfile and the first package's change; a
+	// scan of the lockfile is all that was checked, never the rebuilt image.
+	PlanPRLangCreatedLine   string // "• Opened %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not merged yet" (link, services, lockfile, first package change, the "and more" clause)
+	PlanPRLangOpenLine      string // "• Open %[1]s: %[2]s (%[3]s) %[4]s%[5]s"
+	PlanPRLangMergedLine    string // "• Merged %[1]s: %[2]s (%[3]s) %[4]s%[5]s — deployment not confirmed"
+	PlanPRLangClosedLine    string // "• Closed without merging %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not proposed again"
+	PlanPRLangNote          string // " — lockfile scan only; the image is not rebuilt or scanned" (appended to the line of a lockfile pull request)
+	PlanPRLangMajorNote     string // " — ⚠ includes a major version change" (appended when a package or a manifest edit changes the major version)
+	PlanDepNotOpenedLine    string // "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s" (services, lockfile, first package change, the "and more" clause, the status and reason)
+	PlanDepManualLine       string // "• %[1]s (%[2]s): dependency update needs a person — %[3]s" (services, lockfile, reason)
+	PlanDepFailedLine       string // "• %[1]s (%[2]s): dependency update failed — %[3]s"
+	PlanDepDeferredLine     string // "• %[1]s (%[2]s): dependency update deferred — %[3]s"
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
 	PlanPRProblemJoin       string // "; " (between the reasons)
 	PlanPRProblemBlocked    string // "a repository, branch or pull request is not in the expected state"
@@ -729,6 +742,16 @@ var enMessages = messages{
 	PlanPROpenLine:          "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s",
 	PlanPRMergedLine:        "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed",
 	PlanPRClosedLine:        "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again",
+	PlanPRLangCreatedLine:   "• Opened %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not merged yet",
+	PlanPRLangOpenLine:      "• Open %[1]s: %[2]s (%[3]s) %[4]s%[5]s",
+	PlanPRLangMergedLine:    "• Merged %[1]s: %[2]s (%[3]s) %[4]s%[5]s — deployment not confirmed",
+	PlanPRLangClosedLine:    "• Closed without merging %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not proposed again",
+	PlanPRLangNote:          " — lockfile scan only; the image is not rebuilt or scanned",
+	PlanPRLangMajorNote:     " — ⚠ includes a major version change",
+	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s",
+	PlanDepManualLine:       "• %[1]s (%[2]s): dependency update needs a person — %[3]s",
+	PlanDepFailedLine:       "• %[1]s (%[2]s): dependency update failed — %[3]s",
+	PlanDepDeferredLine:     "• %[1]s (%[2]s): dependency update deferred — %[3]s",
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
 	PlanPRProblemJoin:       "; ",
 	PlanPRProblemBlocked:    "a repository, branch or pull request is not in the expected state",
@@ -1062,6 +1085,16 @@ var jaMessages = messages{
 	PlanPROpenLine:          "• %[1]s オープン中: %[2]s %[3]s → %[4]s (%[5]s)",
 	PlanPRMergedLine:        "• %[1]s マージ済み: %[2]s %[3]s → %[4]s (%[5]s) — デプロイは未確認",
 	PlanPRClosedLine:        "• %[1]s 未マージでクローズ: %[2]s %[3]s → %[4]s (%[5]s) — 再提案しない",
+	PlanPRLangCreatedLine:   "• %[1]s を作成: %[2]s (%[3]s) %[4]s%[5]s — 未マージ",
+	PlanPRLangOpenLine:      "• %[1]s オープン中: %[2]s (%[3]s) %[4]s%[5]s",
+	PlanPRLangMergedLine:    "• %[1]s マージ済み: %[2]s (%[3]s) %[4]s%[5]s — デプロイは未確認",
+	PlanPRLangClosedLine:    "• %[1]s 未マージでクローズ: %[2]s (%[3]s) %[4]s%[5]s — 再提案しない",
+	PlanPRLangNote:          " — lockfileのスキャンのみ。イメージは再ビルドもスキャンもしていない",
+	PlanPRLangMajorNote:     " — ⚠ メジャーバージョンの変更を含む",
+	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — 更新は検査済み。Pull Requestは未作成: %[5]s",
+	PlanDepManualLine:       "• %[1]s (%[2]s): 依存パッケージの更新は要判断 — %[3]s",
+	PlanDepFailedLine:       "• %[1]s (%[2]s): 依存パッケージの更新は失敗 — %[3]s",
+	PlanDepDeferredLine:     "• %[1]s (%[2]s): 依存パッケージの更新は延期 — %[3]s",
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
 	PlanPRProblemJoin:       "、",
 	PlanPRProblemBlocked:    "リポジトリ、ブランチ、Pull Requestのいずれかが想定の状態でない",

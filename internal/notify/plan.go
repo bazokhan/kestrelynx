@@ -205,6 +205,9 @@ func planLines(p *PlanInfo, webhook bool, msg messages) []string {
 	dfWarn, dfAdopted, dfAdvice := dockerfileLines(plan, msg)
 	warn = append(warn, dfWarn...)
 	adopted = append(adopted, dfAdopted...)
+	depWarn, depAdopted := languageUpdateLines(plan, msg)
+	warn = append(warn, depWarn...)
+	adopted = append(adopted, depAdopted...)
 	for _, li := range plan.LanguageItems {
 		if line := dependencyLine(li, msg); line != "" {
 			adopted = append(adopted, line)
@@ -370,8 +373,18 @@ func pullRequestLines(plan remediation.Plan, msg messages) (lines []string, coun
 			remediation.PRStatusMerged:     msg.PlanPRMergedLine,
 			remediation.PRStatusSuppressed: msg.PlanPRClosedLine,
 		}[status]
+		langFormat := map[remediation.PRUnitStatus]string{
+			remediation.PRStatusCreated:    msg.PlanPRLangCreatedLine,
+			remediation.PRStatusOpen:       msg.PlanPRLangOpenLine,
+			remediation.PRStatusMerged:     msg.PlanPRLangMergedLine,
+			remediation.PRStatusSuppressed: msg.PlanPRLangClosedLine,
+		}[status]
 		for _, u := range plan.PullRequests {
 			if u.Status != status || u.Number <= 0 {
+				continue
+			}
+			if u.Kind == "language" {
+				listed = append(listed, languagePRLine(langFormat, u, msg))
 				continue
 			}
 			image, old := splitImageRef(u.Current)
@@ -713,7 +726,7 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 			out.LanguageSummary[string(c)] = plan.CountLanguage(c)
 		}
 		for _, li := range plan.LanguageItems {
-			out.LanguageItems = append(out.LanguageItems, languageItemPayloadOf(li))
+			out.LanguageItems = append(out.LanguageItems, languageItemPayloadOf(li, plan.PullRequests))
 		}
 	}
 	if len(plan.DockerfileItems) > 0 {
@@ -746,9 +759,12 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 const maxWebhookFixTargets = 100
 
 type prUnitPayload struct {
-	// Kind is "dockerfile" for a base image update; absent for a Compose tag
-	// update. For a Dockerfile, Path is the Dockerfile, Services the services
-	// of its workloads and CurrentRef the base image its FROM names.
+	// Kind is "dockerfile" for a base image update and "language" for a
+	// lockfile update; absent for a Compose tag update. For a Dockerfile,
+	// Path is the Dockerfile, Services the services of its workloads and
+	// CurrentRef the base image its FROM names. For a language update, Path
+	// is the lockfile, ItemKey the language item and Language what it
+	// changes; the image reference and candidate are empty.
 	Kind       string   `json:"kind,omitempty"`
 	Key        string   `json:"key"`
 	Repo       string   `json:"repo"`
@@ -782,6 +798,9 @@ type prUnitPayload struct {
 	Replacing           []replacingPayload `json:"replacing,omitempty"`
 	// Replaced are the pull requests closed in favour of this one.
 	Replaced []int `json:"replaced,omitempty"`
+
+	ItemKey  string                  `json:"item_key,omitempty"`
+	Language *remediation.PRLanguage `json:"language,omitempty"`
 }
 
 type fixTargetPayload struct {
@@ -806,6 +825,7 @@ func prUnitPayloadOf(u remediation.PRUnit) prUnitPayload {
 		Number: u.Number, URL: u.URL, State: string(u.State), UserModified: u.UserModified,
 		TargetKey: u.TargetKey, UpdateKey: u.UpdateKey, AttemptKey: u.AttemptKey,
 		FixTargetCount: len(u.FixTargets), ReplacedBy: u.ReplacedBy, Replaced: u.Replaced,
+		ItemKey: u.ItemKey, Language: u.Language,
 	}
 	if out.Services == nil {
 		out.Services = []string{}
@@ -880,6 +900,29 @@ type languageItemPayload struct {
 	PackageCount      int                      `json:"package_count"`
 	Packages          []languagePackagePayload `json:"packages,omitempty"`
 	PackagesTruncated bool                     `json:"packages_truncated,omitempty"`
+
+	// The following are set once the update stage has handled the item.
+	// Update is what was run and changed (steps, notes, the lockfile diff and
+	// the manifest edits), SourceCheck the scan of the dependency files before
+	// and after, Artifacts the files an update produced (path, hash and size;
+	// never the content) and PullRequest the state of its pull request.
+	Update      *remediation.LanguageUpdate `json:"update,omitempty"`
+	SourceCheck *remediation.SourceCheck    `json:"source_check,omitempty"`
+	Artifacts   []remediation.ArtifactFile  `json:"artifacts,omitempty"`
+	PullRequest *languagePRPayload          `json:"pull_request,omitempty"`
+}
+
+// languagePRPayload is the state of the pull request unit of a language item.
+type languagePRPayload struct {
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	Number     int    `json:"number,omitempty"`
+	URL        string `json:"url,omitempty"`
+	State      string `json:"state,omitempty"`
+	TargetKey  string `json:"target_key,omitempty"`
+	UpdateKey  string `json:"update_key,omitempty"`
+	AttemptKey string `json:"attempt_key,omitempty"`
 }
 
 type languagePackagePayload struct {
@@ -907,13 +950,20 @@ type languagePackagePayload struct {
 	OriginsTruncated bool                        `json:"origins_truncated,omitempty"`
 }
 
-func languageItemPayloadOf(li remediation.LanguageItem) languageItemPayload {
+func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUnit) languageItemPayload {
 	out := languageItemPayload{
 		Key: li.Key, Category: string(li.Category), Reason: string(li.Reason), Detail: li.Detail,
 		Manager: string(li.Manager), Priority: string(li.Priority), Workloads: li.Workloads,
 		Source:         li.Source,
 		UpdateExecuted: li.UpdateExecuted, PostUpdateCheckExecuted: li.PostUpdateCheckExecuted,
 		PackageCount: len(li.Packages),
+		Update:       li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,
+	}
+	if u := languageUnitOf(li, units); u != nil {
+		out.PullRequest = &languagePRPayload{
+			Status: string(u.Status), Reason: string(u.Reason), Detail: u.Detail, Number: u.Number, URL: u.URL, State: string(u.State),
+			TargetKey: u.TargetKey, UpdateKey: u.UpdateKey, AttemptKey: u.AttemptKey,
+		}
 	}
 	pkgs := li.Packages
 	if len(pkgs) > maxWebhookPackages {

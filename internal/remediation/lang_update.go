@@ -15,6 +15,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/github"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
+	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
 // LangUpdateConfig holds what the dependency update stage needs.
@@ -63,6 +64,13 @@ func DefaultUpdateResources() docker.Resources {
 	}
 }
 
+// jobDeadlineSeconds is the deadline the work program is given for a job that
+// the container may run for timeout: the timeout less the time the container
+// needs to start and report.
+func jobDeadlineSeconds(timeout time.Duration) int {
+	return int(timeout.Seconds()) - 30
+}
+
 // LangUpdater runs the dependency update stage.
 type LangUpdater struct {
 	cfg LangUpdateConfig
@@ -86,6 +94,9 @@ func NewLangUpdater(cfg LangUpdateConfig) (*LangUpdater, error) {
 	}
 	if cfg.JobTimeout < time.Minute {
 		return nil, errors.New("remediation: the update job timeout is under a minute")
+	}
+	if d := jobDeadlineSeconds(cfg.JobTimeout); d > worker.MaxDeadlineSeconds {
+		return nil, fmt.Errorf("remediation: the update job timeout %s gives the work program a deadline of %d seconds, over its limit of %d", cfg.JobTimeout, d, worker.MaxDeadlineSeconds)
 	}
 	if cfg.Resources == (docker.Resources{}) {
 		cfg.Resources = DefaultUpdateResources()
@@ -202,12 +213,20 @@ type updateSet struct {
 	names []string // distinct matching names, sorted
 	// target is the lowest version that fixes the package, by matching name.
 	target map[string]string
+	// The following are indexed once, so that nothing in the update looks a
+	// package up by scanning the list: the packages of each matching name,
+	// the name the image reports for it, whether the project requires it
+	// itself in an occurrence being updated, and the set of the names.
+	byName  map[string][]int
+	display map[string]string
+	direct  map[string]bool
+	targets map[string]bool
 }
 
 // newUpdateSet collects the packages to update. Packages of one name must
 // share their target (the planner makes sure of it).
 func newUpdateSet(it *LanguageItem) (updateSet, *updateFailure) {
-	s := updateSet{target: map[string]string{}}
+	s := updateSet{target: map[string]string{}, byName: map[string][]int{}, display: map[string]string{}, direct: map[string]bool{}, targets: map[string]bool{}}
 	for i, p := range it.Packages {
 		if p.Action != ActionUpdate {
 			continue
@@ -224,6 +243,17 @@ func newUpdateSet(it *LanguageItem) (updateSet, *updateFailure) {
 		}
 		s.target[n] = p.SelectionLowerBound
 		s.idx = append(s.idx, i)
+		s.byName[n] = append(s.byName[n], i)
+		s.targets[n] = true
+		if _, ok := s.display[n]; !ok {
+			s.display[n] = p.Name
+		}
+		for _, o := range p.Occurrences {
+			if o.Matched && o.Direct {
+				s.direct[n] = true
+				break
+			}
+		}
 	}
 	if len(s.idx) == 0 {
 		return s, failedFailure(ReasonUpdateInputInvalid, "the item has no package to update")
@@ -240,6 +270,7 @@ type sourceFiles struct {
 	manifest     []byte
 	lock         []byte
 	manifestPath string
+	manifestMode string
 	lockPath     string
 	lockMode     string
 }
@@ -306,7 +337,7 @@ func (u *LangUpdater) readSources(ctx context.Context, it *LanguageItem) (*sourc
 	if fail != nil {
 		return nil, fail
 	}
-	sf.manifest, sf.manifestPath = got.Content, got.Path
+	sf.manifest, sf.manifestPath, sf.manifestMode = got.Content, got.Path, got.Mode
 	return sf, nil
 }
 
@@ -363,6 +394,9 @@ type updateRun struct {
 	upd *LanguageUpdate
 
 	src *sourceFiles
+	// manifest is the manifest the update runs on and must leave as it is:
+	// the original, or the original with the edits in upd.ManifestEdits.
+	manifest []byte
 	// newLock is the updated lockfile (requirements for pip).
 	newLock []byte
 	// adopted is the lowest version of each updated package the new file
@@ -400,6 +434,12 @@ func (r *updateRun) succeed() {
 		Path: r.src.lockPath, SHA256: sha256Hex(r.newLock), Size: int64(len(r.newLock)),
 		Mode: r.src.lockMode, Content: r.newLock,
 	}}
+	if len(r.upd.ManifestEdits) > 0 {
+		it.Artifacts = append(it.Artifacts, ArtifactFile{
+			Path: r.src.manifestPath, SHA256: sha256Hex(r.manifest), Size: int64(len(r.manifest)),
+			Mode: r.src.manifestMode, Content: r.manifest,
+		})
+	}
 }
 
 // ReasonUpdateVerified is the reason of an item whose update ran and passed

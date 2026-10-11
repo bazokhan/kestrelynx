@@ -220,3 +220,19 @@ runtime:
 #     cycle_timeout: 30m
 #     new_prs_per_cycle: 3
 #     open_prs: 10
+#     # With pull requests enabled, a dependency mapping's update runs in a
+#     # throwaway work container. dependency_jobs_per_cycle is how many such
+#     # updates one cycle runs (work past it is deferred) and job_timeout how
+#     # long one container may live, from creation to deletion (1m to 1h30s: the
+#     # job inside gets 30s less, and the work image accepts at most 1h).
+#     dependency_jobs_per_cycle: 3
+#     job_timeout: 6m
+#   # The work image that dependency updates run in: a digest-pinned reference,
+#   # repository@sha256:<64 hex digits>. Leave it unset to use the image this
+#   # release carries; a build that carries none cannot run dependency updates,
+#   # and the plan says so. Set it only to try another work image or to point
+#   # at a mirror of the released one. The image is pulled when a cycle first
+#   # needs it, and KestreLynx never runs the package managers itself if it
+#   # cannot be pulled.
+#   # worker:
+#   #   image: registry.example.com/kestrelynx-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000

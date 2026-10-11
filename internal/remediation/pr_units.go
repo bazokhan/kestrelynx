@@ -56,8 +56,9 @@ type composeUnit struct {
 
 	candidate *ImageState // shared by every item when the unit is adopted
 
-	// df is set for a Dockerfile unit.
-	df *dockerfileUnitData
+	// df is set for a Dockerfile unit and lang for a language unit.
+	df   *dockerfileUnitData
+	lang *languageUnitData
 }
 
 // normalizedRef is the reference in the form units are grouped by: the
@@ -237,6 +238,9 @@ func (u *composeUnit) fixTargets() []FixTarget {
 	if u.df != nil {
 		return u.df.fixTargets
 	}
+	if u.lang != nil {
+		return u.lang.fixTargets
+	}
 	return u.perLocation(func(it *Item) map[verdictKey]bool {
 		res := resolvedPairs(it)
 		out := map[verdictKey]bool{}
@@ -298,6 +302,11 @@ func resolvedPairs(it *Item) map[verdictKey]bool {
 func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
 	if u.df != nil {
 		return u.df.evidence
+	}
+	if u.lang != nil {
+		// A language update has no comparison of images; its checks are in
+		// the plan item.
+		return nil
 	}
 	vs := &VerificationSummary{
 		TrivyVersion:    plan.Conditions.TrivyVersion,
@@ -383,6 +392,9 @@ func sortFixTargets(f []FixTarget) {
 func (u *composeUnit) kind() string {
 	if u.df != nil {
 		return prKindDockerfile
+	}
+	if u.lang != nil {
+		return prKindLanguage
 	}
 	return prKindCompose
 }
