@@ -1183,10 +1183,12 @@ func TestBundleListsAreJudgedByTheirTextOnce(t *testing.T) {
 		t.Error("the alternative spelling was ignored")
 	}
 	// A list with a million elements is judged without being read.
-	big := "[" + strings.Repeat(`"x",`, 1000000) + `"x"]`
+	// The entry is built once: copying the list for every call would time
+	// the copy, not the judgment.
+	big := raw("[" + strings.Repeat(`"x",`, 1000000) + `"x"]`)
 	start := time.Now()
 	for i := 0; i < 1000; i++ {
-		entryBundlesAnything(raw(big))
+		entryBundlesAnything(big)
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("took %v", d)
