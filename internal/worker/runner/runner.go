@@ -74,6 +74,12 @@ func Run(cfg Config, jobPath string) error {
 	reject := func(format string, args ...any) error {
 		return finish(&worker.Result{Status: worker.StatusInputRejected, Error: sanitize(fmt.Sprintf(format, args...))})
 	}
+	// No child may receive a descriptor this program inherited; without this
+	// step os/exec would pass every inherited descriptor that is not
+	// close-on-exec to each package manager.
+	if err := closeInheritedOnExec(); err != nil {
+		return reject("cannot keep inherited descriptors from the children: %v", err)
+	}
 
 	job, err := readJob(jobPath)
 	var bad *malformedError

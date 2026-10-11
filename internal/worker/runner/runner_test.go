@@ -782,3 +782,40 @@ func TestHardenMakesTheProcessNonDumpable(t *testing.T) {
 		t.Errorf("/proc/self/fd owned by uid %d after Harden", st.Uid)
 	}
 }
+
+// A descriptor the job runner inherited without close-on-exec (as a CI
+// runner or a supervisor may leave open) must not reach the package
+// managers it starts.
+func TestChildrenDoNotReceiveInheritedDescriptors(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	inherited, err := syscall.Dup(int(f.Fd())) // dup does not set close-on-exec
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(inherited)
+
+	e := newEnv(t)
+	e.program("npm", `ls /proc/self/fd | tr '\n' ' '; echo`)
+	job := e.npmJob()
+	job.Steps = []worker.Step{{ID: "one", Op: worker.OpNpmRelock}}
+	res, _ := e.run(job)
+	if res == nil || res.Status != worker.StatusCompleted {
+		t.Fatalf("result %+v", res)
+	}
+	fds := strings.Fields(res.Steps[0].Stdout)
+	listed := strings.Join(fds, " ")
+	for _, std := range []string{"0", "1", "2"} {
+		if !strings.Contains(" "+listed+" ", " "+std+" ") {
+			t.Fatalf("the child's descriptors were not listed: %q", res.Steps[0].Stdout)
+		}
+	}
+	for _, fd := range fds {
+		if fd == fmt.Sprint(inherited) {
+			t.Errorf("child received inherited descriptor %d (all: %s)", inherited, res.Steps[0].Stdout)
+		}
+	}
+}
