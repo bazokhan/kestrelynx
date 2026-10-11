@@ -5,7 +5,8 @@
 #   docker compose up -d
 #   docker compose logs -f
 #
-# config.yml holds your webhook URL (a secret) and is gitignored — never commit it.
+# config.yml holds secrets (your webhook URL and, if remediation is enabled, a
+# GitHub token) and is gitignored — never commit it.
 services:
   kestrelynx:
     image: ghcr.io/kitsunetrail/kestrelynx:latest
@@ -16,14 +17,19 @@ services:
       # Set it to your local zone, e.g. Asia/Tokyo, America/New_York.
       - TZ=UTC
     volumes:
-      # KestreLynx only performs GET requests: /containers/json to list running
-      # containers, plus /containers/{id}/json when runtime.enabled is set.
+      # By default KestreLynx only reads from the Docker API: /containers/json
+      # to list running containers, plus /containers/{id}/json when
+      # runtime.enabled is set. With remediation.pull_requests.enabled it also
+      # pulls the work image and creates, starts and removes short-lived work
+      # containers to update language package lockfiles.
       # Note: :ro makes the filesystem mount read-only but does NOT restrict
-      # Docker API operations — mount docker.sock only into images you trust.
+      # Docker API operations, so it does not need to change to :rw for pull
+      # requests — mount docker.sock only into images you trust.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.yml:/etc/kestrelynx/config.yml:ro
       # Diff-mode scan state (first-seen dates), so notifications stay
-      # diff-based across container recreation.
+      # diff-based across container recreation. Remediation plan and pull
+      # request records are kept here too (remediation.storage_dir).
       - kestrelynx-state:/var/lib/kestrelynx
 
 volumes:
