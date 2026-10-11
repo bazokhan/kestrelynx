@@ -325,9 +325,7 @@ func (r *run) dockerfilePart(inputs []ImageInput) {
 	if cfg.GitHub == nil || (len(cfg.Dockerfiles) == 0 && len(cfg.Composes) == 0) {
 		return
 	}
-	r.dfSHA = map[string]dfShaEntry{}
-	r.dfFiles = map[string]*dfFileEntry{}
-	r.dfScans = map[string]scanned{}
+	r.initDF()
 
 	explicit := map[string]*DockerfileMapping{}
 	for i := range cfg.Dockerfiles {

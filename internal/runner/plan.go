@@ -143,6 +143,12 @@ type planCycle struct {
 	// ones if the databases were verified unchanged after the scans, none
 	// otherwise.
 	scanConds scanner.ScanConditions
+	// budget and reg are the cycle's registry request budget and registry
+	// client. They are made before the cycle's scans, so that anything the
+	// scanners ask the registry (which logins a scan may carry) spends the
+	// same budget as the plan does, and the plan uses the same client.
+	budget *registry.Budget
+	reg    remediation.Registry
 }
 
 // planOutcome is what the plan contributes to the cycle's notification. The
@@ -180,7 +186,12 @@ func (r Runner) preparePlan(ctx context.Context) planCycle {
 		r.log().Warn("fix plan unavailable: scan databases could not be prepared", "err", err)
 		return planCycle{}
 	}
-	return planCycle{prepared: conds, ok: true}
+	cyc := planCycle{prepared: conds, ok: true}
+	if r.Plan.NewRegistry != nil {
+		cyc.budget = registry.NewBudget(r.Plan.MaxRegistryRequests)
+		cyc.reg = r.Plan.NewRegistry(cyc.budget)
+	}
+	return cyc
 }
 
 // verifyScans checks, after the cycle's scans, that the databases are still
@@ -248,8 +259,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		ctx, cancel = context.WithTimeout(ctx, pc.CycleTimeout)
 		defer cancel()
 	}
-	budget := registry.NewBudget(pc.MaxRegistryRequests)
-	reg := pc.NewRegistry(budget)
+	budget, reg := cyc.budget, cyc.reg
 	var gh remediation.GitHubReader
 	if pc.NewGitHub != nil && (len(pc.Dependencies) > 0 || len(pc.Dockerfiles) > 0 || len(pc.Composes) > 0) {
 		// One client per cycle: its request budget and file byte total are

@@ -7,10 +7,16 @@ import (
 )
 
 var (
-	// ErrAuthRequired means the registry refused the request even with an
-	// anonymous pull token, or asked for credentials this client does not
-	// have. Private repositories are out of scope.
+	// ErrAuthRequired means the registry refused the request: with an
+	// anonymous pull token and no credentials configured for its host, or
+	// with the configured credentials, or it asked for a login this client
+	// has no credentials for.
 	ErrAuthRequired = errors.New("registry: authentication required")
+	// ErrTimeout means one request did not finish within the client's
+	// per-request timeout while the caller's own context was still live. It
+	// is not a context error: the caller's deadline, if it passes, is
+	// reported as context.DeadlineExceeded.
+	ErrTimeout = errors.New("registry: request timed out")
 	// ErrBudgetExhausted means the caller's request budget is used up; no
 	// request was sent.
 	ErrBudgetExhausted = errors.New("registry: request budget exhausted")
@@ -38,7 +44,8 @@ var (
 	ErrBadResponse = errors.New("registry: bad response")
 	// ErrForbiddenAddress means a connection was refused because the host is, or
 	// resolves to, a loopback, private, link-local, unspecified, multicast or
-	// carrier-grade NAT address. Only public registries are in scope.
+	// carrier-grade NAT address. Only registries on public addresses are in
+	// scope.
 	ErrForbiddenAddress = errors.New("registry: address not allowed")
 	// ErrPlatformMismatch means the image config names a different OS or
 	// architecture than the one requested (or than its index entry claimed).

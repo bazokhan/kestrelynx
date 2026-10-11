@@ -73,3 +73,23 @@ func TestRepositoryKey_IPv6(t *testing.T) {
 		t.Errorf("got %q %q %q", a, b, c)
 	}
 }
+
+func TestHasRegistryHost(t *testing.T) {
+	for ref, want := range map[string]bool{
+		"nginx":                       false,
+		"nginx:1.25.3":                false,
+		"team/app:1":                  false,
+		"regfis-infra-elasticsearch":  false,
+		"ghcr.io/org/app:latest":      true,
+		"docker.io/library/nginx":     true,
+		"localhost/app":               true,
+		"localhost:5000/app:1":        true,
+		"registry.example.com:5000/a": true,
+		"":                            false,
+		"sha256:abc":                  false,
+	} {
+		if got := HasRegistryHost(ref); got != want {
+			t.Errorf("HasRegistryHost(%q) = %v, want %v", ref, got, want)
+		}
+	}
+}

@@ -162,6 +162,14 @@ type ImageScan struct {
 	Pinned bool
 	Source ScanSource // where this scan's bytes came from
 
+	// ComposeProject and ComposeService are the com.docker.compose.project and
+	// com.docker.compose.service labels of the image's own configuration
+	// (Metadata.ImageConfig.config.Labels), "" when absent. Docker Compose puts
+	// them on an image it builds; an image pulled from a registry carries them
+	// only if its publisher built it with Compose.
+	ComposeProject string
+	ComposeService string
+
 	// DiffIDs is Metadata.DiffIDs, the image's filesystem layer IDs from the
 	// bottom layer up, verbatim; nil when the report carried none.
 	DiffIDs []string
@@ -233,6 +241,9 @@ type trivyReport struct {
 			OS           string `json:"os"`
 			Architecture string `json:"architecture"`
 			Variant      string `json:"variant"`
+			Config       struct {
+				Labels map[string]string `json:"Labels"`
+			} `json:"config"`
 		} `json:"ImageConfig"`
 	} `json:"Metadata"`
 	Results []struct {
@@ -297,6 +308,14 @@ func ParseReport(data []byte) (ImageScan, error) {
 			Architecture: r.Metadata.ImageConfig.Architecture,
 			Variant:      r.Metadata.ImageConfig.Variant,
 		},
+	}
+	if l := r.Metadata.ImageConfig.Config.Labels; l != nil {
+		if v := l["com.docker.compose.project"]; len(v) <= 256 {
+			scan.ComposeProject = v
+		}
+		if v := l["com.docker.compose.service"]; len(v) <= 256 {
+			scan.ComposeService = v
+		}
 	}
 	// A Metadata.ImageID that fails the boundary check is never normalized
 	// or guessed at: ScannedKey simply stays the zero value, same as an

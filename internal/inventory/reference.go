@@ -95,6 +95,19 @@ func DigestOf(ref string) string {
 	return digest
 }
 
+// HasRegistryHost reports whether the repository part of an image reference
+// names a registry host (a first path component with a dot or a port, or
+// "localhost"). "app" and "team/app" do not; "ghcr.io/team/app" does. A
+// reference that cannot be read has none.
+func HasRegistryHost(ref string) bool {
+	repo, ok := RepositoryOf(ref)
+	if !ok {
+		return false
+	}
+	parts := strings.Split(repo, "/")
+	return len(parts) > 1 && isRegistryHost(parts[0])
+}
+
 // RepositoryKey returns a normalized form of the repository of ref for
 // matching only: a reference without a registry host is taken to live on
 // Docker Hub, and a single-component Docker Hub repository is taken to be in

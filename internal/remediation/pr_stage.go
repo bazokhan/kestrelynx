@@ -321,7 +321,8 @@ func (r *prRun) write(op OperationEvent, fn func() (string, error)) (string, str
 // exhausted budget or the deadline. It reports whether it did.
 func (r *prRun) haltFor(err error) bool {
 	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, registry.ErrTimeout) && r.ctx.Err() != nil:
 		if r.halt == nil {
 			r.halt = &halt{ReasonCycleDeadline, err.Error()}
 		}
@@ -654,7 +655,7 @@ func (r *prRun) recheckCandidate(c *unitCtx, repoRef string, cand ImageState) bo
 	}
 	res, err := r.s.cfg.Resolver.Resolve(r.ctx, repoRef, cand.Tag, platform)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, registry.ErrTimeout) {
 			r.haltFor(err)
 		}
 		c.set(PRStatusDeferred, ReasonRegistryRecheck, "the candidate tag could not be resolved again: "+err.Error())

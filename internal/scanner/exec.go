@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 )
 
 // Trivy runs the Trivy CLI. The binary is shelled out to (ADR-002) rather than
@@ -27,6 +28,15 @@ type Trivy struct {
 	// so all scans of a cycle see the databases PrepareDB fixed. Off by
 	// default; when off, scan arguments are unchanged.
 	SkipDBUpdate bool
+	// Auth holds registry logins by host. A scan that fetches an image from a
+	// registry host listed here gets that host's login, and only that host's;
+	// every other scan is anonymous. Nil means no logins.
+	Auth *regauth.Store
+	// Challenger is asked, just before such a scan, how the registry wants a
+	// request authenticated. The login is passed on only if it may be sent
+	// where that answer leads (see regauth.Credential.Permits). Without a
+	// Challenger no login is passed on.
+	Challenger AuthChallenger
 }
 
 // New returns a Trivy with KestreLynx defaults (HIGH/CRITICAL, trivy on PATH).
@@ -219,7 +229,7 @@ func reconcileTarget(scan ImageScan, target ScanTarget) ImageScan {
 // Scan scans a single image target. A scan failure (e.g. the image cannot be
 // pulled) is reported via ImageScan.Err rather than a returned error, so one bad
 // image never aborts a whole run; callers iterate and surface Err per image.
-func (t Trivy) Scan(ctx context.Context, target ScanTarget) ImageScan {
+func (t Trivy) Scan(ctx context.Context, target ScanTarget) (result ImageScan) {
 	if t.SkipDBUpdate {
 		// Comparison mode runs elsewhere with a clean environment, so the
 		// binary and cache must be absolute and explicit.
@@ -258,6 +268,41 @@ func (t Trivy) Scan(ctx context.Context, target ScanTarget) ImageScan {
 		// Settings come from the flags above; none may come from TRIVY_*.
 		cmd.Env = withoutTrivyEnv(os.Environ())
 	}
+
+	cred, hasCred, withheld := t.registryCredential(ctx, target)
+	if cred.Host != "" {
+		defer func() {
+			if result.Err == nil {
+				return
+			}
+			result.Err = cred.ScrubError(result.Err)
+			if withheld != "" {
+				result.Err = fmt.Errorf("%w (the registry login was not passed on: %s)", result.Err, withheld)
+			}
+		}()
+	}
+	// Trivy reads registry logins from the Docker config. Every scan gets a
+	// directory of its own for it, empty unless the scan was given a login,
+	// so that a login of the user running this program (a config.json under
+	// HOME, say) is never used for a registry it was not meant for.
+	var loginCred *regauth.Credential
+	if hasCred {
+		loginCred = &cred
+	}
+	dir, err := writeDockerConfig(loginCred)
+	if err != nil {
+		return ImageScan{
+			Image:   target.Subject.Ref,
+			Subject: target.Subject,
+			Source:  target.Source,
+			Err:     fmt.Errorf("trivy scan %s: prepare registry login: %w", scanArg, err),
+		}
+	}
+	defer os.RemoveAll(dir)
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, "DOCKER_CONFIG="+dir)
 
 	if err := cmd.Run(); err != nil {
 		return ImageScan{

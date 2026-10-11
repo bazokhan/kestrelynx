@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/kubernetes"
 	"github.com/kitsunetrail/kestrelynx/internal/notify"
+	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/runner"
@@ -131,6 +133,7 @@ func main() {
 			"cycle_timeout", l.CycleTimeout,
 			"storage_dir", cfg.Remediation.StorageDir,
 			"mappings", len(cfg.Remediation.Mappings),
+			"registry_logins", len(cfg.Remediation.Registries),
 			"github_token_set", cfg.Remediation.GitHub.Token != "",
 			"pull_requests", cfg.Remediation.PullRequests.Enabled,
 			"new_prs_per_cycle", l.NewPRsPerCycle,
@@ -291,12 +294,20 @@ func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConf
 func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 	rc := cfg.Remediation
 	l := rc.Limits
+	// Config validation has rejected a host listed twice, the only way the
+	// store can fail to build; without logins the store is nil and every
+	// registry is reached anonymously.
+	auth, _ := rc.RegistryCredentials()
+	challenger := &cycleChallenger{}
 	pc := &runner.PlanConfig{
 		// Comparison mode: the databases PrepareDB fixes are the only ones
-		// any scan of the cycle uses.
-		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true},
+		// any scan of the cycle uses. The registry logins reach Trivy only for
+		// a scan that fetches from the login's own host.
+		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true, Auth: auth, Challenger: challenger},
 		NewRegistry: func(b *registry.Budget) remediation.Registry {
-			return registry.New(registry.Options{Budget: b, MaxTagPages: l.TagPagesPerRepository})
+			c := registry.New(registry.Options{Budget: b, MaxTagPages: l.TagPagesPerRepository, Auth: auth})
+			challenger.use(c)
+			return c
 		},
 		Limits: remediation.Limits{
 			MaxCandidateScans:  l.CandidateScansPerCycle,
@@ -372,4 +383,30 @@ func buildNotifier(c config.NotifyConfig) runner.Notifier {
 		return nil
 	}
 	return notify.Multi(notifiers...)
+}
+
+// cycleChallenger answers the scanner's authentication checks with the
+// registry client of the cycle being planned, so that those requests count
+// against the cycle's registry request budget like all the others. The plan
+// builds the client when a cycle starts (use) and scans only after that, one
+// cycle at a time.
+type cycleChallenger struct {
+	mu     sync.Mutex
+	client *registry.Client
+}
+
+func (c *cycleChallenger) use(cl *registry.Client) {
+	c.mu.Lock()
+	c.client = cl
+	c.mu.Unlock()
+}
+
+func (c *cycleChallenger) Challenges(ctx context.Context, repo string) ([]regauth.Challenge, error) {
+	c.mu.Lock()
+	cl := c.client
+	c.mu.Unlock()
+	if cl == nil {
+		return nil, errors.New("no registry client for this cycle")
+	}
+	return cl.Challenges(ctx, repo)
 }

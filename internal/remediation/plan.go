@@ -56,10 +56,16 @@ const (
 	ReasonRegistryBudget      Reason = "registry_budget_exhausted"
 	ReasonRateLimited         Reason = "rate_limited"
 	ReasonCycleDeadline       Reason = "cycle_deadline"
-	ReasonPartialImprovement  Reason = "partial_improvement"
-	ReasonIntroducedFindings  Reason = "introduced_findings"
-	ReasonIntroducedKEV       Reason = "introduced_kev"
-	ReasonAdopted             Reason = "adopted"
+	// ReasonRegistryTimeout: one registry request did not finish in its own
+	// time limit. Only the images it was for are deferred; the cycle goes on.
+	ReasonRegistryTimeout Reason = "registry_timeout"
+	// ReasonLocallyBuilt: the image was built on its host (no registry digest
+	// and a reference that names no registry), so no registry copy exists.
+	ReasonLocallyBuilt       Reason = "locally_built"
+	ReasonPartialImprovement Reason = "partial_improvement"
+	ReasonIntroducedFindings Reason = "introduced_findings"
+	ReasonIntroducedKEV      Reason = "introduced_kev"
+	ReasonAdopted            Reason = "adopted"
 )
 
 // ServiceRef names a service running an image, as the caller identifies it.
@@ -75,9 +81,10 @@ type ServiceRef struct {
 type Limits struct {
 	MaxCandidateScans  int `json:"max_candidate_scans"`
 	MaxBaselineRescans int `json:"max_baseline_rescans"`
-	// MaxTagPages caps the tag listing pages requested for one repository.
-	// Each repository's listing gets up to this many pages, independently of
-	// the others; a listing the cap stops is incomplete and its item is
+	// MaxTagPages caps the tag listing requests made for one repository: the
+	// pages of a full listing, or the requests of a walk over one series of
+	// its tags. Each repository gets up to this many, independently of the
+	// others; a listing the cap stops is incomplete and its item is
 	// deferred.
 	MaxTagPages int `json:"max_tag_pages"`
 }

@@ -1,17 +1,20 @@
-// Package registry is an anonymous, read-only client for the Docker Registry
-// HTTP API v2, limited to public repositories. It lists tags and resolves a
-// tag or digest to the manifest and image config digests of one platform.
+// Package registry is a read-only client for the Docker Registry HTTP API v2.
+// It lists tags and resolves a tag or digest to the manifest and image config
+// digests of one platform.
 //
-// The client is built to be a polite, bounded guest: HTTPS only, anonymous
-// pull tokens only, capped response sizes, a per-request timeout, and a
-// caller-supplied request budget. It never sleeps or retries by itself;
-// rate limiting and exhausted budgets are returned as typed errors so the
-// caller decides what to do next.
+// The client is built to be a polite, bounded guest: HTTPS only, pull access
+// only, capped response sizes, a per-request timeout, and a caller-supplied
+// request budget. It is anonymous unless the caller supplies credentials for
+// a registry host; those are sent only to that host, or to a token service
+// the configuration names, and are dropped at every redirect. It never sleeps
+// or retries by itself; rate limiting and exhausted budgets are returned as
+// typed errors so the caller decides what to do next.
 package registry
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,10 +26,11 @@ import (
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 )
 
 const (
-	defaultTimeout          = 15 * time.Second
+	defaultTimeout          = 30 * time.Second
 	defaultMaxManifestBytes = 4 << 20
 	defaultMaxTagPageBytes  = 2 << 20
 	defaultMaxTokenBytes    = 64 << 10
@@ -51,6 +55,9 @@ type Options struct {
 	Budget *Budget
 	// Timeout bounds each HTTP request, body read included.
 	Timeout time.Duration
+	// Auth holds credentials by registry host. A host without one is reached
+	// anonymously. Nil means no credentials at all.
+	Auth *regauth.Store
 
 	MaxManifestBytes int64 // manifest and index bodies
 	MaxTagPageBytes  int64 // one tag listing page
@@ -80,6 +87,9 @@ type Client struct {
 
 	mu     sync.Mutex
 	tokens map[string]cachedToken
+	// basic holds the hosts that answered a Basic challenge, so later
+	// requests carry the credential at once.
+	basic map[string]bool
 }
 
 type cachedToken struct {
@@ -119,7 +129,7 @@ func New(o Options) *Client {
 	}
 	// The per-request deadline is a context, so Client.Timeout stays off.
 	hc.Timeout = 0
-	c := &Client{budget: o.Budget, opts: o, tokens: map[string]cachedToken{}}
+	c := &Client{budget: o.Budget, opts: o, tokens: map[string]cachedToken{}, basic: map[string]bool{}}
 	hc.CheckRedirect = c.checkRedirect
 	// Every connection goes through dialContext so addresses are validated
 	// where they are resolved. A caller-supplied transport is cloned for its
@@ -197,7 +207,10 @@ func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Con
 }
 
 // checkRedirect allows a few redirects, only to HTTPS, each costing one
-// request, and never carries the token to another host.
+// request. No Authorization header, credential or token, is carried to a
+// redirect target, whichever host or path that is: the target is asked
+// without one, and a registry that wants a token there answers with its own
+// challenge.
 func (c *Client) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) > maxRedirects {
 		return fmt.Errorf("%w: too many redirects", ErrBadResponse)
@@ -205,9 +218,7 @@ func (c *Client) checkRedirect(req *http.Request, via []*http.Request) error {
 	if req.URL.Scheme != "https" {
 		return fmt.Errorf("%w: redirect to a non-HTTPS URL", ErrBadResponse)
 	}
-	if req.URL.Host != via[0].URL.Host {
-		req.Header.Del("Authorization")
-	}
+	req.Header.Del("Authorization")
 	return c.budget.take()
 }
 
@@ -256,16 +267,29 @@ type response struct {
 // returns the raw response. Successful responses over the limit are
 // ErrTooLarge; error bodies are truncated instead. sent is false only when
 // the budget refused the request, so nothing went out.
-func (c *Client) once(ctx context.Context, rawURL, accept, token string, limit int64) (r *response, sent bool, err error) {
+func (c *Client) once(ctx context.Context, rawURL, accept, authz string, limit int64) (r *response, sent bool, err error) {
 	if err := c.budget.take(); err != nil {
 		return nil, false, err
 	}
-	r, err = c.send(ctx, rawURL, accept, token, limit)
+	r, err = c.send(ctx, rawURL, accept, authz, limit)
 	return r, true, err
 }
 
-func (c *Client) send(ctx context.Context, rawURL, accept, token string, limit int64) (*response, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.opts.Timeout)
+// requestErr wraps a failed request. When only the request's own deadline
+// passed, and the caller's context is still live, the error is ErrTimeout;
+// when the caller's context ended, the error keeps that cause so the caller
+// can tell a cycle deadline from a slow registry.
+func requestErr(parent, req context.Context, what string, err error) error {
+	if parent.Err() == nil && errors.Is(req.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %s", ErrTimeout, what)
+	}
+	return fmt.Errorf("registry: %s: %w", what, err)
+}
+
+// send performs one GET. authz is the complete Authorization header value,
+// "" for none.
+func (c *Client) send(parent context.Context, rawURL, accept, authz string, limit int64) (*response, error) {
+	ctx, cancel := context.WithTimeout(parent, c.opts.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -274,12 +298,12 @@ func (c *Client) send(ctx context.Context, rawURL, accept, token string, limit i
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if authz != "" {
+		req.Header.Set("Authorization", authz)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("registry: GET %s: %w", req.URL.Redacted(), err)
+		return nil, requestErr(parent, ctx, "GET "+req.URL.Redacted(), err)
 	}
 	defer resp.Body.Close()
 
@@ -293,7 +317,7 @@ func (c *Client) send(ctx context.Context, rawURL, accept, token string, limit i
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
 	if err != nil {
-		return nil, fmt.Errorf("registry: read %s: %w", req.URL.Redacted(), err)
+		return nil, requestErr(parent, ctx, "read "+req.URL.Redacted(), err)
 	}
 	if int64(len(body)) > max {
 		if ok {
@@ -344,9 +368,8 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 	return 0
 }
 
-// get fetches rawURL from the registry of t, performing the anonymous Bearer
-// token flow when challenged. A cached token is tried first; at most one
-// fresh token is fetched per call.
+// get fetches rawURL from the registry of t, answering an authentication
+// challenge when there is one (see getSent).
 func (c *Client) get(ctx context.Context, t target, rawURL, accept string, limit int64) (*response, error) {
 	r, _, err := c.getSent(ctx, t, rawURL, accept, limit)
 	return r, err
@@ -355,11 +378,21 @@ func (c *Client) get(ctx context.Context, t target, rawURL, accept string, limit
 // getSent is get that also reports whether a request for rawURL itself was
 // sent, whatever happened afterwards (for example the budget running out at
 // the token request that follows a 401 for it).
+//
+// A cached token, or a Basic credential the host asked for before, is tried
+// first. A Bearer challenge is answered with one token request; a Basic
+// challenge is answered with the configured credential of t's host, if there
+// is one. At most one challenge is answered per call.
 func (c *Client) getSent(ctx context.Context, t target, rawURL, accept string, limit int64) (resp *response, sent bool, err error) {
-	token := c.cachedToken(t)
+	cred, hasCred := c.opts.Auth.For(t.host)
+	if hasCred {
+		// Whatever goes wrong, the text that is kept holds no part of the login.
+		defer func() { err = cred.ScrubError(err) }()
+	}
+	authz := c.cachedAuthz(t, cred, hasCred)
 	fresh := false
 	for {
-		r, s, err := c.once(ctx, rawURL, accept, token, limit)
+		r, s, err := c.once(ctx, rawURL, accept, authz, limit)
 		sent = sent || s
 		if err != nil {
 			return nil, sent, err
@@ -367,40 +400,58 @@ func (c *Client) getSent(ctx context.Context, t target, rawURL, accept string, l
 		switch {
 		case r.status >= 200 && r.status < 300:
 			return r, sent, nil
-		case r.status == http.StatusUnauthorized && !fresh:
+		case r.status == http.StatusUnauthorized && !fresh && !strings.HasPrefix(authz, "Basic "):
 			ch := parseChallenge(r.header.Values("Www-Authenticate"))
-			if !strings.EqualFold(ch.scheme, "bearer") || ch.params["realm"] == "" {
-				return nil, sent, fmt.Errorf("%w: %s sent no Bearer challenge", ErrAuthRequired, t.host)
-			}
-			token, err = c.fetchToken(ctx, t, ch)
-			if err != nil {
-				return nil, sent, err
+			switch {
+			case strings.EqualFold(ch.scheme, "bearer") && ch.params["realm"] != "":
+				authz, err = c.fetchToken(ctx, t, ch)
+				if err != nil {
+					return nil, sent, err
+				}
+			case strings.EqualFold(ch.scheme, "basic") && hasCred:
+				authz = cred.BasicAuthorization()
+				c.mu.Lock()
+				c.basic[t.host] = true
+				c.mu.Unlock()
+			case strings.EqualFold(ch.scheme, "basic"):
+				return nil, sent, fmt.Errorf("%w: %s asks for a login and no credentials are configured for it", ErrAuthRequired, t.host)
+			default:
+				return nil, sent, fmt.Errorf("%w: %s sent no usable authentication challenge", ErrAuthRequired, t.host)
 			}
 			fresh = true
 		case r.status == http.StatusUnauthorized, r.status == http.StatusForbidden:
-			return nil, sent, fmt.Errorf("%w: %s refused anonymous access to %s", ErrAuthRequired, t.host, t.path)
+			if hasCred {
+				return nil, sent, fmt.Errorf("%w: %s refused access to %s with the configured credentials", ErrAuthRequired, t.host, t.path)
+			}
+			return nil, sent, fmt.Errorf("%w: %s refused anonymous access to %s and no credentials are configured for it", ErrAuthRequired, t.host, t.path)
 		default:
 			return nil, sent, statusErr(t.host, r)
 		}
 	}
 }
 
-func (c *Client) cachedToken(t target) string {
+// cachedAuthz is the Authorization value to try first for t: a live cached
+// token, else the Basic credential of a host that asked for one, else none.
+func (c *Client) cachedAuthz(t target, cred regauth.Credential, hasCred bool) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ct, ok := c.tokens[t.key()]
-	if !ok {
-		return ""
-	}
-	if !c.opts.Now().Before(ct.expires) {
+	if ct, ok := c.tokens[t.key()]; ok {
+		if c.opts.Now().Before(ct.expires) {
+			return "Bearer " + ct.value
+		}
 		delete(c.tokens, t.key())
-		return ""
 	}
-	return ct.value
+	if hasCred && c.basic[t.host] {
+		return cred.BasicAuthorization()
+	}
+	return ""
 }
 
-// fetchToken gets an anonymous pull token for t from the challenge's realm
-// and caches it.
+// fetchToken gets a pull token for t from the challenge's realm, caches it
+// and returns it as an Authorization value. When credentials are configured
+// for t's host, they authenticate the request, but only if the realm is on
+// that same host or on a host the credential names; any other realm is asked
+// anonymously.
 func (c *Client) fetchToken(ctx context.Context, t target, ch challenge) (string, error) {
 	realm, err := url.Parse(ch.params["realm"])
 	if err != nil || realm.Scheme != "https" || realm.Host == "" || realm.User != nil {
@@ -413,14 +464,30 @@ func (c *Client) fetchToken(ctx context.Context, t target, ch challenge) (string
 	q.Set("scope", "repository:"+t.path+":pull")
 	realm.RawQuery = q.Encode()
 
-	r, _, err := c.once(ctx, realm.String(), "application/json", "", c.opts.MaxTokenBytes)
+	var authz string
+	withheld := false
+	cred, hasCred := c.opts.Auth.For(t.host)
+	if hasCred {
+		if cred.AllowsTokenHost(realm.Host) {
+			authz = cred.BasicAuthorization()
+		} else {
+			withheld = true
+		}
+	}
+	r, _, err := c.once(ctx, realm.String(), "application/json", authz, c.opts.MaxTokenBytes)
 	if err != nil {
 		return "", err
 	}
 	switch {
 	case r.status >= 200 && r.status < 300:
 	case r.status == http.StatusUnauthorized, r.status == http.StatusForbidden:
-		return "", fmt.Errorf("%w: token service %s refused an anonymous token for %s", ErrAuthRequired, realm.Host, t.path)
+		switch {
+		case authz != "":
+			return "", fmt.Errorf("%w: token service %s rejected the configured credentials for %s", ErrAuthRequired, realm.Host, t.path)
+		case withheld:
+			return "", fmt.Errorf("%w: token service %s refused an anonymous token for %s, and the credentials for %s are not sent to that host unless it is listed in token_hosts", ErrAuthRequired, realm.Host, t.path, t.host)
+		}
+		return "", fmt.Errorf("%w: token service %s refused an anonymous token for %s and no credentials are configured for %s", ErrAuthRequired, realm.Host, t.path, t.host)
 	default:
 		return "", statusErr(realm.Host, r)
 	}
@@ -448,7 +515,7 @@ func (c *Client) fetchToken(ctx context.Context, t target, ch challenge) (string
 		c.tokens[t.key()] = cachedToken{value: token, expires: c.opts.Now().Add(ttl)}
 		c.mu.Unlock()
 	}
-	return token, nil
+	return "Bearer " + token, nil
 }
 
 type challenge struct {
@@ -511,4 +578,56 @@ func parseAuthParams(s string) map[string]string {
 		}
 		out[key] = val
 	}
+}
+
+// Challenges asks the registry of repo how it wants a request authenticated,
+// without any credential, at the two places a client looks: the registry's
+// /v2/ endpoint, which clients such as Trivy's registry library ping first and
+// take their authentication scheme and token service from, and the
+// repository's tag list. Each answer gives the scheme and, for Bearer, the
+// host of the token service. It costs two requests. The answers describe the
+// registry at this moment; a later request may be answered differently.
+func (c *Client) Challenges(ctx context.Context, repo string) ([]regauth.Challenge, error) {
+	t, err := newTarget(repo)
+	if err != nil {
+		return nil, err
+	}
+	var out []regauth.Challenge
+	for _, u := range []string{"https://" + t.host + "/v2/", t.base() + "/tags/list?n=1"} {
+		ch, err := c.challengeAt(ctx, t, u)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ch)
+	}
+	return out, nil
+}
+
+func (c *Client) challengeAt(ctx context.Context, t target, rawURL string) (regauth.Challenge, error) {
+	r, _, err := c.once(ctx, rawURL, "application/json", "", c.opts.MaxTagPageBytes)
+	if err != nil {
+		return regauth.Challenge{}, err
+	}
+	switch {
+	case r.status >= 200 && r.status < 300:
+		return regauth.Challenge{Scheme: "none"}, nil
+	case r.status == http.StatusUnauthorized:
+		ch := parseChallenge(r.header.Values("Www-Authenticate"))
+		switch {
+		case strings.EqualFold(ch.scheme, "bearer") && ch.params["realm"] != "":
+			realm, err := url.Parse(ch.params["realm"])
+			if err != nil || realm.Scheme != "https" || realm.Host == "" || realm.User != nil {
+				return regauth.Challenge{}, fmt.Errorf("%w: unusable token realm from %s", ErrBadResponse, t.host)
+			}
+			return regauth.Challenge{Scheme: "bearer", RealmHost: realm.Host}, nil
+		case strings.EqualFold(ch.scheme, "basic"):
+			return regauth.Challenge{Scheme: "basic"}, nil
+		}
+		return regauth.Challenge{Scheme: "other"}, nil
+	case r.status == http.StatusNotFound:
+		// Some registries answer an unknown repository before asking for a
+		// login; nothing here says how a login would be answered.
+		return regauth.Challenge{Scheme: "other"}, nil
+	}
+	return regauth.Challenge{}, statusErr(t.host, r)
 }

@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 	"gopkg.in/yaml.v3"
 )
@@ -161,6 +162,9 @@ type RemediationConfig struct {
 	// mode.
 	PullRequests RemediationPullRequestsConfig
 	GitHub       RemediationGitHubConfig
+	// Registries are the logins for private image registries, by host. An
+	// image from a host that is not listed is reached anonymously.
+	Registries []RemediationRegistry
 	// StorageDir holds the plan and delivery records. Always absolute.
 	StorageDir string
 	// Mappings tell, per running workload, where its source lives. They have
@@ -194,6 +198,21 @@ type RemediationGitHubConfig struct {
 	// means anonymous access (public repositories only). Pull requests need
 	// it, with write access to the mapped repositories.
 	Token Secret
+}
+
+// RemediationRegistry is the login for one private image registry.
+type RemediationRegistry struct {
+	// Host is the registry host as it is written in image references, with
+	// the port if there is one: "ghcr.io", "registry.example.com:5000".
+	Host     string
+	Username string
+	// Password is the password or access token. For ghcr.io it is a personal
+	// access token (classic) with read:packages.
+	Password Secret
+	// TokenHosts are hosts of token services besides Host itself that may
+	// receive this login when Host's authentication challenge names them.
+	// Without an entry here the login goes to Host only.
+	TokenHosts []string
 }
 
 // Secret is a credential that formats as a placeholder, so printing or
@@ -364,6 +383,13 @@ type rawConfig struct {
 			// quote it in an error.
 			Token yaml.Node `yaml:"token"`
 		} `yaml:"github"`
+		Registries []struct {
+			Host     string `yaml:"host"`
+			Username string `yaml:"username"`
+			// A raw node, like the GitHub token's.
+			Password   yaml.Node `yaml:"password"`
+			TokenHosts []string  `yaml:"token_hosts"`
+		} `yaml:"registries"`
 		StorageDir string `yaml:"storage_dir"`
 		Worker     struct {
 			Image string `yaml:"image"`
@@ -479,6 +505,16 @@ func Parse(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("config: remediation.github.token: %w", err)
 	}
 
+	var registries []RemediationRegistry
+	for i := range raw.Remediation.Registries {
+		rr := &raw.Remediation.Registries[i]
+		pw, err := secretFromNode(&rr.Password)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: remediation.registries[%d].password: %w", i, err)
+		}
+		registries = append(registries, RemediationRegistry{Host: rr.Host, Username: rr.Username, Password: pw, TokenHosts: rr.TokenHosts})
+	}
+
 	c := Config{
 		Schedule: ScheduleConfig{
 			DailyAt:    raw.Schedule.DailyAt,
@@ -514,6 +550,7 @@ func Parse(data []byte) (Config, error) {
 			Enabled:      boolOr(raw.Remediation.Enabled, false),
 			PullRequests: RemediationPullRequestsConfig{Enabled: boolOr(raw.Remediation.PullRequests.Enabled, false)},
 			GitHub:       RemediationGitHubConfig{Token: githubToken},
+			Registries:   registries,
 			StorageDir:   raw.Remediation.StorageDir,
 			Worker:       RemediationWorkerConfig{Image: raw.Remediation.Worker.Image},
 			Limits: RemediationLimits{
@@ -700,7 +737,49 @@ func validateRemediation(c *Config) error {
 			return fmt.Errorf("config: remediation.worker.image must be a digest-pinned reference, repository@sha256:<64 hex digits>")
 		}
 	}
+	if err := validateRegistries(r.Registries); err != nil {
+		return err
+	}
 	return validateMappings(r.Mappings)
+}
+
+// validateRegistries checks the registry logins. No message contains a
+// password or a username.
+func validateRegistries(rs []RemediationRegistry) error {
+	seen := map[string]bool{}
+	for i, rr := range rs {
+		at := fmt.Sprintf("config: remediation.registries[%d]", i)
+		if err := regauth.ValidateHost(rr.Host); err != nil {
+			return fmt.Errorf("%s.host: %v", at, err)
+		}
+		host := regauth.NormalizeHost(rr.Host)
+		if seen[host] {
+			return fmt.Errorf("%s.host: %s is configured twice", at, host)
+		}
+		seen[host] = true
+		if err := regauth.ValidateUsername(rr.Username); err != nil {
+			return fmt.Errorf("%s.username: %v", at, err)
+		}
+		if err := regauth.ValidateSecretText(rr.Password.Value()); err != nil {
+			return fmt.Errorf("%s.password: %v", at, err)
+		}
+		for j, th := range rr.TokenHosts {
+			if err := regauth.ValidateHost(th); err != nil {
+				return fmt.Errorf("%s.token_hosts[%d]: %v", at, j, err)
+			}
+		}
+	}
+	return nil
+}
+
+// RegistryCredentials returns the configured registry logins for the
+// registry client and the scanner.
+func (r RemediationConfig) RegistryCredentials() (*regauth.Store, error) {
+	creds := make([]regauth.Credential, 0, len(r.Registries))
+	for _, rr := range r.Registries {
+		creds = append(creds, regauth.New(rr.Host, rr.Username, rr.Password.Value(), rr.TokenHosts))
+	}
+	return regauth.NewStore(creds)
 }
 
 // workImageRE is the form of a work image reference: a repository (with an

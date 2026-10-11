@@ -53,13 +53,19 @@ func pkgs(pairs ...string) []scanner.ResultPackages {
 	return []scanner.ResultPackages{rp}
 }
 
-// configScan is a successful, pinned baseline scan of a local image.
+// pulledDigests are the registry digests of an image that was pulled from a
+// registry, as Trivy lists them.
+var pulledDigests = []string{"example@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+
+// configScan is a successful, pinned baseline scan of a local image that was
+// pulled from a registry.
 func configScan(ref string, h byte, fs []scanner.Finding, pk []scanner.ResultPackages) scanner.ImageScan {
 	key := configKey(h)
 	return scanner.ImageScan{
 		Image: ref, OSFamily: "debian", Findings: fs, Packages: pk, Platform: linuxAmd64, Pinned: true, Source: scanner.SourceLocal,
-		Subject:    inventory.ImageSubject{Ref: ref, Key: key, Resolved: true},
-		ScannedKey: key,
+		RegistryDigests: pulledDigests,
+		Subject:         inventory.ImageSubject{Ref: ref, Key: key, Resolved: true},
+		ScannedKey:      key,
 	}
 }
 

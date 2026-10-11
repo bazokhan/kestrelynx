@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
+	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 )
 
 func TestBuildPlanConfig(t *testing.T) {
@@ -174,5 +176,60 @@ func TestDockerfileMappings(t *testing.T) {
 	pc = buildPlanConfig(cfg)
 	if pc.PullRequests == nil || len(pc.PullRequests.Repositories) != 1 || pc.PullRequests.Repositories[0] != "ex/app" {
 		t.Errorf("pull request config = %+v, want the Dockerfile repository", pc.PullRequests)
+	}
+}
+
+func TestBuildPlanConfigPassesRegistryLoginsToScannerAndClient(t *testing.T) {
+	cfg := config.Config{Remediation: config.RemediationConfig{
+		Enabled: true, StorageDir: "/data/remediation",
+		Limits:     config.RemediationLimits{TagPagesPerRepository: 5},
+		Registries: []config.RemediationRegistry{{Host: "ghcr.io", Username: "me", Password: "pw-value", TokenHosts: []string{"auth.example.com"}}},
+	}}
+	pc := buildPlanConfig(cfg)
+	tr, ok := pc.Scanner.(scanner.Trivy)
+	if !ok {
+		t.Fatalf("scanner is %T", pc.Scanner)
+	}
+	cred, ok := tr.Auth.For("ghcr.io")
+	if !ok || cred.Username != "me" || cred.Password() != "pw-value" || !cred.AllowsTokenHost("auth.example.com") {
+		t.Errorf("the scanner's credential = %v, %v", cred, ok)
+	}
+	if _, ok := tr.Auth.For("docker.io"); ok {
+		t.Error("a login appeared for a host that was not configured")
+	}
+	if c, ok := pc.NewRegistry(registry.NewBudget(1)).(*registry.Client); !ok || c == nil {
+		t.Errorf("registry client = %T", c)
+	}
+
+	cfg.Remediation.Registries = nil
+	if tr := buildPlanConfig(cfg).Scanner.(scanner.Trivy); len(tr.Auth.Hosts()) != 0 {
+		t.Error("logins appeared without configuration")
+	}
+}
+
+// The scanner's authentication checks use the cycle's registry client, so
+// they spend the cycle's request budget.
+func TestBuildPlanConfigChallengesShareTheCycleBudget(t *testing.T) {
+	cfg := config.Config{Remediation: config.RemediationConfig{
+		Enabled: true, StorageDir: "/data/remediation",
+		Limits:     config.RemediationLimits{TagPagesPerRepository: 5},
+		Registries: []config.RemediationRegistry{{Host: "ghcr.io", Username: "me", Password: "pw-value"}},
+	}}
+	pc := buildPlanConfig(cfg)
+	ch := pc.Scanner.(scanner.Trivy).Challenger
+	if _, err := ch.Challenges(context.Background(), "ghcr.io/org/app"); err == nil {
+		t.Error("a check before any cycle has a client must fail, not run unaccounted")
+	}
+	b := registry.NewBudget(0)
+	pc.NewRegistry(b)
+	if _, err := ch.Challenges(context.Background(), "ghcr.io/org/app"); !errors.Is(err, registry.ErrBudgetExhausted) {
+		t.Errorf("err = %v; the check should have been refused by the cycle's budget", err)
+	}
+	// A new cycle's budget replaces the old one.
+	b2 := registry.NewBudget(5)
+	pc.NewRegistry(b2)
+	_, _ = ch.Challenges(context.Background(), "127.0.0.1:1/org/app")
+	if b2.Used() == 0 {
+		t.Error("the new cycle's budget was not used")
 	}
 }

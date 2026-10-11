@@ -15,7 +15,9 @@ import (
 // Registry is the part of the registry client the planner uses.
 type Registry interface {
 	// ListTagsUpTo follows at most maxPages pages. Even on an error the
-	// returned list's Pages says how many page requests were made.
+	// returned list's Pages says how many page requests were made. A
+	// registry that also implements TagPager is read by series instead (see
+	// walkSeries) and ListTagsUpTo is only the fallback.
 	ListTagsUpTo(ctx context.Context, repo string, maxPages int) (registry.TagList, error)
 	Resolve(ctx context.Context, repo, tagOrDigest string, platform inventory.Platform) (registry.Resolution, error)
 }
@@ -141,6 +143,32 @@ type run struct {
 	dfSHA   map[string]dfShaEntry
 	dfFiles map[string]*dfFileEntry
 	dfScans map[string]scanned
+
+	// composeBuild records, by workload key, what is known of the mapped
+	// Compose service's build section; a workload without a mapping, or
+	// when no GitHub reader is configured, has no entry.
+	composeBuild map[string]composeState
+	// tagUsed counts the tag listing requests made for each repository, over
+	// all the series read from it.
+	tagUsed map[string]int
+}
+
+// composeState is what is known of a mapped workload's Compose service.
+type composeState struct {
+	build ComposeBuild
+	// out, set when the build section could not be determined, is the plan
+	// outcome of the images the workload runs.
+	out *dfOutcome
+}
+
+// initDF creates the caches the GitHub reads of the Dockerfile and Compose
+// parts share, once per pass.
+func (r *run) initDF() {
+	if r.dfSHA == nil {
+		r.dfSHA = map[string]dfShaEntry{}
+		r.dfFiles = map[string]*dfFileEntry{}
+		r.dfScans = map[string]scanned{}
+	}
 }
 
 // Plan builds the plan for the cycle's images. Images without a target
@@ -154,6 +182,7 @@ func (p *Planner) Plan(ctx context.Context, inputs []ImageInput) Plan {
 		p:        p,
 		ctx:      ctx,
 		tags:     map[string]tagEntry{},
+		tagUsed:  map[string]int{},
 		resolved: map[string]resolveEntry{},
 		cands:    map[string]scanned{},
 		bases:    map[string]scanned{},
@@ -188,6 +217,12 @@ func (p *Planner) Plan(ctx context.Context, inputs []ImageInput) Plan {
 		a, b := entries[i], entries[j]
 		return maxTargetPriority(a.targets).Rank() > maxTargetPriority(b.targets).Rank()
 	})
+
+	var withTargets []ImageInput
+	for _, e := range entries {
+		withTargets = append(withTargets, e.in)
+	}
+	r.readComposeBuilds(withTargets)
 
 	for _, e := range entries {
 		it := baseItem(e.in, e.ref, e.targets)
@@ -293,6 +328,15 @@ func (r *run) process(in ImageInput, it *Item) {
 		set(it, cat, reason, detail)
 		return
 	}
+	verdict, why, unknown := r.locallyBuilt(ref, in)
+	switch verdict {
+	case builtLocally:
+		set(it, CategoryExcluded, ReasonLocallyBuilt, why)
+		return
+	case localUnknown:
+		set(it, unknown.cat, unknown.reason, unknown.detail)
+		return
+	}
 	platform := inventory.Platform{OS: in.Scan.Platform.OS, Architecture: in.Scan.Platform.Architecture}
 
 	candTag := ref.Tag
@@ -326,6 +370,142 @@ func (r *run) process(in ImageInput, it *Item) {
 	r.compare(in, ref, platform, res, it)
 }
 
+// readComposeBuilds reads, for each mapped Compose workload of the inputs,
+// whether its service has a build section. The reads are the ones the
+// Dockerfile part makes again later and are cached with them; a file that
+// cannot be read or understood leaves the workload without an answer.
+func (r *run) readComposeBuilds(inputs []ImageInput) {
+	r.composeBuild = map[string]composeState{}
+	cfg := r.p.cfg
+	if cfg.GitHub == nil || len(cfg.Composes) == 0 {
+		return
+	}
+	r.initDF()
+	composes := map[string]*ComposeMapping{}
+	for i := range cfg.Composes {
+		if m := &cfg.Composes[i]; composes[m.Workload] == nil {
+			composes[m.Workload] = m
+		}
+	}
+	for _, in := range inputs {
+		for _, s := range in.Services {
+			k := workloadKey(s)
+			cm := composes[k]
+			if _, done := r.composeBuild[k]; cm == nil || done {
+				continue
+			}
+			sha, out := r.dfBranch(cm.Repository, cm.BaseBranch)
+			if out != nil {
+				r.composeBuild[k] = composeState{out: out}
+				continue
+			}
+			e := r.dfRead(cm.Repository, sha, cm.Path)
+			if e.out != nil {
+				r.composeBuild[k] = composeState{out: e.out}
+				continue
+			}
+			build, why := ComposeServiceBuilds(e.file.Content, cm.Path, cm.ComposeService)
+			st := composeState{build: build}
+			if build == ComposeBuildUndetermined {
+				st.out = &dfOutcome{CategoryManual, ReasonComposeBuildUndetermined,
+					"the mapped Compose service cannot be read with confidence (" + why + "), so it is not known whether the running image was built on this host"}
+			}
+			r.composeBuild[k] = st
+		}
+	}
+}
+
+// localVerdict is the outcome of asking whether a running image was built on
+// its host.
+type localVerdict int
+
+const (
+	// notLocal: nothing says it was built on the host.
+	notLocal localVerdict = iota
+	// builtLocally: it was.
+	builtLocally
+	// localUnknown: the workload is mapped to a Compose file that cannot say;
+	// the outcome is in the returned dfOutcome.
+	localUnknown
+)
+
+// locallyBuilt decides whether the running image was built on its host, so
+// that no registry holds a copy to compare with and a lookup would only send
+// its name to Docker Hub. detail says why. Only evidence counts; an image
+// with none is looked up as usual, and whether a registry knows the name, or
+// refuses it, is never taken as evidence. In order of confidence:
+//
+//  1. The workload is mapped to a Compose file whose service has a build
+//     section. A service with both image: and build: is built too: Compose
+//     builds it and tags the result with the image: name, which is how an
+//     image meant to be pushed is named, but what runs here is the local
+//     build. Looking its tag up would propose a different image than the one
+//     built, so such a service is not looked up either.
+//  2. The image's own configuration carries the labels Docker Compose puts on
+//     an image it builds, com.docker.compose.project and
+//     com.docker.compose.service, they name the project and service of the
+//     container that runs it, and the reference is the name Compose gives
+//     an image it builds (see below). An image pulled from a registry has the
+//     labels only if its publisher built it with Compose; that is told apart
+//     by the name, and by a mapped Compose service that is known to have no
+//     build section, which settles it first. What remains is an image that
+//     CI built and published under exactly <project>-<service>:latest, which
+//     is read as built here.
+//  3. The reference names no registry and the scan found no registry digest
+//     (the classic image store).
+//  4. The workload is mapped but its Compose service cannot be read with
+//     confidence (or the file cannot be read): the image is neither looked up
+//     nor called built, since either would be a guess; the outcome is
+//     deferred or manual.
+func (r *run) locallyBuilt(ref ImageRef, in ImageInput) (localVerdict, string, *dfOutcome) {
+	var unknown *dfOutcome
+	noBuild := false
+	for _, s := range in.Services {
+		st, ok := r.composeBuild[workloadKey(s)]
+		switch {
+		case !ok:
+		case st.out != nil:
+			if unknown == nil {
+				unknown = st.out
+			}
+		case st.build == ComposeBuildYes:
+			return builtLocally, "its Compose service has a build section, so the running image was built on this host and is not looked up in a registry", nil
+		default:
+			noBuild = true
+		}
+	}
+	// The labels count only where nothing better is known: a mapped Compose
+	// service confirmed to have no build section pulls its image, whatever
+	// the image's labels say. And the reference must be the name Compose gives
+	// an image it builds when the service names none (image: unset),
+	// <project>-<service> or the older <project>_<service>, tagged latest,
+	// with no registry host and no namespace: an image published under any
+	// other name, by CI that built it with Compose under the same project and
+	// service names, is a pulled image and is looked up as usual. A pulled
+	// image could carry such a name only as a Docker Official Image (a name
+	// with no host and no namespace resolves to docker.io/library/), and
+	// those are not published from a Compose project.
+	if p, sv := in.Scan.ComposeProject, in.Scan.ComposeService; p != "" && sv != "" && !noBuild && ref.Tag == "latest" {
+		for _, s := range in.Services {
+			if s.Project != p || s.Service != sv {
+				continue
+			}
+			for _, sep := range []string{"-", "_"} {
+				if ref.Repository == p+sep+sv {
+					return builtLocally, "the image carries the Docker Compose labels of project " + p + " and service " + sv + ", the ones of the container that runs it, and is named as Compose names an image it builds, so Compose built it on this host", nil
+				}
+			}
+		}
+	}
+	if !inventory.HasRegistryHost(ref.Repository) && len(in.Scan.RegistryDigests) == 0 {
+		return builtLocally, "the image has no registry digest and its reference names no registry, so it was built on this host and no registry holds a copy to compare with", nil
+	}
+	if unknown != nil {
+		return localUnknown, "", unknown
+	}
+	return notLocal, "", nil
+}
+
 // pinnedCandidate lists the tags and selects the newest patch. It returns
 // false after recording the item's outcome when there is no candidate to
 // continue with.
@@ -335,20 +515,30 @@ func (r *run) pinnedCandidate(ref ImageRef, it *Item, candTag *string) bool {
 		set(it, CategoryExcluded, Reason(ExcludeUnparsable), "repository cannot be normalized")
 		return false
 	}
+	repoKey := key
+	if _, ok := r.p.cfg.Registry.(TagPager); ok {
+		// The tags read are those of the image's series, so images of other
+		// series of one repository do not share a listing (patches of one
+		// series do).
+		key += "|" + seriesKey(ref.Version)
+	}
 	e, cached := r.tags[key]
 	if !cached {
 		if r.halted != nil {
 			defer0(it, r.halted.reason, r.halted.detail)
 			return false
 		}
-		allowance := r.p.cfg.Limits.MaxTagPages
+		// The limit is the repository's, whatever the number of series read
+		// from it: each listing gets what the earlier ones left.
+		allowance := r.p.cfg.Limits.MaxTagPages - r.tagUsed[repoKey]
 		if allowance <= 0 {
 			defer0(it, ReasonTagPageLimit, fmt.Sprintf("tag page limit of %d reached", r.p.cfg.Limits.MaxTagPages))
 			return false
 		}
-		list, err := r.p.cfg.Registry.ListTagsUpTo(r.ctx, ref.Repository, allowance)
+		list, err := listPinnedSeries(r.ctx, r.p.cfg.Registry, ref.Repository, ref.Version, allowance)
 		e = tagEntry{list: list, err: err, allowance: allowance}
 		r.tags[key] = e
+		r.tagUsed[repoKey] += list.Pages
 		r.plan.Usage.TagPages += list.Pages
 	}
 	if e.err != nil {
@@ -397,14 +587,19 @@ func (r *run) resolve(repo, tag string, platform inventory.Platform, it *Item) (
 
 // registryFailure maps a registry error to a plan outcome. Rate limiting,
 // an exhausted budget and a dead context stop further registry work in the
-// pass.
+// pass. A request that merely ran out of its own time, while the cycle's
+// context is live, defers only the image it was for: the cycle deadline and
+// one slow registry are different conditions.
 func (r *run) registryFailure(it *Item, err error) {
 	var variant *registry.VariantError
 	var limited *registry.RateLimitedError
 	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, registry.ErrTimeout) && r.ctx.Err() != nil:
 		r.halted = &halt{ReasonCycleDeadline, err.Error()}
 		defer0(it, r.halted.reason, r.halted.detail)
+	case errors.Is(err, registry.ErrTimeout):
+		defer0(it, ReasonRegistryTimeout, err.Error())
 	case errors.Is(err, registry.ErrBudgetExhausted):
 		r.halted = &halt{ReasonRegistryBudget, "registry request budget exhausted"}
 		defer0(it, r.halted.reason, r.halted.detail)

@@ -86,3 +86,58 @@ func (c *Client) ListTagsUpTo(ctx context.Context, repo string, maxPages int) (T
 	}
 	return out, nil
 }
+
+// TagsAfter is the result of ListTagsAfter: one request's worth of tags.
+type TagsAfter struct {
+	// Tags are the tags the registry returned, in the order it returned
+	// them. They are not checked here.
+	Tags []string
+	// More is true when the registry may hold tags after these: the page was
+	// full, or the response carried a Link to a next page.
+	More bool
+	// Sent says a tag listing request went out, even if it then failed.
+	Sent bool
+}
+
+// maxLastBytes bounds the position argument of ListTagsAfter.
+const maxLastBytes = 512
+
+// ListTagsAfter makes one tag listing request for at most n tags that sort
+// after last in the registry's order (the n and last query parameters of the
+// tag listing). last may be any string, not only an existing tag; empty means
+// from the start. It is the building block for reading a part of a very long
+// tag list without following every page. It sends one request (plus a token
+// request when challenged) and does not follow Link headers.
+func (c *Client) ListTagsAfter(ctx context.Context, repo, last string, n int) (TagsAfter, error) {
+	t, err := newTarget(repo)
+	if err != nil {
+		return TagsAfter{}, err
+	}
+	if n <= 0 || n > 10000 {
+		return TagsAfter{}, fmt.Errorf("%w: tag page size %d", ErrInvalidInput, n)
+	}
+	if len(last) > maxLastBytes {
+		return TagsAfter{}, fmt.Errorf("%w: tag listing position is too long", ErrInvalidInput)
+	}
+	q := url.Values{"n": {strconv.Itoa(n)}}
+	if last != "" {
+		q.Set("last", last)
+	}
+	r, sent, err := c.getSent(ctx, t, t.base()+"/tags/list?"+q.Encode(), "application/json", c.opts.MaxTagPageBytes)
+	if err != nil {
+		return TagsAfter{Sent: sent}, err
+	}
+	var page struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(r.body, &page); err != nil {
+		return TagsAfter{Sent: true}, fmt.Errorf("%w: tag list from %s is not JSON", ErrBadResponse, t.host)
+	}
+	out := TagsAfter{Tags: page.Tags, Sent: true, More: len(page.Tags) >= n}
+	for _, h := range r.header.Values("Link") {
+		if linkNextRE.MatchString(h) {
+			out.More = true
+		}
+	}
+	return out, nil
+}

@@ -162,6 +162,7 @@ func newPlanHarness(findings ...scanner.Finding) *planHarness {
 		Image: "web:1.25.3", Subject: inventory.ImageSubject{Ref: "web:1.25.3", Key: key, Resolved: true},
 		ScannedKey: key, Pinned: true, Source: scanner.SourceLocal, Platform: linuxAmd64, OSFamily: "debian",
 		Findings: findings, Packages: osPackages("1"),
+		RegistryDigests: []string{"web@sha256:" + hex64('d')},
 	}
 	cfg, _ := inventory.ParseDigest(inventory.DigestConfig, "sha256:"+hex64('a'))
 	containers := []inventory.Container{{
@@ -628,5 +629,47 @@ func TestPlan_NoCycleTimeoutSetsNoDeadline(t *testing.T) {
 	h.run(t)
 	if h.reg.hadDeadline {
 		t.Error("a deadline was set although cycle_timeout is zero")
+	}
+}
+
+// The cycle's registry client and budget exist before the cycle's scans, once
+// per cycle, and the plan uses them.
+func TestPlan_RegistryClientIsMadeBeforeTheScansOncePerCycle(t *testing.T) {
+	h := newPlanHarness(osFinding("CVE-1"))
+	var budgets []*registry.Budget
+	h.r.Plan.NewRegistry = func(b *registry.Budget) remediation.Registry {
+		budgets = append(budgets, b)
+		h.scn.events = append(h.scn.events, "registry")
+		h.reg.budget = b
+		return h.reg
+	}
+	h.run(t)
+	h.run(t)
+	if len(budgets) != 2 || budgets[0] == budgets[1] {
+		t.Fatalf("budgets = %v; want one new budget per cycle", budgets)
+	}
+	var order []string
+	for _, ev := range h.scn.events {
+		if ev == "prepare" || ev == "registry" || strings.HasPrefix(ev, "scan:") {
+			if strings.HasPrefix(ev, "scan:") {
+				ev = "scan"
+			}
+			if len(order) == 0 || order[len(order)-1] != ev {
+				order = append(order, ev)
+			}
+		}
+	}
+	// Each cycle: databases, the client, then the scans (the plan's candidate
+	// scans follow the cycle's own, under the same client).
+	if got := strings.Join(order, ","); !strings.HasPrefix(got, "prepare,registry,scan") || strings.Count(got, "registry") != 2 {
+		t.Errorf("events = %s", got)
+	}
+	first := strings.Index(strings.Join(h.scn.events, ","), "scan:")
+	reg := strings.Index(strings.Join(h.scn.events, ","), "registry")
+	if reg < 0 || first < 0 || reg > first {
+		t.Errorf("the registry client was made after the first scan: %v", h.scn.events)
+	}
+	if h.reg.budget != budgets[1] {
+		t.Error("the second cycle's plan did not use the second cycle's budget")
 	}
 }
