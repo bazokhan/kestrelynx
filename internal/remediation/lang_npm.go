@@ -47,6 +47,26 @@ type NpmDist struct {
 	HasShrinkwrap bool
 }
 
+// peersFor returns the peer dependencies of the version as manager m records
+// them. pnpm records a peer dependency that a package only marks optional in
+// peerDependenciesMeta, without listing it in peerDependencies, with the range
+// "*"; npm records what the registry lists.
+func (d NpmDist) peersFor(m DependencyManager) map[string]string {
+	if m != ManagerPnpm {
+		return d.PeerDependencies
+	}
+	out := make(map[string]string, len(d.PeerDependencies))
+	for k, v := range d.PeerDependencies {
+		out[k] = v
+	}
+	for _, name := range strings.Split(d.Install["peerDependenciesMeta"], ",") {
+		if _, listed := out[name]; name != "" && !listed {
+			out[name] = "*"
+		}
+	}
+	return out
+}
+
 // NpmRegistry tells what the registry publishes for a package version.
 type NpmRegistry interface {
 	// VersionDist returns the distribution of name at version, or an error

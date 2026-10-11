@@ -137,6 +137,10 @@ func TestIntegrationLangUpdate(t *testing.T) {
 				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], `"urllib3>=1.26,<2"`, `"urllib3==1.26.4"`, 1)
 				f["uv.lock"] = strings.Replace(f["uv.lock"], `specifier = ">=1.26,<2"`, `specifier = "==1.26.4"`, 1)
 			}, "", "urllib3==1.26.4>urllib3==1.26.17"},
+		{"pnpm_workspace_allow_builds", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) { f["pnpm-workspace.yaml"] = backendWorkspace }, "", ""},
+		{"pnpm_workspace_supported_architectures", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) { f["pnpm-workspace.yaml"] = frontendWorkspace }, "", ""},
 		{"pnpm_declared_manager", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			func(f map[string]string) {
 				f["package.json"] = strings.Replace(f["package.json"], `"private": true,`, `"private": true, "packageManager": "pnpm@9.0.0",`, 1)
@@ -307,6 +311,12 @@ func TestIntegrationLangUpdateRealisticProjects(t *testing.T) {
 			node("nanoid", "3.3.6", CVERef{VulnID: "CVE-2026-67213", FixedVers: []string{"3.3.18"}}), ""},
 		{"pnpm_rollup_under_vite", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"},
 			node("rollup", "3.29.3", CVERef{VulnID: "CVE-2024-47068", FixedVers: []string{"3.29.5"}}), ""},
+		{"pnpm_frontend_nanoid_with_supported_architectures", ManagerPnpm, "pnpm_frontend", []string{"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"},
+			node("nanoid", "3.3.7", CVERef{VulnID: "CVE-2026-67213", FixedVers: []string{"3.3.18"}}), ""},
+		{"pnpm_frontend_sharp_direct_pinned", ManagerPnpm, "pnpm_frontend", []string{"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"},
+			node("sharp", "0.33.0", CVERef{VulnID: "GHSA-wq5f-xc86-pv6w", FixedVers: []string{"0.35.5"}}), ""},
+		{"pnpm_backend_allow_builds", ManagerPnpm, "pnpm_backend", []string{"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"},
+			node("nanoid", "3.3.6", CVERef{VulnID: "CVE-2026-67213", FixedVers: []string{"3.3.18"}}), ""},
 		{"uv_certifi_under_httpx", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"},
 			py("certifi", "2022.12.7", CVERef{VulnID: "CVE-2023-37920", FixedVers: []string{"2023.7.22"}}), ""},
 		{"uv_anyio_under_httpx_and_starlette", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"},

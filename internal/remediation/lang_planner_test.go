@@ -317,9 +317,10 @@ func TestLanguagePlan_FileDetection(t *testing.T) {
 					}
 				}
 			}
-			// No other directory is looked at.
+			// No other directory is looked at, except that for pnpm, which looks
+			// for pnpm-workspace.yaml above the project, the directories above it.
 			for _, call := range gh.calls {
-				if strings.HasPrefix(call, "list:") && !strings.HasPrefix(call, "list:ex/app/svc@") {
+				if strings.HasPrefix(call, "list:") && !strings.HasPrefix(call, "list:ex/app/svc@") && !(c.mgr == ManagerPnpm && strings.HasPrefix(call, "list:ex/app/.@")) {
 					t.Errorf("unexpected listing %s", call)
 				}
 			}

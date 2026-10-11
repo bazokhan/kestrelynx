@@ -53,7 +53,11 @@ func (u *LangUpdater) newJob(m worker.Manager, inputs map[string][]byte, steps [
 		DeadlineSeconds: deadline, StepTimeoutSeconds: deadline,
 	}
 	for _, name := range worker.InputNames(m) {
-		job.Inputs = append(job.Inputs, worker.Input{Path: name, Size: int64(len(inputs[name])), SHA256: sha256Hex(inputs[name])})
+		content, ok := inputs[name]
+		if !ok && !contains(worker.RequiredInputNames(m), name) {
+			continue // a settings file the project does not have
+		}
+		job.Inputs = append(job.Inputs, worker.Input{Path: name, Size: int64(len(content)), SHA256: sha256Hex(content)})
 	}
 	return job
 }
@@ -81,8 +85,8 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, inputs map[st
 		Timeout:   u.cfg.JobTimeout,
 		Resources: u.cfg.Resources,
 	}
-	for _, name := range worker.InputNames(job.Manager) {
-		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.SrcDirName + "/" + name, Content: inputs[name]})
+	for _, in := range job.Inputs {
+		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.SrcDirName + "/" + in.Path, Content: inputs[in.Path]})
 	}
 
 	res, err := u.cfg.Work.RunJob(ctx, spec)
@@ -242,7 +246,7 @@ func stepSucceeded(s worker.StepResult) bool {
 // expectedOutputs are the files a successful step of the job returns: the
 // manager's own files, and the install report of a pip step.
 func expectedOutputs(m worker.Manager, op worker.Op) []string {
-	out := worker.InputNames(m)
+	out := worker.RequiredInputNames(m)
 	if op == worker.OpPipDryRun {
 		out = append(out, worker.PipReportName)
 	}
@@ -295,7 +299,7 @@ func checkStatusAgainstSteps(job worker.Job, res worker.Result) error {
 		if res.Error != "" {
 			return errors.New("result.json says completed and carries an error")
 		}
-		if !sameOutputs(sortedNames(worker.InputNames(job.Manager)), res.Final) {
+		if !sameOutputs(sortedNames(worker.RequiredInputNames(job.Manager)), res.Final) {
 			return errors.New("result.json says completed but does not list the final files")
 		}
 	case worker.StatusStepFailed:
@@ -346,6 +350,8 @@ func jobStatusFailure(res worker.Result) *updateFailure {
 	switch {
 	case s.Reason == worker.ReasonUnexpectedFiles:
 		return manualFailure(ReasonUnexpectedFiles, "step %s left %d unexpected entries in the working tree: %s", s.ID, s.UnexpectedCount, clip(strings.Join(s.UnexpectedPaths, ", "), 300))
+	case s.Reason == worker.ReasonInputModified:
+		return manualFailure(ReasonWorkInputModified, "step %s changed a settings file that it only reads", s.ID)
 	case s.Reason == worker.ReasonReleaseAgeViolation:
 		return manualFailure(ReasonReleaseAgeViolation, "%s", detail)
 	}

@@ -262,6 +262,9 @@ func newUpdateSet(it *LanguageItem) (updateSet, *updateFailure) {
 	return s, nil
 }
 
+// pnpmWorkspaceName is the file of pnpm settings.
+const pnpmWorkspaceName = "pnpm-workspace.yaml"
+
 // sourceFiles are the files of the unit as the plan recorded them, read
 // again.
 type sourceFiles struct {
@@ -271,8 +274,12 @@ type sourceFiles struct {
 	lock         []byte
 	manifestPath string
 	manifestMode string
-	lockPath     string
-	lockMode     string
+	// settings is the pnpm-workspace.yaml of a pnpm project that has one: a
+	// file of settings the plan accepted, given to the work container as an
+	// input and never changed or written back.
+	settings []byte
+	lockPath string
+	lockMode string
 }
 
 // readSources reads the unit's manifest and lockfile again from the commit
@@ -338,6 +345,54 @@ func (u *LangUpdater) readSources(ctx context.Context, it *LanguageItem) (*sourc
 		return nil, fail
 	}
 	sf.manifest, sf.manifestPath, sf.manifestMode = got.Content, got.Path, got.Mode
+	if it.Manager != ManagerPnpm {
+		return sf, nil
+	}
+	// A settings file the plan did not find must not be there now either.
+	for _, p := range src.Absent {
+		if path.Base(p) != pnpmWorkspaceName || !isSameOrAbove(path.Dir(p), path.Dir(lf.Path)) {
+			continue
+		}
+		for _, f := range src.Files {
+			if f.Path == p {
+				return nil, failedFailure(ReasonUpdateInputInvalid, "the plan records %s as both read and not found", p)
+			}
+		}
+		_, err := u.cfg.GitHub.ReadFile(ctx, src.Repository, src.CommitSHA, p)
+		var nr *github.NotRegularFileError
+		switch {
+		case errors.Is(err, github.ErrNotFound):
+		case err == nil, errors.As(err, &nr), errors.Is(err, github.ErrLFSPointer), errors.Is(err, github.ErrTooLarge):
+			return nil, failedFailure(ReasonSourceChanged, "%s did not exist when the plan was made and does now", p)
+		default:
+			return nil, readFailure(err, p)
+		}
+	}
+	var settings []SourceFile
+	for _, f := range src.Files {
+		if path.Base(f.Path) == pnpmWorkspaceName && f.Repository == "" {
+			settings = append(settings, f)
+		}
+	}
+	switch len(settings) {
+	case 0:
+		return sf, nil
+	case 1:
+	default:
+		return nil, failedFailure(ReasonUpdateInputInvalid, "the plan records %d files named %s", len(settings), pnpmWorkspaceName)
+	}
+	if path.Dir(settings[0].Path) != path.Dir(lf.Path) {
+		return nil, failedFailure(ReasonUpdateInputInvalid, "%s and %s are in different directories", settings[0].Path, lf.Path)
+	}
+	got, fail = read(settings[0])
+	if fail != nil {
+		return nil, fail
+	}
+	// The plan accepted these bytes; they are checked again, as the plan did.
+	if reason, why := pnpmWorkspaceProblem(got.Content); reason != "" {
+		return nil, manualFailure(reason, "%s", why)
+	}
+	sf.settings = got.Content
 	return sf, nil
 }
 
@@ -445,3 +500,9 @@ func (r *updateRun) succeed() {
 // ReasonUpdateVerified is the reason of an item whose update ran and passed
 // every check.
 const ReasonUpdateVerified Reason = "update_verified"
+
+// isSameOrAbove reports whether directory dir is dir2 or one of the
+// directories above it ("." is the root of the repository).
+func isSameOrAbove(dir, dir2 string) bool {
+	return dir == "." || dir == dir2 || strings.HasPrefix(dir2, dir+"/")
+}

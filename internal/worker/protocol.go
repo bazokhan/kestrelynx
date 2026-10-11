@@ -9,7 +9,7 @@ package worker
 
 // ProtocolVersion is the version of the job and result formats. The main
 // process refuses a work image whose protocol label differs.
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 // ProtocolLabel is the image label that carries ProtocolVersion.
 const ProtocolLabel = "io.kestrelynx.worker.protocol"
@@ -164,6 +164,9 @@ const (
 	// ReasonUnexpectedFiles: the step left entries in the working tree other
 	// than the job's input and output files.
 	ReasonUnexpectedFiles = "unexpected_files"
+	// ReasonInputModified: the step changed an input file that is not one of
+	// the job's outputs (a settings file the manager only reads).
+	ReasonInputModified = "input_modified"
 	// ReasonReleaseAgeViolation: the manager refused a package version
 	// because it was published too recently (a string match on its error).
 	ReasonReleaseAgeViolation = "release_age_violation"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -272,9 +273,37 @@ func (r *run) analyseUnit(it *LanguageItem, u *depUnit, groups []*findingGroup, 
 	if pair.pkgType == typeNodePkg {
 		// Where packages come from is also set outside the lockfile.
 		if pair.manager == ManagerPnpm {
-			if _, ok := byName(entries, "pnpm-workspace.yaml"); ok {
-				unitManual(it, groups, ReasonWorkspaceUnsupported, "the directory has pnpm-workspace.yaml")
+			// pnpm looks for pnpm-workspace.yaml in the directory and in each one
+			// above it, up to the root of the repository: a file there may make
+			// the directory a member of a workspace, or apply its settings. One
+			// in a directory above is left to a person.
+			if why, ok := r.ancestorWorkspace(it, groups, u, sha); !ok {
 				return
+			} else if why != "" {
+				unitManual(it, groups, ReasonWorkspaceUnsupported, why)
+				return
+			}
+			e, present := byName(entries, "pnpm-workspace.yaml")
+			if !present {
+				// That there is no settings file is part of what the update
+				// is made from: one added later must be seen.
+				it.Source.Absent = append(it.Source.Absent, pathIn(u.dir, pnpmWorkspaceName))
+			}
+			if present {
+				if e.Type != github.EntryFile {
+					unitManual(it, groups, ReasonDependencyFileUnusable, "pnpm-workspace.yaml is a "+string(e.Type))
+					return
+				}
+				ws, ok := read("pnpm-workspace.yaml")
+				if !ok {
+					return
+				}
+				// A file of settings only makes the directory one project; a
+				// workspace, or a setting that changes what is resolved, does not.
+				if reason, why := pnpmWorkspaceProblem(ws); reason != "" {
+					unitManual(it, groups, reason, why)
+					return
+				}
 			}
 		}
 		if e, ok := byName(entries, ".npmrc"); ok {
@@ -322,6 +351,38 @@ func (r *run) analyseUnit(it *LanguageItem, u *depUnit, groups []*findingGroup, 
 	reconcileVersions(lock, pkgs)
 	it.Packages = pkgs
 	classify(it)
+}
+
+// ancestorWorkspace looks for a pnpm-workspace.yaml in each directory above
+// the unit's, up to the repository root. It returns a description when one
+// exists. The directories without one are recorded on the item as places the
+// file was looked for and not found. ok is false when a listing failed and the
+// item has been given its outcome.
+func (r *run) ancestorWorkspace(it *LanguageItem, groups []*findingGroup, u *depUnit, sha string) (why string, ok bool) {
+	for dir := u.dir; dir != "." && dir != ""; {
+		parent := path.Dir(dir)
+		if parent == "" || parent == "/" {
+			parent = "."
+		}
+		dir = parent
+		if h := r.stopReason(); h != nil {
+			r.deferUnit(it, groups, h.reason, h.detail)
+			return "", false
+		}
+		entries, err := r.p.cfg.GitHub.ListDirectory(r.ctx, u.repo, sha, dir)
+		switch {
+		case errors.Is(err, github.ErrNotFound):
+			entries = nil
+		case err != nil:
+			r.sourceFailure(it, groups, err, false)
+			return "", false
+		}
+		if _, found := byName(entries, pnpmWorkspaceName); found {
+			return fmt.Sprintf("%s has a pnpm-workspace.yaml, which pnpm applies to this directory (it may be a member of a workspace)", pathIn(dir, pnpmWorkspaceName)), true
+		}
+		it.Source.Absent = append(it.Source.Absent, pathIn(dir, pnpmWorkspaceName))
+	}
+	return "", true
 }
 
 // classify sets the category of an analysed unit from its packages: a unit

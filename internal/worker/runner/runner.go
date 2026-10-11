@@ -196,7 +196,15 @@ func execute(cfg Config, job *worker.Job, base string, files map[string][]byte, 
 	if err := cfg.prepareCache(); err != nil {
 		return fail(worker.StatusStepFailed, "prepare cache: %v", err)
 	}
+	// The working tree holds the job's outputs, the inputs it declared and
+	// nothing else: a settings file the job did not carry is not allowed to
+	// appear.
 	names := worker.OutputNames(job.Manager)
+	for _, in := range job.Inputs {
+		if !contains(names, in.Path) {
+			names = append(names, in.Path)
+		}
+	}
 	outBudget := int64(worker.MaxOutTotalBytes)
 	mainTree := filepath.Join(base, "main")
 	if err := copyTree(filepath.Join(cfg.WorkDir, worker.SrcDirName), mainTree, names); err != nil {
@@ -248,6 +256,13 @@ func execute(cfg Config, job *worker.Job, base string, files map[string][]byte, 
 		}
 		if pr.err != nil || pr.exitCode != 0 {
 			return fail(worker.StatusStepFailed, "step %q failed", step.ID)
+		}
+		if name, err := changedSettings(tree, job); err != nil || name != "" {
+			last.Reason = worker.ReasonInputModified
+			if err != nil {
+				last.Error = sanitize(err.Error())
+			}
+			return fail(worker.StatusStepFailed, "step %q changed the input file %q, which it may not", step.ID, name)
 		}
 		paths, count, err := unexpectedEntries(tree, names)
 		if err != nil {

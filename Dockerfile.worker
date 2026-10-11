@@ -55,7 +55,7 @@ ARG PYTHON_VERSION=3.13.16
 ARG PIP_VERSION=26.2.1
 ARG UV_VERSION=0.13.0
 
-LABEL io.kestrelynx.worker.protocol="1"
+LABEL io.kestrelynx.worker.protocol="2"
 
 # Node.js and npm come from the pinned Node image. Corepack and yarn are left
 # out so no tool version can be switched or fetched while a job runs.

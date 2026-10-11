@@ -483,6 +483,16 @@ func npmPackageSetDiff(a, b []byte) string {
 
 // --- pnpm ---
 
+// pnpmInputs are the input files of a pnpm job: the manifest, the lockfile and
+// the settings file when the project has one.
+func (r *updateRun) pnpmInputs(manifest []byte) map[string][]byte {
+	in := map[string][]byte{"package.json": manifest, "pnpm-lock.yaml": r.src.lock}
+	if r.src.settings != nil {
+		in[pnpmWorkspaceName] = r.src.settings
+	}
+	return in
+}
+
 func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 	if fail := r.planNodeManifest(ctx); fail != nil {
 		return fail
@@ -497,7 +507,7 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 		{ID: stepUpdate, Op: worker.OpPnpmUpdate, Packages: r.packageArgs(nil, r.isDirect)},
 		{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true},
 	}
-	inputs := map[string][]byte{"package.json": r.src.manifest, "pnpm-lock.yaml": r.src.lock}
+	inputs := r.pnpmInputs(r.src.manifest)
 	out, fail := r.exec(ctx, worker.ManagerPnpm, inputs, steps, "update")
 	if fail != nil {
 		return fail
@@ -511,7 +521,7 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 // edited are updated, and the result is checked again.
 func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
 	baseSteps := []worker.Step{{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true}}
-	base, fail := r.exec(ctx, worker.ManagerPnpm, map[string][]byte{"package.json": r.src.manifest, "pnpm-lock.yaml": r.src.lock}, baseSteps, "base")
+	base, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.src.manifest), baseSteps, "base")
 	if fail != nil {
 		return fail
 	}
@@ -521,7 +531,7 @@ func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
 		steps = append(steps, worker.Step{ID: stepUpdateMore, Op: worker.OpPnpmUpdate, Packages: rest})
 	}
 	steps = append(steps, worker.Step{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true})
-	out, fail := r.exec(ctx, worker.ManagerPnpm, map[string][]byte{"package.json": r.manifest, "pnpm-lock.yaml": r.src.lock}, steps, "update")
+	out, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.manifest), steps, "update")
 	if fail != nil {
 		return fail
 	}
@@ -629,7 +639,9 @@ func buildGraph(ctx context.Context, m DependencyManager, lock []byte) (*depGrap
 	if err != nil {
 		return nil, err
 	}
-	g.dropDangling()
+	if err := g.linkCtx(ctx); err != nil {
+		return nil, err
+	}
 	return g, nil
 }
 
@@ -768,7 +780,7 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 			return fail
 		}
 	}
-	if reason, detail := checkUnresolved(gb, ga); reason != "" {
+	if reason, detail := checkUnresolvedCtx(ctx, gb, ga); reason != "" {
 		return manualFailure(reason, "%s", detail)
 	}
 	return r.checkRanges(ctx, ga, newLock, check)

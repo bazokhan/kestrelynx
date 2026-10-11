@@ -819,3 +819,97 @@ func TestChildrenDoNotReceiveInheritedDescriptors(t *testing.T) {
 		}
 	}
 }
+
+// pnpmJob writes the pnpm input files, with a settings file, and returns a job.
+func (e *env) pnpmJob(settings string) *worker.Job {
+	e.t.Helper()
+	files := map[string]string{"package.json": `{"name":"x"}`, "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"}
+	job := &worker.Job{
+		Protocol: worker.ProtocolVersion, Manager: worker.ManagerPnpm,
+		Outputs:         []string{"package.json", "pnpm-lock.yaml"},
+		DeadlineSeconds: 30,
+	}
+	if settings != "" {
+		files["pnpm-workspace.yaml"] = settings
+	}
+	for _, name := range worker.InputNames(worker.ManagerPnpm) {
+		c, ok := files[name]
+		if !ok {
+			continue
+		}
+		e.write(filepath.Join(e.cfg.WorkDir, "src", name), c)
+		job.Inputs = append(job.Inputs, worker.Input{Path: name, Size: int64(len(c)), SHA256: sum(c)})
+	}
+	return job
+}
+
+func TestSettingsFileIsAnInputThatMayNotChange(t *testing.T) {
+	const settings = "allowBuilds:\n  sharp: true\n"
+	t.Run("a step that leaves it alone sees it and does not return it", func(t *testing.T) {
+		e := newEnv(t)
+		e.program("pnpm", `grep -q allowBuilds pnpm-workspace.yaml || exit 3
+echo "lockfileVersion: '9.0'" > pnpm-lock.yaml`)
+		job := e.pnpmJob(settings)
+		job.Steps = []worker.Step{{ID: "one", Op: worker.OpPnpmRelock}, {ID: "two", Op: worker.OpPnpmFrozen, Scratch: true}}
+		res, err := e.run(job)
+		if err != nil || res == nil || res.Status != worker.StatusCompleted {
+			t.Fatalf("run: %v, %+v", err, res)
+		}
+		for name := range e.files {
+			if strings.HasSuffix(name, "pnpm-workspace.yaml") {
+				t.Errorf("%s was returned", name)
+			}
+		}
+		if len(res.Final) != 2 {
+			t.Errorf("final = %+v", res.Final)
+		}
+	})
+	for name, script := range map[string]string{
+		"rewritten":       `echo "allowBuilds: {}" > pnpm-workspace.yaml`,
+		"appended":        `echo "minimumReleaseAgeExclude: [x]" >> pnpm-workspace.yaml`,
+		"emptied":         `: > pnpm-workspace.yaml`,
+		"removed":         `rm pnpm-workspace.yaml`,
+		"a symbolic link": `rm pnpm-workspace.yaml; ln -s package.json pnpm-workspace.yaml`,
+	} {
+		for _, scratch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/scratch=%v", name, scratch), func(t *testing.T) {
+				e := newEnv(t)
+				e.program("pnpm", script)
+				job := e.pnpmJob(settings)
+				job.Steps = []worker.Step{{ID: "one", Op: worker.OpPnpmRelock, Scratch: scratch}, {ID: "two", Op: worker.OpPnpmRelock}}
+				res, err := e.run(job)
+				if err != nil || res == nil {
+					t.Fatalf("run: %v", err)
+				}
+				if res.Status != worker.StatusStepFailed || len(res.Steps) != 1 || res.Steps[0].Reason != worker.ReasonInputModified {
+					t.Fatalf("status %s, steps %+v", res.Status, res.Steps)
+				}
+				for n := range e.files {
+					if strings.HasPrefix(n, "final/") {
+						t.Errorf("%s in the result after a failed step", n)
+					}
+				}
+			})
+		}
+	}
+	t.Run("a job without the file may not create it", func(t *testing.T) {
+		e := newEnv(t)
+		e.program("pnpm", `echo x > pnpm-workspace.yaml`)
+		job := e.pnpmJob("")
+		job.Steps = []worker.Step{{ID: "one", Op: worker.OpPnpmRelock}}
+		res, err := e.run(job)
+		if err != nil || res == nil || res.Status != worker.StatusStepFailed || res.Steps[0].Reason != worker.ReasonUnexpectedFiles {
+			t.Fatalf("run: %v, %+v", err, res)
+		}
+	})
+	t.Run("the input check rejects a settings file that differs from its declaration", func(t *testing.T) {
+		e := newEnv(t)
+		job := e.pnpmJob(settings)
+		e.write(filepath.Join(e.cfg.WorkDir, "src", "pnpm-workspace.yaml"), "allowBuilds: {x: true}\n")
+		job.Steps = []worker.Step{{ID: "one", Op: worker.OpPnpmRelock}}
+		res, err := e.run(job)
+		if err != nil || res == nil || res.Status != worker.StatusInputRejected {
+			t.Fatalf("run: %v, %+v", err, res)
+		}
+	})
+}

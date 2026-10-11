@@ -7,13 +7,21 @@ import (
 	"strings"
 )
 
-// inputNames are the only files a job may carry for each manager, which is
-// also the set of files a step may leave changed. Every one is required.
+// inputNames are the files a job must carry for each manager, which is also
+// the set of files a step may leave changed.
 var inputNames = map[Manager][]string{
 	ManagerNpm:  {"package.json", "package-lock.json"},
 	ManagerPnpm: {"package.json", "pnpm-lock.yaml"},
 	ManagerUv:   {"pyproject.toml", "uv.lock"},
 	ManagerPip:  {"requirements.txt"},
+}
+
+// optionalInputNames are the files a job may carry besides the required ones.
+// They are settings the manager reads: a step may not change them (the result
+// of a step that did is refused, see ReasonInputModified), and they are never
+// returned.
+var optionalInputNames = map[Manager][]string{
+	ManagerPnpm: {"pnpm-workspace.yaml"},
 }
 
 // opManager is the manager each operation belongs to.
@@ -28,14 +36,26 @@ var opManager = map[Op]Manager{
 	OpPipDryRun:  ManagerPip,
 }
 
-// InputNames returns the file names a job for m carries.
-func InputNames(m Manager) []string {
+// RequiredInputNames returns the file names a job for m must carry.
+func RequiredInputNames(m Manager) []string {
 	return append([]string(nil), inputNames[m]...)
 }
 
-// OutputNames returns the file names a job for m may ask to have collected.
+// OptionalInputNames returns the file names a job for m may carry besides the
+// required ones.
+func OptionalInputNames(m Manager) []string {
+	return append([]string(nil), optionalInputNames[m]...)
+}
+
+// InputNames returns every file name a job for m may carry.
+func InputNames(m Manager) []string {
+	return append(RequiredInputNames(m), optionalInputNames[m]...)
+}
+
+// OutputNames returns the file names a job for m may ask to have collected:
+// the required inputs, which a step may change, and the report of pip.
 func OutputNames(m Manager) []string {
-	out := InputNames(m)
+	out := RequiredInputNames(m)
 	if m == ManagerPip {
 		out = append(out, PipReportName)
 	}
@@ -155,7 +175,7 @@ func (j *Job) validateInputs() error {
 	if len(j.Inputs) > MaxInputs {
 		return fmt.Errorf("%d inputs exceed %d", len(j.Inputs), MaxInputs)
 	}
-	allowed := inputNames[j.Manager]
+	allowed := InputNames(j.Manager)
 	seen := map[string]bool{}
 	var total int64
 	for _, in := range j.Inputs {
@@ -177,7 +197,7 @@ func (j *Job) validateInputs() error {
 	if total > MaxInputTotalBytes {
 		return fmt.Errorf("inputs total %d bytes, over %d", total, MaxInputTotalBytes)
 	}
-	for _, name := range allowed {
+	for _, name := range inputNames[j.Manager] {
 		if !seen[name] {
 			return fmt.Errorf("input %q is missing", name)
 		}

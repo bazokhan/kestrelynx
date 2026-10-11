@@ -126,10 +126,7 @@ func rangeProblem(n, who, spec, ver string, python bool) *updateFailure {
 // unresolved or there is none. byName indexes the roots by name.
 func rootVersions(g *depGraph, byName map[string][]depEdge, name string) (vers []string, ok bool) {
 	for _, e := range byName[name] {
-		if e.key == "" {
-			return nil, false
-		}
-		n := g.nodes[e.key]
+		n := g.target(e)
 		if n == nil {
 			return nil, false
 		}
@@ -393,17 +390,23 @@ func (r *updateRun) checkParentRanges(ctx context.Context, g *depGraph, check ma
 	}
 	sort.Strings(keys)
 	targets := r.targetSet()
+	// The entries to check are marked by number once; a requirement is then
+	// judged without looking up the long key of the entry it points to.
+	g.link()
+	checked := make([]bool, len(g.list))
+	for k := range check {
+		if n := g.nodes[k]; n != nil {
+			checked[n.id] = true
+		}
+	}
 	for _, k := range keys {
 		parent := g.nodes[k]
 		for _, e := range parent.deps {
-			if e.key == "" {
-				continue
-			}
-			child := g.nodes[e.key]
+			child := g.target(e)
 			if child == nil {
 				continue
 			}
-			if !check[k] && !check[e.key] && !targets[parent.name] && !targets[child.name] {
+			if !checked[parent.id] && !checked[child.id] && !targets[parent.name] && !targets[child.name] {
 				continue
 			}
 			who := parent.name + " " + parent.version
@@ -414,7 +417,7 @@ func (r *updateRun) checkParentRanges(ctx context.Context, g *depGraph, check ma
 					return lookupFailure(ctx, err, who+" in the npm registry")
 				}
 				found := false
-				for _, m := range []map[string]string{d.Dependencies, d.OptionalDependencies, d.PeerDependencies} {
+				for _, m := range []map[string]string{d.Dependencies, d.OptionalDependencies, d.peersFor(r.it.Manager)} {
 					if spec, ok := m[e.name]; ok {
 						found = true
 						if f := rangeProblem(child.name, who, spec, child.version, false); f != nil {
@@ -543,9 +546,10 @@ func (r *updateRun) checkDistributions(ctx context.Context, g *depGraph, touched
 			}
 			// The kind of each requirement is what the registry declares, not
 			// what the section of the lockfile it was written in says.
+			peers := d.peersFor(r.it.Manager)
 			for i := range n.deps {
 				_, opt := d.OptionalDependencies[n.deps[i].name]
-				_, peer := d.PeerDependencies[n.deps[i].name]
+				_, peer := peers[n.deps[i].name]
 				n.deps[i].optional = opt || peer
 				n.deps[i].confirmed = true
 			}
@@ -556,7 +560,7 @@ func (r *updateRun) checkDistributions(ctx context.Context, g *depGraph, touched
 				}
 			} else {
 				have, allowed := stringSet(n.declared), stringSet(regDeps)
-				for _, p := range depNames(d.PeerDependencies) {
+				for _, p := range depNames(peers) {
 					allowed[p] = true
 				}
 				for _, want := range regDeps {
@@ -858,12 +862,12 @@ func uvReach(ctx context.Context, g *depGraph, env markerEnv, undecided bool) (m
 		held[marker] = v
 		return v, nil
 	}
-	forked := map[string]bool{}
-	inFork := func(key string, n *depNode) (bool, *updateFailure) {
+	forked := map[int]bool{}
+	inFork := func(n *depNode) (bool, *updateFailure) {
 		if len(n.resMarkers) == 0 {
 			return true, nil
 		}
-		if v, ok := forked[key]; ok {
+		if v, ok := forked[n.id]; ok {
 			return v, nil
 		}
 		result := false
@@ -877,14 +881,16 @@ func uvReach(ctx context.Context, g *depGraph, env markerEnv, undecided bool) (m
 				break
 			}
 		}
-		forked[key] = result
+		forked[n.id] = result
 		return result, nil
 	}
-	reached := map[string]bool{}
-	var queue []string
+	g.link()
+	reached := make([]bool, len(g.list))
+	var queue []int
 	visit := func(es []depEdge) *updateFailure {
 		for _, e := range es {
-			if e.key == "" || reached[e.key] || g.nodes[e.key] == nil {
+			t := g.target(e)
+			if t == nil || reached[t.id] {
 				continue
 			}
 			ok, f := holds(e.marker)
@@ -894,13 +900,13 @@ func uvReach(ctx context.Context, g *depGraph, env markerEnv, undecided bool) (m
 			if !ok {
 				continue
 			}
-			if ok, f = inFork(e.key, g.nodes[e.key]); f != nil {
+			if ok, f = inFork(t); f != nil {
 				return f
 			} else if !ok {
 				continue
 			}
-			reached[e.key] = true
-			queue = append(queue, e.key)
+			reached[t.id] = true
+			queue = append(queue, t.id)
 		}
 		return nil
 	}
@@ -908,13 +914,19 @@ func uvReach(ctx context.Context, g *depGraph, env markerEnv, undecided bool) (m
 		return nil, f
 	}
 	for len(queue) > 0 {
-		k := queue[0]
+		id := queue[0]
 		queue = queue[1:]
-		if f := visit(g.nodes[k].deps); f != nil {
+		if f := visit(g.list[id].deps); f != nil {
 			return nil, f
 		}
 	}
-	return reached, nil
+	out := map[string]bool{}
+	for id, ok := range reached {
+		if ok {
+			out[g.list[id].key] = true
+		}
+	}
+	return out, nil
 }
 
 // uvLowReach is uvReach for the lowest Python the project admits, with the
@@ -1225,7 +1237,8 @@ func installProblem(m DependencyManager, n *depNode, d NpmDist) string {
 	if k, x, y, same := sameRecord(n.install, reg); !same {
 		return fmt.Sprintf("records %s as %q where the registry has %q", k, clip(x, 100), clip(y, 100))
 	}
-	if !sameMap(n.peerRanges, d.PeerDependencies) {
+	peers := d.peersFor(m)
+	if !sameMap(n.peerRanges, peers) {
 		return "records peer dependency ranges that differ from the registry's"
 	}
 	return ""
@@ -1240,32 +1253,35 @@ func installProblem(m DependencyManager, n *depNode, d NpmDist) string {
 // optional dependencies, so the flags decide what is installed. npm records
 // all three; pnpm records optional on a snapshot.
 func (r *updateRun) checkFlags(g *depGraph, touched []string) *updateFailure {
+	g.link()
 	reach := func(startOK func(depEdge) bool, edgeOK func(depEdge) bool) map[string]bool {
-		var starts []string
+		var starts []int
 		for _, e := range g.roots {
-			if e.key != "" && startOK(e) {
-				starts = append(starts, e.key)
+			if e.to >= 0 && startOK(e) {
+				starts = append(starts, e.to)
 			}
 		}
-		seen := map[string]bool{}
+		seen := make([]bool, len(g.list))
 		for len(starts) > 0 {
-			k := starts[len(starts)-1]
+			id := starts[len(starts)-1]
 			starts = starts[:len(starts)-1]
-			if seen[k] {
+			if seen[id] {
 				continue
 			}
-			seen[k] = true
-			node := g.nodes[k]
-			if node == nil {
-				continue
-			}
-			for _, e := range node.deps {
-				if e.key != "" && edgeOK(e) && !seen[e.key] {
-					starts = append(starts, e.key)
+			seen[id] = true
+			for _, e := range g.list[id].deps {
+				if e.to >= 0 && edgeOK(e) && !seen[e.to] {
+					starts = append(starts, e.to)
 				}
 			}
 		}
-		return seen
+		out := map[string]bool{}
+		for id, ok := range seen {
+			if ok {
+				out[g.list[id].key] = true
+			}
+		}
+		return out
 	}
 	all := func(depEdge) bool { return true }
 	nonSoft := func(e depEdge) bool { return !e.soft }

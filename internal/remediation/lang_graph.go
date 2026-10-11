@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -50,6 +51,16 @@ type depNode struct {
 	flags map[string]bool
 	// peerRanges are the peer dependency ranges a pnpm package records.
 	peerRanges map[string]string
+	// id, key and kid identify the entry once the graph is linked: its number
+	// in depGraph.list, its key, and a fixed-size digest of the key to stand
+	// for it where keys of different graphs are compared.
+	id       int
+	key, kid string
+	// pid identifies an entry that is not a registry package (see link), and
+	// distDigest, when a builder sets it, is a fixed-size digest of what the
+	// entry shares with others about its distribution (pnpm: the package record
+	// all of a package's snapshots share), so that it is hashed once.
+	pid, distDigest string
 	// resMarkers are the resolution-markers a uv.lock package carries: the
 	// environments (forks) it was resolved for.
 	resMarkers []string
@@ -63,6 +74,41 @@ type distRef struct {
 	// kind is "sdist" or "wheel" for a uv file, and empty where the format has
 	// one file per entry.
 	kind string
+}
+
+// maxGraphNameBytes bounds the name and the version of an entry and the name of
+// a requirement. Entries are compared by these (and by a digest of their
+// keys), so their length bounds the work of comparing two graphs.
+const maxGraphNameBytes = 256
+
+func checkGraphName(what, s string) error {
+	if len(s) > maxGraphNameBytes {
+		return fmt.Errorf("%s %q is over %d bytes", what, clip(s, 40), maxGraphNameBytes)
+	}
+	return nil
+}
+
+// checkBounds requires every entry's name and version and every requirement's
+// name to be within maxGraphNameBytes, whichever way the name was found (from a
+// path, a key, a member of the entry or a report). Each graph builder ends with
+// it, so no graph reaches a comparison with a name over the bound.
+func (g *depGraph) checkBounds() error {
+	for _, e := range g.roots {
+		if err := checkGraphName("a requirement name", e.name); err != nil {
+			return err
+		}
+	}
+	for _, n := range g.nodes {
+		if err := errors.Join(checkGraphName("a package name", n.name), checkGraphName("a version", n.version)); err != nil {
+			return err
+		}
+		for _, e := range n.deps {
+			if err := checkGraphName("a requirement name", e.name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // maxUnknownNamed bounds the unrecognized member names kept per entry.
@@ -122,6 +168,16 @@ type depEdge struct {
 	dev, soft bool
 	// marker is the marker a uv.lock requirement carries ("" for none).
 	marker string
+	// ref is what the file says the requirement points to (the version of a
+	// pnpm dependency, the specifier of an npm one, the source table of a uv
+	// one), and local is set when that is not a version from the registry: a
+	// link, a file, a workspace, a git or tarball location. A local reference
+	// is never resolved to a registry entry, whether or not it has an entry.
+	ref   string
+	local bool
+	// to is the number of the entry the requirement points to (see
+	// depGraph.link), -1 when it points to none.
+	to int
 }
 
 // depGraph is the dependency graph a lockfile (or, for pip, the install
@@ -130,6 +186,10 @@ type depGraph struct {
 	nodes map[string]*depNode
 	// roots are the requirements of the project itself.
 	roots []depEdge
+	// list holds the entries by number, and linked says the numbers and the
+	// edges' targets are set (see link).
+	list   []*depNode
+	linked bool
 	// meta is the rest of the file that no update may change: its format and
 	// version, the project's own entry and its declared requirements.
 	meta string
@@ -315,6 +375,9 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 			return nil, err
 		}
 		pathName := k[strings.LastIndex(k, npmModules)+len(npmModules):]
+		if err := errors.Join(checkGraphName("a package name", pathName), checkGraphName("a version", e.Version)); err != nil {
+			return nil, err
+		}
 		n := &depNode{name: pathName, version: e.Version, attrs: attrs, dist: []distRef{{url: e.Resolved, hash: e.Integrity}}}
 		n.unknown = unknownKeys(e.m, npmEntryKeys)
 		rec, rerr := installRecord(e.m, pathName, e.Dependencies, "bundleDependencies")
@@ -335,6 +398,9 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		optPeers := stringSet(strings.Split(rec["peerDependenciesMeta"], ","))
 		switch {
 		case e.Name != "" && e.Name != pathName:
+			if err := checkGraphName("an alias target name", e.Name); err != nil {
+				return nil, err
+			}
 			n.name = e.Name
 			n.problem = "installed under an alias name"
 		case e.Link:
@@ -346,12 +412,15 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 			if err := budget.add(len(m)); err != nil {
 				return nil, err
 			}
-			for dep := range m {
+			for dep, spec := range m {
+				if err := checkGraphName("a dependency name", dep); err != nil {
+					return nil, err
+				}
 				key, err := budget.resolve(entries, k, dep)
 				if err != nil {
 					return nil, err
 				}
-				n.deps = append(n.deps, depEdge{name: dep, key: key, optional: i > 0, soft: i == 1 || (i == 2 && optPeers[dep])})
+				n.deps = append(n.deps, depEdge{name: dep, key: key, optional: i > 0, soft: i == 1 || (i == 2 && optPeers[dep]), ref: spec, local: npmSpecIsLocal(spec)})
 			}
 		}
 		n.declared = depNames(e.Dependencies, e.OptionalDependencies)
@@ -369,15 +438,21 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		if err := budget.add(len(m)); err != nil {
 			return nil, err
 		}
-		for dep := range m {
+		for dep, spec := range m {
+			if err := checkGraphName("a dependency name", dep); err != nil {
+				return nil, err
+			}
 			key, err := budget.resolve(entries, "", dep)
 			if err != nil {
 				return nil, err
 			}
-			g.roots = append(g.roots, depEdge{name: dep, key: key, optional: i >= 2, dev: i == 1, soft: i == 2 || (i == 3 && rootPeers[dep])})
+			g.roots = append(g.roots, depEdge{name: dep, key: key, optional: i >= 2, dev: i == 1, soft: i == 2 || (i == 3 && rootPeers[dep]), ref: spec, local: npmSpecIsLocal(spec)})
 		}
 	}
 	sortEdges(g.roots)
+	if err := g.checkBounds(); err != nil {
+		return nil, err
+	}
 	return g, nil
 }
 
@@ -510,10 +585,13 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		}
 		specs := map[string]any{}
 		for name, d := range deps {
+			if err := checkGraphName("a dependency name", name); err != nil {
+				return nil, err
+			}
 			dm, _ := d.(map[string]any)
 			specs[name] = dm["specifier"]
 			ver, _ := dm["version"].(string)
-			g.roots = append(g.roots, depEdge{name: name, key: pnpmEdgeKey(snapshots, packages, name, ver), optional: grp == "optionalDependencies", soft: grp == "optionalDependencies", dev: grp == "devDependencies"})
+			g.roots = append(g.roots, depEdge{name: name, key: pnpmEdgeKey(snapshots, packages, name, ver), optional: grp == "optionalDependencies", soft: grp == "optionalDependencies", dev: grp == "devDependencies", ref: ver, local: pnpmLocalRef(ver)})
 		}
 		if len(specs) > 0 {
 			impMeta[grp] = specs
@@ -537,7 +615,10 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		base := pnpmBase(key)
 		name, ver, ok := splitPnpmKey(base)
 		if !ok {
-			return fmt.Errorf("pnpm-lock.yaml has the key %q", key)
+			return fmt.Errorf("pnpm-lock.yaml has the key %q", clip(key, 100))
+		}
+		if err := errors.Join(checkGraphName("a package name", name), checkGraphName("a version", ver)); err != nil {
+			return err
 		}
 		pk, _ := packages[base].(map[string]any)
 		res, _ := pk["resolution"].(map[string]any)
@@ -571,7 +652,7 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		}
 		attrs := pkHash + "|" + ownCanon
 		integrity, _ := res["integrity"].(string)
-		n := &depNode{name: name, version: ver, attrs: attrs, dist: []distRef{{hash: integrity}}}
+		n := &depNode{name: name, version: ver, attrs: attrs, dist: []distRef{{hash: integrity}}, distDigest: pkHash}
 		ir, seenIR := installRecs[base]
 		if !seenIR {
 			ir.rec, ir.peers, ir.err = pnpmInstallRecord(pk, name)
@@ -634,8 +715,11 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 				return err
 			}
 			for dn, dv := range deps {
+				if err := checkGraphName("a dependency name", dn); err != nil {
+					return err
+				}
 				v, _ := dv.(string)
-				n.deps = append(n.deps, depEdge{name: dn, key: pnpmEdgeKey(snapshots, packages, dn, v), optional: grp == "optionalDependencies", soft: grp == "optionalDependencies"})
+				n.deps = append(n.deps, depEdge{name: dn, key: pnpmEdgeKey(snapshots, packages, dn, v), optional: grp == "optionalDependencies", soft: grp == "optionalDependencies", ref: v, local: pnpmLocalRef(v)})
 				n.declared = append(n.declared, dn)
 			}
 		}
@@ -662,7 +746,28 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 			return nil, fmt.Errorf("pnpm-lock.yaml lists the package %q without a snapshot", clip(key, 100))
 		}
 	}
+	if err := g.checkBounds(); err != nil {
+		return nil, err
+	}
 	return g, nil
+}
+
+// pnpmLocalRef reports whether the value of a pnpm dependency is not a version
+// from the registry: a link, file or workspace reference, a git or tarball
+// location (anything with a scheme), or nothing at all.
+func pnpmLocalRef(ver string) bool {
+	return ver == "" || strings.Contains(pnpmBase(ver), ":")
+}
+
+var npmShorthandRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.#/-]+$`)
+
+// npmSpecIsLocal reports whether an npm dependency specifier is not a range
+// or tag of the registry: it has a scheme (file:, link:, git+..., https:,
+// npm: aliases, workspace:), is a path, or is the user/repo shorthand of a
+// GitHub repository.
+func npmSpecIsLocal(spec string) bool {
+	return strings.Contains(spec, ":") || strings.HasPrefix(spec, ".") || strings.HasPrefix(spec, "/") ||
+		strings.HasPrefix(spec, "~/") || npmShorthandRE.MatchString(spec)
 }
 
 // pnpmEdgeKey is the snapshot key a requirement of version value ver of name
@@ -812,6 +917,9 @@ func uvGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 				for _, it := range items {
 					d, _ := it.(map[string]any)
 					dn, _ := d["name"].(string)
+					if err := checkGraphName("a dependency name", dn); err != nil {
+						return nil, err
+					}
 					norm := normalizePyName(dn)
 					dv, _ := d["version"].(string)
 					cands := byName[norm]
@@ -833,7 +941,13 @@ func uvGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 						}
 					}
 					mk, _ := d["marker"].(string)
-					out = append(out, depEdge{name: norm, key: c, marker: mk})
+					edge := depEdge{name: norm, key: c, marker: mk}
+					if src, ok := d["source"].(map[string]any); ok {
+						ref, _ := canonicalJSON(src)
+						_, registry := src["registry"]
+						edge.ref, edge.local = ref, !registry
+					}
+					out = append(out, edge)
 				}
 			}
 		}
@@ -887,6 +1001,9 @@ func uvGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 	rest["\x00root"] = stripUvVersions(root)
 	if g.meta, err = canonicalJSON(rest); err != nil {
 		return nil, fmt.Errorf("uv.lock has content that cannot be compared: %v", err)
+	}
+	if err := g.checkBounds(); err != nil {
+		return nil, err
 	}
 	return g, nil
 }
@@ -1129,25 +1246,129 @@ func pipGraph(ctx context.Context, report []byte, requires map[string][]string, 
 		}
 	}
 	sortEdges(g.roots)
+	if err := g.checkBounds(); err != nil {
+		return nil, err
+	}
 	return g, nil
 }
 
 // --- comparison ---
 
-// dropDangling turns an edge to a key without a node into an unresolved one,
-// so that no later lookup meets a missing node.
-func (g *depGraph) dropDangling() {
-	fix := func(es []depEdge) {
+// link numbers the entries, gives each a digest of its key, and sets for every
+// requirement the number of the entry it points to; a requirement whose key
+// has no entry becomes an unresolved one. It is done once, so that walking the
+// graph and comparing two graphs never hashes a long key per requirement: the
+// work is the length of the keys once plus the number of requirements.
+func (g *depGraph) link() { _ = g.linkCtx(context.Background()) }
+
+// linkCtx is link that watches ctx; a graph whose linking was stopped is not
+// linked.
+func (g *depGraph) linkCtx(ctx context.Context) error {
+	if g.linked {
+		return nil
+	}
+	list := make([]*depNode, 0, len(g.nodes))
+	index := make(map[string]int, len(g.nodes))
+	for k, n := range g.nodes {
+		if len(list)%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		n.id, n.key = len(list), k
+		sum := sha256.Sum256([]byte(k))
+		n.kid = string(sum[:16])
+		if n.problem != "" {
+			// What an entry that is not a registry package is, as one digest:
+			// its name, version, the reason it is not, and where it is from.
+			// What its snapshots share is already a digest.
+			h := sha256.New()
+			fmt.Fprintf(h, "%s\x00%s\x00%s", n.name, n.version, n.problem)
+			if n.distDigest != "" {
+				fmt.Fprintf(h, "\x00%s", n.distDigest)
+			} else {
+				for _, d := range n.dist {
+					fmt.Fprintf(h, "\x00%s\x00%s", d.url, d.hash)
+				}
+			}
+			n.pid = string(h.Sum(nil)[:16])
+		}
+		index[k] = n.id
+		list = append(list, n)
+	}
+	steps := 0
+	fix := func(es []depEdge) error {
 		for i := range es {
-			if es[i].key != "" && g.nodes[es[i].key] == nil {
+			if steps++; steps%1024 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			es[i].to = -1
+			if es[i].key == "" {
+				continue
+			}
+			if id, ok := index[es[i].key]; ok {
+				es[i].to = id
+			} else {
 				es[i].key = ""
 			}
 		}
+		return nil
 	}
-	fix(g.roots)
-	for _, n := range g.nodes {
-		fix(n.deps)
+	if err := fix(g.roots); err != nil {
+		return err
 	}
+	for _, n := range list {
+		if err := fix(n.deps); err != nil {
+			return err
+		}
+	}
+	g.list, g.linked = list, true
+	return nil
+}
+
+// dropDangling turns an edge to a key without a node into an unresolved one,
+// so that no later lookup meets a missing node.
+func (g *depGraph) dropDangling() { g.link() }
+
+// target returns the entry a requirement points to, nil if it points to none.
+func (g *depGraph) target(e depEdge) *depNode {
+	g.link()
+	if e.to < 0 || e.to >= len(g.list) {
+		return nil
+	}
+	return g.list[e.to]
+}
+
+// reachBits marks, by number, the entries reachable from the project along the
+// requirements. It stops, returning what it has, when ctx ends.
+func (g *depGraph) reachBits(ctx context.Context) []bool {
+	g.link()
+	seen := make([]bool, len(g.list))
+	var queue []int
+	for _, e := range g.roots {
+		if e.to >= 0 {
+			queue = append(queue, e.to)
+		}
+	}
+	for steps := 0; len(queue) > 0; steps++ {
+		if steps%1024 == 0 && ctx.Err() != nil {
+			return seen
+		}
+		id := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		for _, e := range g.list[id].deps {
+			if e.to >= 0 && !seen[e.to] {
+				queue = append(queue, e.to)
+			}
+		}
+	}
+	return seen
 }
 
 // editedMask replaces a specifier this program edited when the part of a
@@ -1213,17 +1434,18 @@ func (g *depGraph) maskEditedSpecs(ctx context.Context, m DependencyManager, edi
 // being updated is only named, since which version it points to is what the
 // update changes; any other edge also names the entry it resolves to.
 func edgeSig(g *depGraph, es []depEdge, targets map[string]bool) string {
+	g.link()
 	var b strings.Builder
 	for _, e := range es {
 		b.WriteString(e.name)
 		b.WriteByte('=')
-		switch n := g.nodes[e.key]; {
-		case e.key == "" || n == nil:
+		switch n := g.target(e); {
+		case n == nil:
 			b.WriteByte('?')
 		case targets[n.name]:
 			b.WriteByte('T')
 		default:
-			b.WriteString(e.key)
+			b.WriteString(n.kid)
 		}
 		b.WriteByte(';')
 	}
@@ -1238,27 +1460,37 @@ func (n *depNode) full(g *depGraph, targets map[string]bool) string {
 // edges. Entries for which stop returns true are included but not expanded.
 // It gives up (returning what it has) when ctx ends; callers check ctx.
 func (g *depGraph) reach(ctx context.Context, starts []string, stop func(*depNode) bool) map[string]bool {
-	seen := map[string]bool{}
-	queue := append([]string(nil), starts...)
+	g.link()
+	seen := make([]bool, len(g.list))
+	var queue []int
+	for _, k := range starts {
+		if n := g.nodes[k]; k != "" && n != nil {
+			queue = append(queue, n.id)
+		}
+	}
+	out := map[string]bool{}
 	for steps := 0; len(queue) > 0; steps++ {
 		if steps%1024 == 0 && ctx.Err() != nil {
-			return seen
+			return out
 		}
-		k := queue[0]
-		queue = queue[1:]
-		n := g.nodes[k]
-		if k == "" || n == nil || seen[k] {
+		id := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[id] {
 			continue
 		}
-		seen[k] = true
+		seen[id] = true
+		n := g.list[id]
+		out[n.key] = true
 		if stop != nil && stop(n) {
 			continue
 		}
 		for _, e := range n.deps {
-			queue = append(queue, e.key)
+			if e.to >= 0 && !seen[e.to] {
+				queue = append(queue, e.to)
+			}
 		}
 	}
-	return seen
+	return out
 }
 
 func rootKeys(es []depEdge) []string {
@@ -1306,36 +1538,86 @@ func (g *depGraph) unresolvedEdges() []unresolvedEdge {
 // changes the kind is the one the registry declares, which the caller sets on
 // the edges before this is called.
 func newUnresolved(before, after *depGraph) []unresolvedEdge {
-	return newUnresolvedImpl(before, after)
+	return newUnresolvedCtx(context.Background(), before, after)
 }
 
-func newUnresolvedImpl(before, after *depGraph) []unresolvedEdge {
-	type pos struct {
-		key, dep string
-		optional bool
-	}
-	sameEntry := map[pos]bool{}
-	byName := map[pos]bool{} // optional requirements, by package name
-	for _, u := range before.unresolvedEdges() {
-		sameEntry[pos{u.ownerKey, u.dep, u.optional}] = true
-		if u.optional {
-			byName[pos{u.ownerName, u.dep, true}] = true
+// ownerEdges are the unresolved requirements of one entry (the empty key is
+// the project).
+type ownerEdges struct {
+	key, name string
+	edges     []unresolvedEdge
+}
+
+// unresolvedByOwner lists the unresolved requirements of a graph entry by
+// entry, so that a long key is looked up once per entry and not once per
+// requirement.
+func (g *depGraph) unresolvedByOwner() []ownerEdges {
+	g.link()
+	var out []ownerEdges
+	var roots []unresolvedEdge
+	for _, e := range g.roots {
+		if e.to < 0 {
+			roots = append(roots, unresolvedEdge{"", "", e.name, e.optional, e.confirmed})
 		}
 	}
+	if len(roots) > 0 {
+		out = append(out, ownerEdges{"", "", roots})
+	}
+	for _, n := range g.list {
+		var es []unresolvedEdge
+		for _, e := range n.deps {
+			if e.to < 0 {
+				es = append(es, unresolvedEdge{n.key, n.name, e.name, e.optional, e.confirmed})
+			}
+		}
+		if len(es) > 0 {
+			out = append(out, ownerEdges{n.key, n.name, es})
+		}
+	}
+	return out
+}
+
+func newUnresolvedCtx(ctx context.Context, before, after *depGraph) []unresolvedEdge {
+	type kind struct {
+		dep      string
+		optional bool
+	}
+	type named struct{ owner, dep string }
+	sameEntry := map[string]map[kind]bool{} // by the owner's key
+	byName := map[named]bool{}              // optional requirements, by package name
+	for _, o := range before.unresolvedByOwner() {
+		set := make(map[kind]bool, len(o.edges))
+		for _, u := range o.edges {
+			set[kind{u.dep, u.optional}] = true
+			if u.optional {
+				byName[named{o.name, u.dep}] = true
+			}
+		}
+		sameEntry[o.key] = set
+	}
 	var out []unresolvedEdge
-	for _, u := range after.unresolvedEdges() {
-		switch {
-		case u.confirmed && u.optional:
-			// The registry says it is an optional or peer dependency, which
-			// may stay unresolved.
-		case u.confirmed:
-			// The registry says it is required: whatever the original looked
-			// like, it must resolve.
-			out = append(out, u)
-		case sameEntry[pos{u.ownerKey, u.dep, u.optional}] && (before.nodes[u.ownerKey] != nil || u.ownerKey == ""):
-		case u.optional && byName[pos{u.ownerName, u.dep, true}]:
-		default:
-			out = append(out, u)
+	for i, o := range after.unresolvedByOwner() {
+		if i%1024 == 0 && ctx.Err() != nil {
+			break
+		}
+		// The owner is looked up once: whether the original has it, and what it
+		// left unresolved.
+		had := sameEntry[o.key]
+		exists := o.key == "" || before.nodes[o.key] != nil
+		for _, u := range o.edges {
+			switch {
+			case u.confirmed && u.optional:
+				// The registry says it is an optional or peer dependency, which
+				// may stay unresolved.
+			case u.confirmed:
+				// The registry says it is required: whatever the original looked
+				// like, it must resolve.
+				out = append(out, u)
+			case had[kind{u.dep, u.optional}] && exists:
+			case u.optional && byName[named{o.name, u.dep}]:
+			default:
+				out = append(out, u)
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -1377,6 +1659,9 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 	}
 	if edgeSig(before, before.roots, targets) != edgeSig(after, after.roots, targets) {
 		return diff, ReasonUnexplainedDiff, "the requirements of the project itself point to different entries"
+	}
+	if why := newNonRegistryEdge(ctx, before, after); why != "" {
+		return diff, ReasonResolvedSourceChanged, why
 	}
 	isTarget := func(n *depNode) bool { return targets[n.name] }
 	reachAfter := after.reach(ctx, rootKeys(after.roots), nil)
@@ -1476,11 +1761,101 @@ func (d *DependencyDiff) trim() {
 	}
 }
 
+// newNonRegistryEdge returns a description of the first requirement in after
+// that points to something other than a registry package and has no
+// counterpart in before, or "". A requirement points to one when its reference
+// is local (a link, file, workspace, git or tarball location), whether or not
+// an entry exists for it, or when the entry it points to is not a registry
+// package. The exceptions for a requirement the registry declares optional do
+// not apply: an optional dependency that is not in the lockfile is fine, one
+// that points to a local directory is a package nothing here checks.
+//
+// The counterpart has to be an occurrence that was installed before, and one
+// that was not a registry package either: an entry reachable from the project
+// in before, of the same package name, with the same requirement (name and
+// reference) pointing to nothing, or to the very entry (its name, version, why
+// it is not a registry package and where it is from) that it points to now.
+// A requirement that pointed to a registry package before is no counterpart. An entry the
+// original file only carried, that nothing reached, does not vouch for one
+// that is reached now, and neither does another package's. Only the entries
+// reachable in after are judged.
+func newNonRegistryEdge(ctx context.Context, before, after *depGraph) string {
+	type sig struct{ owner, name, ref, target string }
+	// The identity of what a requirement points to when it is not a registry
+	// package: the entry (its digest, which covers where it is from), or
+	// nothing for a local reference that has no entry.
+	ident := func(g *depGraph, e depEdge) string {
+		if t := g.target(e); t != nil && t.problem != "" {
+			return t.pid
+		}
+		return ""
+	}
+	bad := func(g *depGraph, e depEdge) bool {
+		if e.local {
+			return true
+		}
+		t := g.target(e)
+		return t != nil && t.problem != ""
+	}
+	reachBefore, reachAfter := before.reachBits(ctx), after.reachBits(ctx)
+	// Only a requirement that was not a registry package before can vouch for
+	// one that is not now: a registry requirement of the same name is no
+	// reason to take a local one.
+	had := map[sig]bool{}
+	for _, e := range before.roots {
+		if bad(before, e) {
+			had[sig{"", e.name, e.ref, ident(before, e)}] = true
+		}
+	}
+	for i, n := range before.list {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return ""
+		}
+		if !reachBefore[n.id] {
+			continue
+		}
+		for _, e := range n.deps {
+			if bad(before, e) {
+				had[sig{n.name, e.name, e.ref, ident(before, e)}] = true
+			}
+		}
+	}
+	for _, e := range after.roots {
+		if bad(after, e) && !had[sig{"", e.name, e.ref, ident(after, e)}] {
+			return fmt.Sprintf("the project now requires %s as %q, which is not a registry package", e.name, clip(e.ref, 100))
+		}
+	}
+	// In a fixed order, so that the same input gives the same answer.
+	order := make([]*depNode, 0, len(after.list))
+	for _, n := range after.list {
+		if reachAfter[n.id] {
+			order = append(order, n)
+		}
+	}
+	sort.Slice(order, func(i, j int) bool { return order[i].key < order[j].key })
+	for i, n := range order {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return ""
+		}
+		for _, e := range n.deps {
+			if bad(after, e) && !had[sig{n.name, e.name, e.ref, ident(after, e)}] {
+				return fmt.Sprintf("%s now requires %s as %q, which is not a registry package", n.key, e.name, clip(e.ref, 100))
+			}
+		}
+	}
+	return ""
+}
+
 // checkUnresolved refuses an updated graph that has a requirement no entry
 // satisfies and that the original did not leave unsatisfied in the same place
 // and of the same kind (see newUnresolved).
 func checkUnresolved(before, after *depGraph) (Reason, string) {
-	un := newUnresolved(before, after)
+	return checkUnresolvedCtx(context.Background(), before, after)
+}
+
+// checkUnresolvedCtx is checkUnresolved that watches ctx.
+func checkUnresolvedCtx(ctx context.Context, before, after *depGraph) (Reason, string) {
+	un := newUnresolvedCtx(ctx, before, after)
 	if len(un) == 0 {
 		return "", ""
 	}

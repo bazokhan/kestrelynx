@@ -110,6 +110,24 @@ func (r *prRun) languageFiles(c *unitCtx, base string) (files []editedFile, inpu
 		modes[p] = cur.Mode
 	}
 
+	// A file the plan looked for and did not find (a settings file) must not
+	// have appeared: it would be an input the update was not made with.
+	if moved {
+		for _, p := range ld.item.Source.Absent {
+			_, err := r.s.cfg.Source.ReadFile(r.ctx, rs.name, base, p)
+			var nr *github.NotRegularFileError
+			switch {
+			case errors.Is(err, github.ErrNotFound):
+			case err == nil, errors.As(err, &nr), errors.Is(err, github.ErrLFSPointer), errors.Is(err, github.ErrTooLarge):
+				c.set(PRStatusDeferred, ReasonSourceChanged, fmt.Sprintf("%s did not exist when the plan was made and is on %s now", p, c.u.baseBranch))
+				return nil, "", false
+			default:
+				r.readFailure(c, "read "+p, err)
+				return nil, "", false
+			}
+		}
+	}
+
 	for _, p := range paths {
 		a := ld.artifacts[p]
 		blob := gitBlobSHA(a.Content)

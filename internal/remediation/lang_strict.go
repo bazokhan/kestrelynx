@@ -171,12 +171,11 @@ type pnpmLockDoc struct {
 	versionIsScalar bool
 }
 
-// readPnpmLock parses pnpm-lock.yaml. It must be exactly one YAML document
-// (a second one, or a syntax error anywhere, is refused), without anchors,
-// aliases or merge keys, with no repeated key in any mapping and no two keys
-// that differ only in case in a mapping of fixed words (see yamlLevel), and
-// within the bounds above.
-func readPnpmLock(data []byte) (*pnpmLockDoc, error) {
+// readYAMLRoot parses a YAML file that must be exactly one document (a second
+// one, or a syntax error anywhere, is refused), without anchors, aliases or
+// merge keys, with no repeated key in any mapping, and within the bounds
+// above. It returns the root node of the document.
+func readYAMLRoot(data []byte) (*yaml.Node, error) {
 	if len(data) > maxYAMLBytes {
 		return nil, fmt.Errorf("the file is over %d bytes", maxYAMLBytes)
 	}
@@ -198,6 +197,19 @@ func readPnpmLock(data []byte) (*pnpmLockDoc, error) {
 	root := doc.Content[0]
 	count := 0
 	if err := yamlWalk(root, 0, &count); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+// readPnpmLock parses pnpm-lock.yaml. It must be exactly one YAML document
+// (a second one, or a syntax error anywhere, is refused), without anchors,
+// aliases or merge keys, with no repeated key in any mapping and no two keys
+// that differ only in case in a mapping of fixed words (see yamlLevel), and
+// within the bounds above.
+func readPnpmLock(data []byte) (*pnpmLockDoc, error) {
+	root, err := readYAMLRoot(data)
+	if err != nil {
 		return nil, err
 	}
 	if err := yamlLevel(root); err != nil {

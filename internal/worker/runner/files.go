@@ -125,6 +125,24 @@ func checkInputs(srcDir string, inputs []worker.Input) error {
 	return nil
 }
 
+// changedSettings returns the name of the first input of the job that is not
+// one of its outputs (a settings file the manager only reads) and that is no
+// longer in tree as it was declared: missing, not a plain file, or with another
+// size or hash. A file that cannot be read is an error.
+func changedSettings(tree string, job *worker.Job) (string, error) {
+	outputs := worker.OutputNames(job.Manager)
+	for _, in := range job.Inputs {
+		if contains(outputs, in.Path) {
+			continue
+		}
+		size, sum, err := hashFile(filepath.Join(tree, in.Path), worker.MaxInputFileBytes)
+		if err != nil || size != in.Size || sum != in.SHA256 {
+			return in.Path, err
+		}
+	}
+	return "", nil
+}
+
 // copyTree copies the named files that exist in src into a new directory dst.
 // A name that is absent is skipped.
 func copyTree(src, dst string, names []string) error {

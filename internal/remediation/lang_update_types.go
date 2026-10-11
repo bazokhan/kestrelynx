@@ -28,7 +28,9 @@ const (
 	ReasonUpdateJobInputRefused Reason = "update_job_input_rejected"
 
 	// Manual: before the update.
-	ReasonManifestEditRequired      Reason = "manifest_edit_required"
+	ReasonManifestEditRequired Reason = "manifest_edit_required"
+	// ReasonWorkInputModified: a step changed a settings file it only reads.
+	ReasonWorkInputModified         Reason = "input_modified"
 	ReasonRequiresPythonUnsupported Reason = "requires_python_unsupported"
 	ReasonLockfileInconsistent      Reason = "lockfile_inconsistent"
 	ReasonNoWheelForVersion         Reason = "no_wheel_for_version"

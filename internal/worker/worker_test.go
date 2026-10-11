@@ -156,7 +156,7 @@ func TestJobValidate(t *testing.T) {
 		t.Fatalf("good job: %v", err)
 	}
 	mutations := map[string]func(*Job){
-		"protocol":         func(j *Job) { j.Protocol = 2 },
+		"protocol":         func(j *Job) { j.Protocol = ProtocolVersion - 1 },
 		"manager":          func(j *Job) { j.Manager = "yarn" },
 		"undeclared input": func(j *Job) { j.Inputs = append(j.Inputs, Input{Path: ".npmrc", SHA256: strings.Repeat("a", 64)}) },
 		"missing input":    func(j *Job) { j.Inputs = j.Inputs[:1] },
@@ -205,5 +205,42 @@ func TestDockerfileLabelMatchesProtocol(t *testing.T) {
 	want := fmt.Sprintf("LABEL %s=%q", ProtocolLabel, fmt.Sprint(ProtocolVersion))
 	if !strings.Contains(string(b), want) {
 		t.Errorf("Dockerfile.worker lacks %s", want)
+	}
+}
+
+func TestPnpmJobMayCarryItsWorkspaceSettings(t *testing.T) {
+	sum := strings.Repeat("a", 64)
+	job := func(extra ...Input) *Job {
+		return &Job{Protocol: ProtocolVersion, Manager: ManagerPnpm,
+			Inputs:  append([]Input{{Path: "package.json", SHA256: sum}, {Path: "pnpm-lock.yaml", SHA256: sum}}, extra...),
+			Steps:   []Step{{ID: "r", Op: OpPnpmRelock}},
+			Outputs: []string{"package.json", "pnpm-lock.yaml"}, DeadlineSeconds: 10}
+	}
+	if err := job().Validate(); err != nil {
+		t.Errorf("without the settings file: %v", err)
+	}
+	if err := job(Input{Path: "pnpm-workspace.yaml", Size: 12, SHA256: sum}).Validate(); err != nil {
+		t.Errorf("with the settings file: %v", err)
+	}
+	// It is an input only: it cannot be asked for as an output.
+	j := job(Input{Path: "pnpm-workspace.yaml", SHA256: sum})
+	j.Outputs = append(j.Outputs, "pnpm-workspace.yaml")
+	if err := j.Validate(); err == nil {
+		t.Error("the settings file was accepted as an output")
+	}
+	// Other managers do not take it, and the required files stay required.
+	nj := goodJob()
+	nj.Inputs = append(nj.Inputs, Input{Path: "pnpm-workspace.yaml", SHA256: sum})
+	if err := nj.Validate(); err == nil {
+		t.Error("an npm job took pnpm-workspace.yaml")
+	}
+	if err := job(Input{Path: "pnpm-workspace.yaml", SHA256: sum}, Input{Path: "pnpm-workspace.yaml", SHA256: sum}).Validate(); err == nil {
+		t.Error("a duplicate input was accepted")
+	}
+	if got := OutputNames(ManagerPnpm); strings.Join(got, ",") != "package.json,pnpm-lock.yaml" {
+		t.Errorf("outputs = %v", got)
+	}
+	if got := InputNames(ManagerPnpm); strings.Join(got, ",") != "package.json,pnpm-lock.yaml,pnpm-workspace.yaml" {
+		t.Errorf("inputs = %v", got)
 	}
 }

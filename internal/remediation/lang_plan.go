@@ -33,11 +33,14 @@ const (
 	ReasonDependencyFileUnusable  Reason = "dependency_file_unusable"
 	ReasonUnsupportedLockfile     Reason = "unsupported_lockfile"
 	ReasonWorkspaceUnsupported    Reason = "workspace_unsupported"
-	ReasonDynamicMetadata         Reason = "dynamic_metadata"
-	ReasonUnsupportedRequirements Reason = "unsupported_requirements"
-	ReasonUnparsableSource        Reason = "unparsable_source"
-	ReasonUnsupportedSource       Reason = "unsupported_source_settings"
-	ReasonScanNotPinned           Reason = "scan_not_pinned"
+	// ReasonWorkspaceSettingsUnsupported: a pnpm-workspace.yaml that is not a
+	// workspace sets something other than the settings the plan accepts.
+	ReasonWorkspaceSettingsUnsupported Reason = "workspace_settings_unsupported"
+	ReasonDynamicMetadata              Reason = "dynamic_metadata"
+	ReasonUnsupportedRequirements      Reason = "unsupported_requirements"
+	ReasonUnparsableSource             Reason = "unparsable_source"
+	ReasonUnsupportedSource            Reason = "unsupported_source_settings"
+	ReasonScanNotPinned                Reason = "scan_not_pinned"
 
 	// Reasons for a package.
 	ReasonNotFoundInSource   Reason = "not_found_in_source"
@@ -139,10 +142,15 @@ type SourceRecord struct {
 	Directory  string `json:"directory"`
 	// CommitSHA is the commit the branch resolved to; every file was read
 	// from it. Empty when the branch could not be resolved.
-	CommitSHA  string       `json:"commit_sha,omitempty"`
-	Files      []SourceFile `json:"files,omitempty"`
-	Origin     OriginKind   `json:"origin"`
-	Confidence Confidence   `json:"confidence"`
+	CommitSHA string       `json:"commit_sha,omitempty"`
+	Files     []SourceFile `json:"files,omitempty"`
+	// Absent are the files the plan looked for and did not find, because
+	// their presence would change the unit's inputs (a pnpm-workspace.yaml
+	// added later is a setting nothing here has seen). They are repository
+	// paths, like Files.
+	Absent     []string   `json:"absent,omitempty"`
+	Origin     OriginKind `json:"origin"`
+	Confidence Confidence `json:"confidence"`
 }
 
 // Relation says how a package is required: by the project itself (direct),

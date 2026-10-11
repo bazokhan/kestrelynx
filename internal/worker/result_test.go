@@ -109,7 +109,7 @@ func TestDecodeResultRefusals(t *testing.T) {
 		"no final newline":   []byte(strings.TrimSuffix(s, "\n")),
 		"crlf":               []byte(strings.ReplaceAll(s, "\n", "\r\n")),
 		"wrong magic":        []byte(strings.Replace(s, ResultBlockStart, "KESTRELYNX-WORKER-RESULTS", 1)),
-		"wrong version":      []byte(strings.Replace(s, ResultBlockStart+" 1 ", ResultBlockStart+" 2 ", 1)),
+		"wrong version":      []byte(strings.Replace(s, fmt.Sprintf("%s %d ", ResultBlockStart, ProtocolVersion), fmt.Sprintf("%s %d ", ResultBlockStart, ProtocolVersion+1), 1)),
 		"extra header field": []byte(strings.Replace(s, "\n", " extra\n", 1)),
 		"length plus sign": forge(goodTar, func(h *string, _ *[]string) {
 			*h = strings.Replace(*h, fmt.Sprintf(" %d ", len(goodTar)), fmt.Sprintf(" +%d ", len(goodTar)), 1)

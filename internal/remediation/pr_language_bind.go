@@ -27,6 +27,8 @@ func LanguageInputFingerprint(it LanguageItem) string {
 		}
 	}
 	sort.Strings(files)
+	absent := append([]string{}, it.Source.Absent...)
+	sort.Strings(absent)
 	pkgs := []pkg{}
 	for _, p := range it.Packages {
 		if p.Action == ActionUpdate {
@@ -37,8 +39,9 @@ func LanguageInputFingerprint(it LanguageItem) string {
 	return hashCanonical(struct {
 		Key      string   `json:"key"`
 		Files    []string `json:"files"`
+		Absent   []string `json:"absent,omitempty"`
 		Packages []pkg    `json:"packages"`
-	}{it.Key, files, pkgs})
+	}{it.Key, files, absent, pkgs})
 }
 
 // languageLockPath is the lockfile a language item updates, "" when the files
