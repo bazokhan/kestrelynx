@@ -1,8 +1,8 @@
 # Remediation plan and pull request development
 
-- **Status:** Implementation in progress.
+- **Status:** Minimal release implementation complete.
 - **Started:** October 8, 2026
-- **Last updated:** October 10, 2026
+- **Last updated:** October 11, 2026
 
 ## Purpose
 
@@ -91,6 +91,25 @@ Users specify the repository and files in configuration, and KestreLynx matches 
 | pip entries specifying a version range | Notify users that rebuilding is expected to fix the finding |
 | Dependencies requiring third-party code execution, such as source distribution builds or dependencies pointing to local folders or Git repositories | Require manual action |
 
+- **Select update lower bounds and edit direct dependency constraints**
+    - Use running-image findings with scan status `fixed` and reported fixed versions, taking the lowest reported fix newer than the installed version for each finding and then the highest of those versions as the package's update lower bound
+    - Exclude findings without fixed-version information from selection, which does not itself verify resolution
+    - With PRs enabled, separately inspect the updated dependency files and compare before/after scans to check that the targeted vulnerabilities are no longer detected
+    - Warn in the PR body and notifications when an update requires a different major version
+    - When a direct dependency's manifest constraint excludes the fixed version, have KestreLynx edit only the version portion while preserving the operator
+    - Support `1.2.3`, `=1.2.3`, `^1.2.3`, and `~1.2.3` for npm and pnpm, and `==` and `~=` for uv, requiring manual action for other forms that need editing
+- **Apply package manager constraints**
+    - Update pnpm transitive dependencies without specifying a version and inspect the selected version, because pnpm 11 and later reject version-qualified updates to transitive dependencies
+    - Require manual action when an update creates undeclared files, including the configuration file pnpm adds when installing a version published within the last 24 hours
+    - Require manual action for uv projects whose `requires-python` excludes Python 3.13, because uv needs a compatible Python interpreter and the job image contains only Python 3.13
+    - Limit `uv.lock` support to revision 5, which does not require a format rewrite
+    - Check pip dependency resolution using the running image's Python version and wheel tags derived from its OS and CPU architecture
+    - Require manual action for dependencies beneath packages that bundle dependencies through `bundleDependencies` or include shrinkwrap files, because the versions actually installed cannot be verified
+- **Avoid repeating updates and limit job execution**
+    - When a unit has the same inputs, including dependency file contents and update targets, as an open PR, associate it with that PR without rerunning the update or consuming the update job allowance
+    - Set the maximum dependency update units attempted per cycle with `remediation.limits.dependency_jobs_per_cycle`, which defaults to 3 and counts units rather than packages or containers, with multiple containers per unit possible for pip or manifest edits
+    - Set the deadline for each container's creation, execution, and result collection with `remediation.limits.job_timeout`, which defaults to 6 minutes and accepts values from 1 minute to 60 minutes 30 seconds, with a separate 30-second deadline for cleanup
+
 ### Comparison and verification
 
 Compare the original and candidate under the same conditions, using the same scanner and identical vulnerability database content.
@@ -114,6 +133,29 @@ PRs for distributed images include the image rescan comparison. Dockerfile base 
 
 This capability introduces the creation of job containers by KestreLynx through the Docker API.
 
+The current implementation leaves the root filesystem writable in Docker's configuration, while ownership and permissions in the distributed work image prevent the non-root job from writing anywhere in the image's writable layer. Images supplied through `remediation.worker.image` must preserve the same ownership and permission restrictions; reference and digest checks do not inspect all image file permissions at runtime. Docker rejects file transfers into containers with a read-only root filesystem, even when the destination is a tmpfs path, as confirmed with Docker 29.1.3. Allowing results to be written to the image's writable layer would leave the amount written without an enforceable limit.
+
+- **Fix the tools and restrict writes**
+    - Use a dedicated image referenced by digest, with Node.js 24.21.0, npm 11.19.0, pnpm 12.10.1, Python 3.13.16, pip 26.2.1, and uv 0.13.0
+    - Place inputs before startup in a root-owned working directory that is read-only to the job, and use the distributed work image's ownership and permissions to restrict non-root job writes to tmpfs mounts with capacity limits
+    - Run package managers with scripts disabled, without passing tokens, the main application's configuration, or the Docker socket
+    - Accept only image references containing a digest for `remediation.worker.image`
+- **Collect results through standard output**
+    - Have the job write results to standard output, read them from the container logs after it exits, and attempt removal before inspecting the collected results in KestreLynx
+    - Record removal failures and retry during later cleanup, allowing inspection to continue when results were collected
+- **Treat job output as untrusted and inspect it in KestreLynx**
+    - Check changed dependencies against the distribution URLs and integrity or SHA-256 values published by the public npm and PyPI registries
+    - Check that every occurrence of each update target is at or above its fixed version
+    - Check that manifests are unchanged outside the portions edited by KestreLynx and that dependency changes can be explained by the update targets
+    - Scan dependency files before and after the update with Trivy's fs scan using the same vulnerability database, and confirm that the targeted vulnerabilities disappear
+    - Limit output size and processing work
+- **Describe the checks, limits, and their coverage**
+    - Reject version and distribution mismatches with registry metadata that can be detected in supported formats
+    - Limit work-container resources, input and output sizes, and processing work in the main application
+    - Reject failed work-container jobs, partial output, and contradictions between step results and overall job status as successful update results
+    - Check as far as possible that dependency combinations fully match registry declarations and that installers accept the output format, without guaranteeing either
+    - Record these limits under `Not verified` in the PR body and leave the final check to the user's CI installing from the lockfile
+
 ### Creating and replacing PRs
 
 | Area | Handling |
@@ -127,24 +169,39 @@ This capability introduces the creation of job containers by KestreLynx through 
 
 ## Unverified areas and next steps
 
-Read-only remediation plans now include candidate selection, rescan comparisons, and notifications for both distributed images and language packages. Compose tag PR creation is also implemented, with the following verified in a GitHub repository used for validation.
+Language package update PRs for npm, pnpm, uv, and pip are implemented, completing the minimal release scope alongside Compose tag and Dockerfile base image updates.
 
-- PRs change only the targeted tag lines
-- Repeated runs do not create duplicate PRs
-- Updates from closed PRs are not recreated, even after their branches are deleted
-- Branches modified by users are left untouched
-- Lost local records are reconstructed from markers in PR bodies
-- With read-only permissions, writes fail, leave nothing behind, and trigger a notification
-
-Next, implement Dockerfile base image PRs, followed by language package PRs.
-
-- **Add tracking of remediation results**
+- **Verified Compose tag PRs in a GitHub repository used for validation**
+    - PRs change only the targeted tag lines
+    - Repeated runs do not create duplicate PRs
+    - Updates from closed PRs are not recreated, even after their branches are deleted
+    - Branches modified by users are left untouched
+    - Lost local records are reconstructed from markers in PR bodies
+    - With read-only permissions, writes fail, leave nothing behind, and trigger a notification
+- **Verified language package PRs in a GitHub repository used for validation**
+    - Created four PRs covering npm and pnpm transitive updates from minimist 1.2.5 to 1.2.8, a pip update from urllib3 1.26.4 to 2.8.0 with hashes, and a uv update from urllib3 `==1.26.4` to `==2.8.0` including a manifest edit
+    - Repeated runs created no duplicate PRs and ran no update jobs when inputs were unchanged
+    - Job containers were excluded from scan targets and removed after every run
+- **Verified larger dependency sets and arm64 under emulation**
+    - Of eight updates to old transitive dependencies in realistic dependency sets using express and axios, vite, fastapi and httpx, and requests, seven became PR candidates and one required manual action because uv itself could not resolve the dependencies
+    - No valid output was rejected by the checks in these cases
+    - Built the arm64 job image under QEMU on x86_64 and confirmed the same results for all four package manager updates
+- **Unverified environments and limits**
+    - Execution on physical arm64 hardware and rootless Docker remain unverified
+    - Publishing the job image through CI and measurements supporting the default limits remain unverified
+    - The glibc version mapping used to determine pip's target environment has been checked against measurements only on Debian 12 x86_64
+- **Publish the minimal release and track remediation results**
+    - Publish the minimal release, including the job image
     - Pick up images built by a PR's CI and rescan them to verify the results
 - **Expand the supported change targets**
-    - Add Kubernetes definition files and automatic source identification after the minimal release, in turn and guided by user feedback
+    - Add Kubernetes definition files and automatic source identification in turn, guided by user feedback
     - Defer emergency patching that generates patched images
 
 ## Update history
+
+### October 11, 2026
+
+- Language package update PR implementation and validation results
 
 ### October 10, 2026
 

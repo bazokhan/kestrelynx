@@ -81,6 +81,90 @@ Persist the directory containing `state.path` with a Docker volume, or a
 persistent volume in Kubernetes. The intel feed cache lives in an `intel`
 directory beside `state.path`, by default `/var/lib/kestrelynx/intel`.
 
+## Remediation plans and pull requests
+
+[Remediation plans and pull requests (experimental)](remediation.md) are available
+for Docker, including Compose source mappings. Both switches default to `false`.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `remediation.enabled` | `false` | Select candidates, compare scans, and notify a read-only remediation plan without GitHub writes or work containers. |
+| `remediation.pull_requests.enabled` | `false` | Create GitHub pull requests from checked changes and use Docker work containers for language-package updates. |
+| `remediation.github.token` | empty | GitHub token for the mapped repositories; required for pull requests. |
+| `remediation.mappings` | `[]` | Map running Compose workloads to their GitHub source files. |
+| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | Absolute directory for plans, delivery records, and pull request records. |
+| `remediation.worker.image` | empty | Override the release's work image with a digest-pinned reference. |
+
+An empty token allows anonymous reads of public repositories for plans.
+For private repositories, use a fine-grained token limited to the configured
+repositories with Contents read access. Pull requests require Contents and
+Pull requests permissions set to Read and write. Restrict the configuration
+file to its owner; the token is not passed to work containers. Creating a pull
+request may start the repository's CI.
+
+Persist `remediation.storage_dir` across container recreation. Its default is
+inside the supplied state volume; changing `state.path` does not move it.
+
+### Source mappings
+
+Each entry in `remediation.mappings` sets `workload`, `repository`, and
+`base_branch`, plus exactly one source type.
+
+| Field within a mapping | Description |
+| --- | --- |
+| `workload` | `compose/<project>/<service>`, matching the running workload's Compose labels. |
+| `repository` | GitHub repository in `owner/name` form. |
+| `base_branch` | Branch used to read source files and as the pull request base. |
+| `compose.path` / `compose.service` | Repository-relative Compose file and service whose image reference can be edited. |
+| `dockerfile.path` / `dockerfile.target` | Repository-relative Dockerfile and optional build stage; omitting the target selects the last stage. |
+| `dependencies.directory` | Directory containing the dependency files for npm, pnpm, pip, or uv; `.` means the repository root. |
+
+Paths must be normalized and stay inside the repository, without a leading
+`/`, `./`, `..`, or backslashes. A workload can have one mapping of each
+source type in separate entries. Shared dependency directories or Dockerfiles
+must use the same base branch, and a Compose file's service cannot belong to
+multiple workload mappings.
+
+A Compose service with a supported static `build` section can supply its
+Dockerfile path and target without a separate Dockerfile mapping. If both
+are configured, they must agree.
+
+### Processing limits
+
+The following options are under `remediation.limits`. Work beyond a limit is
+reported as deferred, rather than as having no candidate.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `candidate_scans_per_cycle` | `10` | Maximum candidate-image scans per cycle. |
+| `baseline_rescans_per_cycle` | `10` | Maximum baseline rescans needed to match comparison conditions per cycle. |
+| `registry_requests_per_cycle` | `200` | Maximum image-registry HTTP requests per cycle, including token exchanges. |
+| `tag_pages_per_repository` | `20` | Maximum tag-list pages for each image repository. |
+| `cycle_timeout` | `30m` | Deadline for planning, dependency updates, and pull request processing, excluding ordinary running-image scans. |
+| `new_prs_per_cycle` | `3` | Maximum new pull requests per cycle. |
+| `open_prs` | `10` | Maximum open KestreLynx pull requests across the configured repositories. |
+| `dependency_jobs_per_cycle` | `3` | Maximum dependency update units attempted per cycle (not packages or containers); one unit can use multiple containers, as with pip or manifest edits. |
+| `job_timeout` | `6m` | Deadline for each work container's creation, execution, and result collection, from `1m` to `60m30s`; the job inside receives 30 seconds less, and cleanup has a separate 30-second deadline. |
+
+Pull request limits apply when pull requests are enabled. Existing pull requests
+are not closed merely to make room below `open_prs`.
+
+### Work image and startup validation
+
+Each main release specifies a digest-pinned
+`ghcr.io/kitsunetrail/kestrelynx-worker` image. Leave `worker.image` empty to
+use it, or set `repository@sha256:<64 lowercase hex digits>` for a mirror or a
+work image you are verifying. The image is fetched when first needed.
+If it cannot be fetched, or a custom build has no default image and no override,
+language-package updates are deferred; package managers are never run in the
+main container as a fallback.
+
+Startup rejects pull requests without `remediation.enabled` or a token, and
+rejects remediation with `kubernetes.enabled: true`. Storage paths, mappings,
+positive limits, the `job_timeout` range, and any work-image override are
+validated even when remediation is disabled. These configuration checks do
+not establish that a remote repository or image is accessible.
+
 ## Runtime usage
 
 [Runtime usage](runtime-usage.md) is an experimental feature.

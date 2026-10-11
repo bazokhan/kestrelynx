@@ -27,12 +27,26 @@ Dockerホスト / Kubernetesクラスタ
 CISA KEVとEPSSで優先度を判定する（3章）
     │
     ▼
+有効なら修正計画を作る（Dockerのみ）
+    │
+    ▼
+任意で作業用コンテナでの依存更新とGitHubのPR作成を行う
+    │
+    ▼
 保存済みの状態と比べて変化を判定する（4章）
     │
     ├── Slackサマリー：前回からの変化（5・6章）
     ├── Slackスレッド：現在の未解決項目（6章）
     └── 汎用Webhook：現在の状態と差分の構造化データ（7章）
 ```
+
+[修正計画と修正PR（実験的）](remediation.md)は、配布イメージのタグ、Dockerfileの
+ベースイメージ、npm・pnpm・pip・uvで管理する言語パッケージを対象にします。
+どちらも既定で無効で、Sensorなしで利用できます。計画ではソースを読み、条件をそろえて
+イメージのスキャン結果を比較しますが、GitHubへの書き込みや作業用コンテナの起動は行いません。
+PR有効時は言語パッケージを作業用コンテナで更新し、その出力と更新前後の依存ファイルの
+スキャン結果を検査してからPRを提案します。
+候補の比較やPRの作成によって、稼働イメージのレポートの所見が解消になることはありません。
 
 ## 1. スキャンの流れ
 
@@ -282,7 +296,17 @@ Kubernetesの実体未確認で以前のパッケージ検出結果を保持中�
 
 `notify.full_report_day`で指定した曜日は、通知対象の回にSlackの完全レポートを加える。既定は月曜日で、`never`で無効化できる。週次レポートの曜日でも、`notify_on_clean: false`で検出項目も変化もない回の通知は強制しない。
 
-`notify.mode: full`では差分状態を使わず、検出項目かスキャン失敗があれば毎回現在のレポートを送る。何もない場合は、`notify_on_clean: true`のときだけ送る。
+`notify.mode: full`では差分状態を使わず、検出項目かスキャン失敗があれば毎回現在のレポートを送ります。
+どちらもない場合は、`notify_on_clean: true`または以下の修正計画の条件で通知します。
+
+修正計画が有効な場合、どちらの通知モードでも、最後に配信に成功した計画からの変化を
+通知し、計画の利用可否や保存失敗の状態の変化も含みます。生成時刻だけの変化は対象にしません。
+未配信のPR操作のイベントと、PRの書き込みを止める問題も通知の条件になり、
+書き込みを止める問題は継続する間、毎回通知します。
+送信に失敗した計画や操作のイベントは未配信のまま残るため、
+成功したPR作成を繰り返さずに同じ通知が再送される場合があります。
+
+通知の意味とPRに記載する検査内容は[修正計画と修正PR（実験的）](remediation.md)に記載しています。
 
 ## 6. Slackでの表示
 
@@ -694,6 +718,40 @@ Low、通知オフの所見、Slackで畳み込むEOLパッケージ、コンテ
 | `scan_errors[].error` | string | エラー内容 |
 | `diff` | object | 今回の差分で、fullモードでは省略 |
 | `runtime` | object | `runtime.enabled`がtrueの場合のSensorの状態と使用状況の件数で、省略可能 |
+| `remediation` | object | 修正計画と任意のPR処理の結果で、修正計画が無効なら省略 |
+
+### 修正計画と修正PR
+
+`remediation`はSensorとは独立したオブジェクトで、有効時はfull・diffの両方の
+ペイロードに含めます。現在の計画と配信待ちのPR操作のイベントを表し、
+通常の所見や`diff.resolved`の意味は変えません。
+
+| `remediation`のフィールド名 | 型 | 意味 |
+| --- | --- | --- |
+| `schema_version` | integer | このオブジェクトの形式の版で、現在は`1` |
+| `status` | string | 計画を作成できた場合は`ok`、それ以外は`unavailable` |
+| `unavailable_reason` | string | 計画を作成できなかった理由で、それ以外は省略 |
+| `not_saved` | boolean | 計画を保存できなかった場合は`true`、それ以外は省略 |
+| `generated_at` | string | 計画がある場合のRFC 3339形式の生成時刻 |
+| `conditions` | object | 比較スキャンの条件で、取得できた場合の`trivy_version`や`severities`など |
+| `limits` | object | 計画の上限で、`max_candidate_scans`、`max_baseline_rescans`、`max_tag_pages` |
+| `usage` | object | 処理件数で、`candidate_scans`、`baseline_rescans`、`tag_pages`、`registry_requests` |
+| `summary` / `items` | object / 配列 | 配布イメージの分類別件数と、`current`、任意の`candidate`、比較結果を含む項目 |
+| `dockerfile_summary` / `dockerfile_items` | object / 配列 | 該当項目がある場合のベースイメージの分類別件数と項目 |
+| `language_summary` / `language_items` | object / 配列 | 該当項目がある場合の言語パッケージの分類別件数と項目 |
+| `pull_request_summary` / `pull_requests` | object / 配列 | 該当項目がある場合のPR処理の状態別件数と処理単位 |
+| `operations` | 配列 | `phase`、`kind`、`repo`と、任意の`result`、`error`を含む未配信のPR操作のイベント |
+| `problems` | 配列 | `code`と任意の`reason`、`detail`を含む、PRの書き込みを止める問題 |
+
+各項目の結果は`category`と任意の`reason`、`detail`で説明します。
+`dockerfile_items[].final_image_verified`は`false`で、ベースイメージの比較は
+再ビルド後のアプリケーションイメージの検証ではありません。
+言語パッケージの項目は`update_executed`と`post_update_check_executed`を分け、
+`update`、`source_check`、`artifacts`、`pull_request`を含む場合があります。
+manifestの変更は`language_items[].update.manifest_edits`に、
+`file`、`section`、`name`、`from`、`to`と任意の`major_change`で記録します。
+
+通知の読み方、PRの検査とその限界は[修正計画と修正PR（実験的）](remediation.md)に記載しています。
 
 ### サマリー
 

@@ -80,6 +80,86 @@ diffモードでは、新規検出、解消、修正可能化、優先度昇格�
 永続化してください。脅威情報フィードのキャッシュは、`state.path`と同じディレクトリ内の
 `intel`ディレクトリに保存します。既定のパスは`/var/lib/kestrelynx/intel`です。
 
+## 修正計画と修正PR
+
+[修正計画と修正PR（実験的）](remediation.md)はDocker向けの機能で、Composeのソースを
+対応付けて利用できます。2つの有効化設定は、どちらも既定で`false`です。
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `remediation.enabled` | `false` | 候補の選定、スキャン結果の比較、読み取りだけの修正計画の通知を行い、GitHubへの書き込みや作業用コンテナは使いません。 |
+| `remediation.pull_requests.enabled` | `false` | 検査した変更からGitHubにPRを作成し、言語パッケージの更新にはDockerの作業用コンテナを使います。 |
+| `remediation.github.token` | 空 | 対応付けたリポジトリ用のGitHub tokenで、PRには必須です。 |
+| `remediation.mappings` | `[]` | 稼働中のComposeワークロードとGitHub上のソースファイルを対応付けます。 |
+| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | 計画、配信記録、PR記録を保存する絶対パスのディレクトリです。 |
+| `remediation.worker.image` | 空 | リリースに対応する作業用イメージを、digest付きの参照で上書きします。 |
+
+tokenが空の場合、計画では公開リポジトリを匿名で読み取れます。
+非公開リポジトリには、対象リポジトリに限定し、Contentsの読み取り権限を持つ
+fine-grained tokenを使います。PRにはContentsとPull requestsのRead and write権限が
+必要です。設定ファイルは所有者だけが読めるようにしてください。
+tokenは作業用コンテナへ渡しません。PRの作成でリポジトリのCIが起動する場合があります。
+
+コンテナを作り直しても`remediation.storage_dir`を保持してください。
+既定では同梱の状態保存用ボリューム内にありますが、`state.path`を変えてもこの保存先は変わりません。
+
+### ソースの対応付け
+
+`remediation.mappings`の各項目に、`workload`、`repository`、`base_branch`と、
+ちょうど1種類のソースを設定します。
+
+| 対応付け内のフィールド | 説明 |
+| --- | --- |
+| `workload` | 稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`です。 |
+| `repository` | `owner/name`形式のGitHubリポジトリです。 |
+| `base_branch` | ソースの取得元とPRの宛先に使うブランチです。 |
+| `compose.path` / `compose.service` | リポジトリ相対のComposeファイルと、イメージ参照を編集するサービスです。 |
+| `dockerfile.path` / `dockerfile.target` | リポジトリ相対のDockerfileと任意のビルド対象ステージで、targetを省略すると最後のステージを使います。 |
+| `dependencies.directory` | npm・pnpm・pip・uvの依存ファイルを含むディレクトリで、`.`はリポジトリのルートです。 |
+
+パスはリポジトリ内の正規化したパスとし、先頭の`/`、`./`、`..`、
+バックスラッシュは使えません。同じワークロードには、ソースの種類ごとに1件ずつ、
+別の項目で対応付けを設定できます。共有する依存ディレクトリやDockerfileは
+同じbase branchを指定し、同じComposeファイルのサービスを複数のワークロードに対応付けることはできません。
+
+Composeサービスの`build`が対応する静的な形式なら、別のDockerfileの対応付けなしで
+パスとtargetを取得できます。両方を設定する場合は、一致している必要があります。
+
+### 処理の上限
+
+次の設定は`remediation.limits`配下に指定します。
+上限を超えた処理は、候補なしではなく延期として通知します。
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `candidate_scans_per_cycle` | `10` | 1サイクルの候補イメージのスキャン上限です。 |
+| `baseline_rescans_per_cycle` | `10` | 比較条件をそろえるために行う、1サイクルの比較元の再スキャン上限です。 |
+| `registry_requests_per_cycle` | `200` | token交換を含む、1サイクルのイメージレジストリへのHTTP要求の上限です。 |
+| `tag_pages_per_repository` | `20` | イメージリポジトリごとのタグ一覧のページ上限です。 |
+| `cycle_timeout` | `30m` | 計画、依存更新、PR処理の期限で、通常の稼働イメージのスキャンは含みません。 |
+| `new_prs_per_cycle` | `3` | 1サイクルで新しく作成するPRの上限です。 |
+| `open_prs` | `10` | 設定したリポジトリ全体で開いているKestreLynxのPRの上限です。 |
+| `dependency_jobs_per_cycle` | `3` | 1サイクルで試みる依存更新の単位数の上限です（パッケージ数やコンテナ数ではありません）。pipの単位やmanifestを編集する単位など、1つの単位で複数のコンテナを使うことがあります。 |
+| `job_timeout` | `6m` | 各作業用コンテナの作成・実行・結果回収の期限で、`1m`〜`60m30s`を指定でき、内部のジョブには30秒短い期限を渡します。後片付けには別途30秒の期限を使います。 |
+
+PRの上限はPR有効時に適用します。`open_prs`の枠を空けるためだけに
+既存PRを閉じることはありません。
+
+### 作業用イメージと起動時の検証
+
+本体のリリースごとに、`ghcr.io/kitsunetrail/kestrelynx-worker`のイメージをdigestで
+固定しています。`worker.image`を空にするとそのイメージを使い、ミラーや検証用の
+作業用イメージには`repository@sha256:<小文字の16進数64桁>`を指定できます。
+初めて必要になったときに取得します。取得できない場合や、独自ビルドに既定イメージがなく
+上書きも指定していない場合は、言語パッケージの更新を延期し、本体のコンテナ内で
+パッケージマネージャーを代わりに実行することはありません。
+
+`remediation.enabled`やtokenなしでPRだけを有効にした場合と、
+`kubernetes.enabled: true`で修正計画を有効にした場合は起動時にエラーになります。
+保存先、対応付け、上限が正の値であること、`job_timeout`の範囲、
+作業用イメージの上書きの形式は、機能が無効でも検証します。
+この設定の検証だけで、リモートのリポジトリやイメージにアクセスできることは確認しません。
+
 ## 稼働時の使用状況
 
 [稼働時の使用状況](runtime-usage.md)は実験的な機能です。

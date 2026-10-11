@@ -27,12 +27,27 @@ Group findings by image, package, and fix status (Chapter 2)
 Assign priority using CISA KEV and EPSS (Chapter 3)
     │
     ▼
+Build a remediation plan when enabled (Docker only)
+    │
+    ▼
+Optionally update dependencies in work containers and create GitHub pull requests
+    │
+    ▼
 Compare with persisted state to detect changes (Chapter 4)
     │
     ├── Slack summary: changes since the previous scan (Chapters 5 and 6)
     ├── Slack thread: current unresolved findings (Chapter 6)
     └── Generic webhook: structured current state and diff (Chapter 7)
 ```
+
+[Remediation plans and pull requests (experimental)](remediation.md) cover
+published image tags, Dockerfile base images, and language packages managed
+with npm, pnpm, pip, or uv. Both are disabled by default and work without a
+Sensor. Planning reads sources and compares image scans under matching
+conditions; it does not write to GitHub or start work containers. With pull
+requests enabled, language updates run in work containers and their output
+and before/after dependency-file scans are checked before proposing a PR.
+Candidate comparisons and PR creation do not resolve findings in the running-image report.
 
 ## 1. Scan cycle
 
@@ -282,7 +297,18 @@ When an unconfirmed Kubernetes identity causes previous package findings to be r
 
 On the weekday selected by `notify.full_report_day`, a full Slack report is added to cycles that qualify for notification. The default is Monday, and `never` disables it. Even on the weekly report day, no notification is forced for a cycle without findings or changes when `notify_on_clean: false`.
 
-With `notify.mode: full`, diff state is not used, and every cycle with findings or scan failures sends the current report. If neither exists, a report is sent only when `notify_on_clean: true`.
+With `notify.mode: full`, diff state is not used, and every cycle with findings or scan failures sends the current report. Without either, `notify_on_clean: true` or the remediation conditions below can trigger a report.
+
+With remediation enabled, both notification modes also report changes from the
+last successfully delivered plan, including changes in plan availability or
+saving failures. Generation timestamps alone do not count as changes.
+Undelivered PR operation events and problems that block PR writes also trigger
+delivery; blocking problems are reported each cycle while they persist.
+Delivery failures leave the plan and operation events pending, so notifications
+can repeat without repeating a successful PR creation.
+
+See [Remediation plans and pull requests (experimental)](remediation.md) for
+notification meanings and the checks described in pull requests.
 
 ## 6. Slack presentation
 
@@ -697,6 +723,42 @@ Top-level fields provide the scan time, environment, findings by fix status, fai
 | `scan_errors[].error` | string | Error details. |
 | `diff` | object | Current changes; omitted in full mode. |
 | `runtime` | object | Optional Sensor status and usage counts when `runtime.enabled` is true. |
+| `remediation` | object | Remediation plan and optional PR results; omitted when remediation is disabled. |
+
+### Remediation plans and pull requests
+
+The `remediation` object is independent of the Sensor and is included in both
+full and diff payloads when enabled. It describes the current plan and PR
+operation events awaiting delivery, without changing the meaning of ordinary
+findings or `diff.resolved`.
+
+| `remediation` field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | integer | Format version of this object, currently `1`. |
+| `status` | string | `ok` when a plan was produced, or `unavailable`. |
+| `unavailable_reason` | string | Reason no plan was produced; omitted otherwise. |
+| `not_saved` | boolean | `true` when the plan could not be saved; omitted otherwise. |
+| `generated_at` | string | Plan generation time in RFC 3339 format, when a plan exists. |
+| `conditions` | object | Comparison scan conditions, including `trivy_version` and `severities` when available. |
+| `limits` | object | Planning limits named `max_candidate_scans`, `max_baseline_rescans`, and `max_tag_pages`. |
+| `usage` | object | Work counts named `candidate_scans`, `baseline_rescans`, `tag_pages`, and `registry_requests`. |
+| `summary` / `items` | object / array | Published-image category counts and items with `current`, optional `candidate`, and comparison results. |
+| `dockerfile_summary` / `dockerfile_items` | object / array | Base-image category counts and items, when present. |
+| `language_summary` / `language_items` | object / array | Language-package category counts and items, when present. |
+| `pull_request_summary` / `pull_requests` | object / array | PR processing status counts and units, when present. |
+| `operations` | array | Undelivered PR operation events with `phase`, `kind`, `repo`, and optional `result` and `error`. |
+| `problems` | array | Problems blocking PR writes, with `code` and optional `reason` and `detail`. |
+
+Items use `category` and optional `reason` and `detail` to explain outcomes.
+`dockerfile_items[].final_image_verified` is `false`: comparing base images
+does not verify a rebuilt application image. Language items distinguish
+`update_executed` and `post_update_check_executed` and can include `update`,
+`source_check`, `artifacts`, and `pull_request`.
+Manifest changes appear in `language_items[].update.manifest_edits`, with
+`file`, `section`, `name`, `from`, `to`, and optional `major_change`.
+
+See [Remediation plans and pull requests (experimental)](remediation.md) for
+how to read notifications, PR checks, and their limits.
 
 ### Summary
 

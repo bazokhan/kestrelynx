@@ -13,6 +13,9 @@ The Sensor observes packages used by running programs, and KestreLynx includes
 the results in Slack and webhook notifications. With triage disabled, usage is
 still shown, but results are not reordered.
 
+[Remediation plans and pull requests (experimental)](remediation.md) do not require
+the Sensor and can be used with `runtime.enabled: false`.
+
 ## Meaning of usage
 
 | Usage | Meaning |

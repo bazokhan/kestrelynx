@@ -41,7 +41,8 @@ notify:
   language: "en"
 
 docker:
-  # Path to docker.sock. KestreLynx only performs GET /containers/json.
+  # Path to docker.sock for container/image reads and, with remediation pull
+  # requests enabled, management of language-update work containers.
   socket: "/var/run/docker.sock"
 
 # Kubernetes adapter (alternative to docker: above, not both). See
@@ -130,27 +131,32 @@ runtime:
   # enabled above is also true.
   mute_unfixable_not_in_use: false
 
-# Fix plan (experimental). For each running image that has a fixed
-# vulnerability, look for a newer image in its registry, scan it under the
-# same vulnerability databases as the running one, and report whether updating
-# would resolve the findings. By default nothing is pulled, changed or created;
-# the plan appears as a short "Fix plan" section in Slack and a `remediation`
-# object in the generic webhook payload. With pull_requests enabled, KestreLynx
-# also opens pull requests that change the image tag of Compose services and
-# the base image tag of Dockerfiles (see below). Docker only (not supported with
-# kubernetes.enabled). Public registries only; it needs outbound HTTPS to the
-# image registries and downloads the Trivy databases before each cycle.
-# Disabled by default; with it off, scans and notifications are unchanged.
+# Fix plan (experimental). Docker only (including Compose source mappings);
+# enabling it with kubernetes.enabled is a configuration error. Both plans
+# and pull requests are disabled by default. Plans select update candidates
+# for published images, Dockerfile base images and npm/pnpm/pip/uv packages,
+# compare image scans under the same databases and settings, and report in
+# Slack and the generic webhook's remediation object. Planning does not write
+# to GitHub or use work containers; it does save local records and scan caches.
+# Pull requests additionally allow GitHub writes and Docker work containers
+# for language-package updates. A candidate or PR does not mean a running
+# image is fixed, and KestreLynx does not merge or deploy it.
+# Planning needs outbound HTTPS to public image registries, GitHub for mapped
+# sources, and Trivy database downloads; language updates also use public npm
+# and PyPI and require the Docker daemon to fetch the work image.
+# With remediation disabled, scans and notifications are unchanged.
 #
 # remediation:
 #   enabled: true
-#   # Open one pull request per Compose file and running image that updates
-#   # services.<service>.image to the adopted newer patch tag, and one per
-#   # Dockerfile FROM that updates the base image's tag the same way. Only that
-#   # tag is edited; nothing is merged and no existing branch is changed. Needs remediation.enabled, Docker mode, compose
-#   # mappings below and github.token. Opening a pull request can start the
-#   # repository's CI (workflows that run on pull_request events), so enable it
-#   # only for repositories where that is acceptable. Off by default.
+#   # Create PRs for checked changes: Compose services.<service>.image tags,
+#   # Dockerfile FROM tags, or language dependency files. Image tag updates
+#   # stay in the same major/minor series; language updates can cross major
+#   # versions. Requires remediation.enabled, Docker mode, source mappings and
+#   # github.token. No automatic merge or deployment; existing branches are
+#   # not rewritten. PR creation can start the repository's pull_request CI.
+#   # Language updates run in disposable Docker work containers, with their
+#   # output and before/after dependency-file scans checked by KestreLynx.
+#   # Neither application tests nor image rebuilds are run. Off by default.
 #   pull_requests:
 #     enabled: false
 #   # Token for GitHub. Empty reads public repositories anonymously, which is
@@ -161,7 +167,9 @@ runtime:
 #   # owner only.
 #   github:
 #     token: ""
-#   # Where the plan and delivery records are kept (an absolute path).
+#   # Absolute directory for plans, delivery and PR records; persist it across
+#   # container recreation. It is independent of state.path and defaults to a
+#   # directory inside the supplied state volume.
 #   storage_dir: /var/lib/kestrelynx/remediation
 #   # Where each running Compose workload's source lives. Read and validated at
 #   # startup. Each entry sets exactly one of compose (the Compose file and
@@ -187,6 +195,37 @@ runtime:
 #   # with a floating tag (for example python:3.12) gets no pull request; the
 #   # plan says whether the tag still points at the base the image was built from
 #   # and suggests rebuilding with `docker compose build --pull` if it does not.
+#   #
+#   # A dependencies mapping selects npm, pnpm, pip or uv files in one source
+#   # directory. With PRs enabled, npm/pnpm/uv update lockfiles in work
+#   # containers; pip validates the original and updated requirements.txt in
+#   # separate containers. Selection uses running-image findings with scan
+#   # status fixed and reported fixed versions, excluding findings without
+#   # fixed-version information. For each finding, take the lowest reported
+#   # fix newer than the installed version, then use the highest of those
+#   # versions as the package's update lower bound. This selection does not
+#   # verify resolution; with PRs enabled, updated dependency files are checked
+#   # separately, including before/after scans. Updates may cross a major
+#   # version; PR bodies and notifications call out major changes.
+#   # If a direct dependency's range excludes a fixed version, only the
+#   # version part of a supported manifest specifier is edited: X.Y.Z,
+#   # =X.Y.Z, ^X.Y.Z or ~X.Y.Z for npm/pnpm, and == or ~= for uv.
+#   # Transitive updates must stay within existing dependency constraints.
+#   # Workspaces, Git/URL/local dependencies and dependencies requiring source
+#   # builds need manual handling; npm packages that bundle dependencies or
+#   # carry shrinkwrap, and packages nested under them, are also restricted.
+#   # uv requires revision 5 of uv.lock and a requires-python constraint that
+#   # admits the work image's Python 3.13.16.
+#   # Work containers receive no GitHub token, main configuration or Docker
+#   # socket; they run as non-root with all capabilities dropped,
+#   # no-new-privileges and resource/time limits. With the distributed work
+#   # image, ownership and permissions restrict writes to size-capped tmpfs.
+#   # Override images must preserve the same ownership and permission
+#   # restrictions; reference and digest checks do not inspect all image file
+#   # permissions at runtime.
+#   # The main process creates, starts and removes them through Docker API.
+#   # A :ro socket mount does not limit these API operations and need not
+#   # change to :rw.
 #   mappings:
 #     - workload: compose/example/web
 #       repository: example/deployment
@@ -205,13 +244,14 @@ runtime:
 #       dockerfile:
 #         path: docker/Dockerfile
 #         target: runtime
-#   # Per-cycle limits (provisional defaults shown). Every value must be
-#   # positive. Work past a limit is reported as deferred, not dropped.
-#   # tag_pages_per_repository applies to each repository separately;
-#   # cycle_timeout is the deadline of the plan stage, not of the scans.
-#   # new_prs_per_cycle is how many pull requests one cycle may open;
-#   # open_prs is how many of KestreLynx's pull requests may be open at once
-#   # (an old one is never closed to make room).
+#   # Processing limits. Every value must be positive; work beyond a limit is
+#   # deferred, not counted as having no candidate. Candidate scans and
+#   # baseline rescans have separate per-cycle budgets. Registry requests
+#   # include token exchanges; tag_pages_per_repository is per repository.
+#   # cycle_timeout covers planning, dependency updates and PR processing,
+#   # not the ordinary scans of running images.
+#   # new_prs_per_cycle caps new PRs per cycle; open_prs caps open KestreLynx
+#   # PRs across configured repositories (none is closed just to make room).
 #   limits:
 #     candidate_scans_per_cycle: 10
 #     baseline_rescans_per_cycle: 10
@@ -220,19 +260,23 @@ runtime:
 #     cycle_timeout: 30m
 #     new_prs_per_cycle: 3
 #     open_prs: 10
-#     # With pull requests enabled, a dependency mapping's update runs in a
-#     # throwaway work container. dependency_jobs_per_cycle is how many such
-#     # updates one cycle runs (work past it is deferred) and job_timeout how
-#     # long one container may live, from creation to deletion (1m to 1h30s: the
-#     # job inside gets 30s less, and the work image accepts at most 1h).
+#     # With PRs enabled, dependency_jobs_per_cycle caps dependency update
+#     # units attempted per cycle, not packages or containers; one unit can
+#     # use multiple containers, as with pip or manifest edits.
+#     # Units beyond this limit are deferred.
+#     # job_timeout bounds each container's creation, execution and result
+#     # collection, not the whole unit; cleanup has a separate 30s deadline.
+#     # The accepted range is 1m to 60m30s, with 30s reserved from the internal
+#     # job's deadline for startup and reporting (internal maximum: 60m).
 #     dependency_jobs_per_cycle: 3
 #     job_timeout: 6m
-#   # The work image that dependency updates run in: a digest-pinned reference,
-#   # repository@sha256:<64 hex digits>. Leave it unset to use the image this
-#   # release carries; a build that carries none cannot run dependency updates,
-#   # and the plan says so. Set it only to try another work image or to point
-#   # at a mirror of the released one. The image is pulled when a cycle first
-#   # needs it, and KestreLynx never runs the package managers itself if it
-#   # cannot be pulled.
+#   # Each main release specifies ghcr.io/kitsunetrail/kestrelynx-worker by
+#   # digest. Leave worker.image unset to use it; override with a reference
+#   # repository@sha256:<64 lowercase hex digits> for a mirror or verification.
+#   # The Docker daemon fetches it when first needed. An unavailable image,
+#   # or a custom build with neither a default nor an override, defers language
+#   # updates; package managers are never run in the main container instead.
+#   # The override's format, mappings, storage path and limits are validated
+#   # at startup even when remediation is disabled.
 #   # worker:
 #   #   image: registry.example.com/kestrelynx-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000

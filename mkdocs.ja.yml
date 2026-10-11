@@ -21,6 +21,7 @@ nav:
       - 概要: documentation/index.md
       - セットアップ: documentation/getting-started.md
       - 設定: documentation/configuration.md
+      - 修正計画と修正PR（実験的）: documentation/remediation.md
       - 稼働時の使用状況（実験的）: documentation/runtime-usage.md
       - 仕組み: documentation/how-it-works.md
   - 開発ログ:

@@ -97,6 +97,30 @@ available and annotate upgrade risk, without guaranteeing compatibility.
 
 <div class="kl-section" markdown>
 
+## Remediation plans and pull requests (experimental)
+
+For Docker and Compose, KestreLynx can propose changes to three kinds of source:
+
+- Published image tags in Compose files
+- Base image tags in Dockerfiles
+- Language-package dependencies managed with npm, pnpm, pip, or uv
+
+Both remediation plans and pull requests are disabled by default.
+Plans select candidates, compare scans, and notify without writing to GitHub
+or starting work containers. Enabling pull requests separately allows GitHub
+changes and Docker work containers for language-package updates.
+
+A candidate or pull request does not mean the running image has been fixed.
+Review the comparison scope and run your CI before merging; rebuilding and
+deploying remain separate steps.
+
+See [Remediation plans and pull requests (experimental)](documentation/remediation.md)
+for setup, notifications, and permissions.
+
+</div>
+
+<div class="kl-section" markdown>
+
 ## Scope and access
 
 For self-hosted services where you want to review vulnerability changes in the
@@ -112,7 +136,7 @@ images your containers are running.
 <dt>Discovery</dt>
 <dd markdown="span">Containers must be running when discovered. Kubernetes native sidecars are included; ordinary init containers and ephemeral containers are excluded.</dd>
 <dt>Docker socket access</dt>
-<dd markdown="span">KestreLynx reads container information and Trivy reads images through the Docker API. Mounting the socket with `:ro` does not restrict API permissions, so the mounted image must be trusted.</dd>
+<dd markdown="span">KestreLynx reads container information and Trivy reads images through the Docker API; with remediation pull requests enabled, KestreLynx also creates, starts, and removes work containers for language-package updates. Mounting the socket with `:ro` does not restrict API permissions and does not need to change to `:rw`, so the mounted image must be trusted.</dd>
 </dl>
 
 </div>
@@ -182,6 +206,7 @@ and first-seen dates.
 
 - [Setup](documentation/getting-started.md)
 - [Configuration](documentation/configuration.md)
+- [Remediation plans and pull requests (experimental)](documentation/remediation.md)
 - [Runtime usage (experimental)](documentation/runtime-usage.md)
 - [How it works](documentation/how-it-works.md)
 

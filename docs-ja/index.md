@@ -85,6 +85,27 @@ Trivyでスキャンし、既定では修正版のないものも含めてHIGH�
 
 <div class="kl-section" markdown>
 
+## 修正計画と修正PR（実験的）
+
+Docker・Compose向けに、次の3種類のソースの変更を提案できます。
+
+- Composeファイルの配布イメージのタグ
+- Dockerfileのベースイメージのタグ
+- npm・pnpm・pip・uvで管理する言語パッケージの依存
+
+修正計画と修正PRは、どちらも既定で無効です。計画は候補の選定、スキャン結果の比較、
+通知を行い、GitHubへの書き込みや作業用コンテナの起動は行いません。
+PRを別途有効にすると、GitHubへの変更と、言語パッケージ更新用のDockerの作業用コンテナを使います。
+
+候補やPRがあることは、稼働イメージが修正済みであることを意味しません。
+比較した範囲を確認し、マージ前にCIを実行してください。再ビルドとデプロイは別途必要です。
+
+設定、通知、権限は[修正計画と修正PR（実験的）](documentation/remediation.md)に記載しています。
+
+</div>
+
+<div class="kl-section" markdown>
+
 ## 用途・対応範囲・必要な権限
 
 セルフホストしているサービスについて、稼働中のコンテナが使うイメージの脆弱性を継続して確認する用途に向いています。
@@ -99,7 +120,7 @@ Trivyでスキャンし、既定では修正版のないものも含めてHIGH�
 <dt>発見の範囲</dt>
 <dd markdown="span">発見時に稼働中のコンテナが対象で、Kubernetesのネイティブsidecarを含み、通常のinit containerとephemeral containerは対象外</dd>
 <dt>Docker socketの権限</dt>
-<dd markdown="span">コンテナ情報やイメージの読み取りに使うが、`:ro`はDocker APIの権限を制限しないため、接続先のイメージを信頼できることが前提</dd>
+<dd markdown="span">コンテナ情報やイメージの読み取りに加え、修正PR有効時は言語パッケージ更新用の作業用コンテナの作成・起動・削除にも使い、`:ro`はDocker APIの権限を制限せず`:rw`への変更も不要なため、接続先のイメージを信頼できることが前提</dd>
 </dl>
 
 </div>
@@ -162,6 +183,7 @@ Docker Composeでの手順です。Docker Composeが使えるDockerホストと�
 
 - [セットアップ](documentation/getting-started.md)
 - [設定](documentation/configuration.md)
+- [修正計画と修正PR（実験的）](documentation/remediation.md)
 - [稼働時の使用状況（実験的）](documentation/runtime-usage.md)
 - [仕組み](documentation/how-it-works.md)
 

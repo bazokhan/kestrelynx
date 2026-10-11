@@ -25,6 +25,7 @@
 - **Environment identification**: optional environment name in Slack headers
 - **Container identification**: container names, Compose project/service, and Kubernetes workload information in the generic webhook
 - **Running-image verification**: scan pinning to observed identifiers such as digests, with identity matching
+- **Remediation plans and pull requests (experimental)**: Docker update candidates for published images, Dockerfile bases, and npm / pnpm / pip / uv dependencies, with optional GitHub pull requests
 
 ## Supported environments
 
@@ -98,6 +99,70 @@ Long notifications continue in additional messages with repeated section and ima
 - **Allowed combination**: either Slack Incoming Webhook or Slack Bot, plus the generic webhook
 - **Unsupported combination**: Slack Incoming Webhook and Slack Bot together
 
+## Remediation plans and pull requests (experimental)
+
+### Supported targets
+
+For Docker and Compose, KestreLynx can propose the following updates.
+
+- **Published images**
+    - Tag updates
+- **Dockerfile**
+    - Base image tag updates
+- **Language packages**
+    - Dependency updates managed with npm, pnpm, pip, or uv
+
+### Plan and pull request settings
+
+Both remediation plans and pull requests are disabled by default.
+
+| Setting | Behavior when enabled |
+| --- | --- |
+| `remediation.enabled` | Selects candidates, compares scans, and adds a plan to notifications, without GitHub writes or work containers |
+| `remediation.pull_requests.enabled` | When enabled alongside plans, creates GitHub PRs and uses Docker work containers for language-package updates |
+
+### Required permissions and configuration errors
+
+- **GitHub authentication**
+    - Use a fine-grained token limited to the mapped repositories
+    - Set Contents and Pull requests to Read and write
+- **Configuration errors**
+    - Enabling PRs without plans
+    - Enabling remediation plans in Kubernetes mode
+
+### Language package update selection
+
+KestreLynx selects a lower bound for each package's update target from running-image findings.
+
+- **Eligible findings**
+    - Findings with scan status `fixed` and reported fixed versions
+    - Findings without fixed-version information are excluded
+- **Lower-bound selection**
+    1. For each finding, take the lowest reported fix newer than the installed version
+    2. Use the highest of those versions as the lower bound for the package's update target
+- **Checks after selection**
+    - Selecting this lower bound does not verify that the vulnerabilities are resolved
+    - With PRs enabled, the updated dependency files are checked separately, including before/after scans
+
+### PR limitations and checks before merging
+
+- **Changes an update may require**
+    - A major version change or an edit to a direct dependency's manifest constraint
+    - Major version changes are flagged in the PR body and notifications
+- **PR limitations**
+    - A PR does not mean the running image is fixed
+    - Application compatibility and tests are not checked
+    - Dockerfile and dependency changes are not rebuilt into an image
+- **Dependency-file checks**
+    - Checks only partly verify that dependency combinations agree with registry declarations and use formats accepted by installers
+
+Run CI that installs from the lockfile before merging.
+
+### Details
+
+See [Remediation plans and pull requests (experimental)](docs/documentation/remediation.md)
+for notification meanings, PR checks, and permissions.
+
 ## Quick start: Docker
 
 You need a working Docker host and at least one notification target. The distributed image includes Trivy.
@@ -143,8 +208,11 @@ docker compose logs -f
 
 - **Discovery**: running-container listing through `GET /containers/json`; the main agent also uses `GET /containers/{id}/json` when `runtime.enabled: true`
 - **Image access**: Docker API reads by Trivy
-- **Container operations**: no start, stop, or modification functionality
-- **`:ro` limitation**: no restriction on Docker API permissions
+- **Container operations**: creation, startup, and removal of owned work containers for language-package updates when remediation pull requests are enabled, without modifying monitored application containers
+- **Work-container restrictions**: non-root user, all capabilities dropped, no-new-privileges, and resource and time limits
+- **Work-container writes**: limited to size-capped tmpfs with the distributed work image, with the same ownership and permission restrictions required for override images and no runtime inspection of all image file permissions
+- **Work-container credentials**: no GitHub token, main configuration, or Docker socket, with output checked by KestreLynx
+- **`:ro` limitation**: no restriction on Docker API permissions and no need to change the socket mount to `:rw` for PRs
 - **Mount targets**: trusted images only
 
 ## Running on Kubernetes
@@ -188,6 +256,13 @@ See [config.example.yml](config.example.yml) for all configuration options and t
 | `triage.enabled` | `true`: KEV/EPSS prioritization (default); `false`: severity-based notifications |
 | `triage.act_now_epss` / `triage.watch_epss` | EPSS thresholds (defaults: `0.10` / `0.01`) |
 | `triage.discussion_links` | Hacker News discussion lookup (default: `true`) |
+| `remediation.enabled` | Read-only remediation plans (default: `false`; Docker only) |
+| `remediation.pull_requests.enabled` | GitHub PRs and work containers for language updates (default: `false`; requires plans and a token) |
+| `remediation.github.token` | Token limited to the mapped GitHub repositories (default: empty) |
+| `remediation.mappings` | Compose workload to repository, base branch, and Compose / Dockerfile / dependency source mappings |
+| `remediation.storage_dir` | Persistent remediation records (default: `/var/lib/kestrelynx/remediation`) |
+| `remediation.limits` | Scan, registry, PR, dependency-update, and time limits described in the configuration reference |
+| `remediation.worker.image` | Digest-pinned work-image override (default: the image specified by the main release) |
 
 - **Environment-name characters**: lowercase alphanumerics and hyphens, with alphanumeric first and last characters
 - **Environment-name length**: 1–63 characters, or empty
@@ -202,6 +277,12 @@ See [config.example.yml](config.example.yml) for all configuration options and t
 - **Search data**: CVE IDs qualifying as act-now based on exploitation signals
 - **Search opt-out**: `triage.discussion_links: false`, with CVE delivery to notification targets still enabled
 - **Other traffic**: vulnerability database and image retrieval by Trivy, plus results sent to configured notification targets
+- **Remediation planning**: HTTPS to public image registries and GitHub (`api.github.com`) for configured sources, plus Trivy database and candidate-image downloads
+- **Language-package updates**: HTTPS to the public npm registry (`registry.npmjs.org`) and PyPI (`pypi.org` and `files.pythonhosted.org`) for package metadata and distributions
+- **Work-image retrieval**: Docker daemon access to `ghcr.io/kitsunetrail/kestrelynx-worker` at the digest specified by the main release, or the registry in `remediation.worker.image`, when first needed
+- **Unavailable work image**: deferred language-package updates, without running package managers in the main container
+- **GitHub writes**: PRs only when separately enabled, potentially triggering the repository's CI
+- **Work-container network**: Docker bridge networking without strict destination filtering
 - **Failed scans or unconfirmed identity**: retention of previous findings, without resolution based on that cycle's results
 - **Resolution meaning**: disappearance from the current monitored scope, including stopped containers or scope changes
 - **Upgrade-risk annotations**: indicators such as version-change size, without compatibility or safety guarantees

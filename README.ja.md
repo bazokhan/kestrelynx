@@ -25,6 +25,7 @@
 - **環境の識別**：Slack見出しへの任意の環境名の表示
 - **対象コンテナの識別**：汎用Webhookへのコンテナ名・Composeプロジェクト／サービス・Kubernetes Workload情報の付加
 - **稼働イメージの検証**：digestなどによるスキャン対象の固定と実体の一致確認
+- **修正計画と修正PR（実験的）**：Docker向けの配布イメージ・Dockerfileのベース・npm／pnpm／pip／uv依存の更新候補と、任意のGitHubのPR作成
 
 ## 対応環境
 
@@ -98,6 +99,69 @@
 - **併用可能**：Slack Incoming WebhookまたはSlack Botと、汎用Webhook
 - **併用不可**：Slack Incoming WebhookとSlack Bot
 
+## 修正計画と修正PR（実験的）
+
+### 対象
+
+Docker・Compose向けに、次の更新を提案できます。
+
+- **配布イメージ**
+    - タグの更新
+- **Dockerfile**
+    - ベースイメージのタグの更新
+- **言語パッケージ**
+    - npm・pnpm・pip・uvで管理する依存の更新
+
+### 修正計画と修正PRの設定
+
+修正計画と修正PRはどちらも既定で無効です。
+
+| 設定 | 有効にしたときの動作 |
+| --- | --- |
+| `remediation.enabled` | 候補の選定・スキャン結果の比較・計画の通知を行います（GitHubへの書き込み・作業用コンテナの使用なし）。 |
+| `remediation.pull_requests.enabled` | 修正計画に追加で有効にするとGitHubにPRを作成し、言語パッケージの更新にはDockerの作業用コンテナを使用します。 |
+
+### 必要な権限と設定エラー
+
+- **GitHubの認証**
+    - 対応付けたリポジトリに限定したfine-grained tokenを使用
+    - ContentsとPull requestsをRead and writeに設定
+- **設定エラーになる組み合わせ**
+    - 計画なしでPRだけを有効にした場合
+    - Kubernetesモードで修正計画を有効にした場合
+
+### 言語パッケージの更新先の決め方
+
+稼働イメージの所見から、パッケージの更新目標の下限を選びます。
+
+- **選定対象**
+    - スキャンの状態が`fixed`で修正版情報がある所見
+    - 修正版情報のない所見は対象外
+- **下限の決め方**
+    1. 各所見について、稼働版より新しい最小の報告修正版を求める
+    2. その最大値をパッケージの更新目標の下限にする
+- **選定後の検査**
+    - 下限の選定だけでは脆弱性の解消確認にはならない
+    - PR有効時に、更新前後のスキャンを含めて依存ファイルを別途検査する
+
+### PRの注意点とマージ前の確認
+
+- **更新に伴う変更**
+    - メジャー版の変更や、直接依存のmanifestの版指定の編集が必要になる場合がある
+    - メジャー版の変更はPR本文と通知で注意を表示
+- **PRで確認・実行しないこと**
+    - PRがあることは、稼働イメージが修正済みであることを意味しない
+    - 互換性やテストは確認しない
+    - Dockerfileや依存ファイルの変更からイメージを再ビルドしない
+- **検査の範囲**
+    - 依存の組み合わせがレジストリの宣言と一致するか、インストーラが受け付ける形式かは、可能な範囲だけの検査
+
+マージ前に、lockfileからインストールするCIを実行してください。
+
+### 詳細
+
+通知の意味、PRの検査、権限は[修正計画と修正PR（実験的）](docs-ja/documentation/remediation.md)を参照してください。
+
 ## クイックスタート：Docker
 
 Dockerが動作するホストと、少なくとも1つの通知先が必要です。配布イメージにはTrivyを同梱しています。
@@ -143,8 +207,11 @@ docker compose logs -f
 
 - **対象取得**：`GET /containers/json`による稼働中コンテナの一覧取得、`runtime.enabled: true`では本体が`GET /containers/{id}/json`も使用
 - **イメージ読み取り**：TrivyからDocker APIへのアクセス
-- **コンテナ操作**：起動・停止・変更機能なし
-- **`:ro`の制約**：Docker APIの操作権限は制限対象外
+- **コンテナ操作**：修正PR有効時に、言語パッケージ更新用の所有する作業用コンテナを作成・起動・削除し、監視対象のアプリケーションコンテナは変更しない
+- **作業用コンテナの制限**：非root、全capabilityの削除、no-new-privileges、資源と時間の上限
+- **作業用コンテナの書き込み先**：配布作業用イメージでは容量制限付きtmpfsに限定し、上書きイメージにも同じ所有者・権限の制約が必要で、イメージ内の全ファイルの権限は実行時には検査しない
+- **作業用コンテナの認証情報**：GitHub token・本体の設定・Docker socketを渡さず、出力はKestreLynxが検査
+- **`:ro`の制約**：Docker APIの操作権限は制限対象外で、PRのためにソケットを`:rw`へ変更する必要もない
 - **マウント先**：信頼できるイメージのみ
 
 ## Kubernetesでの実行
@@ -188,6 +255,13 @@ kubectl logs -n kestrelynx deployment/kestrelynx -f
 | `triage.enabled` | `true`：KEV／EPSSによる優先順位付け（既定）、`false`：深刻度に基づく通知 |
 | `triage.act_now_epss` / `triage.watch_epss` | EPSSの判定しきい値（既定：`0.10`／`0.01`） |
 | `triage.discussion_links` | Hacker Newsの議論リンク検索（既定：`true`） |
+| `remediation.enabled` | 読み取りだけの修正計画（既定：`false`、Dockerのみ） |
+| `remediation.pull_requests.enabled` | GitHubのPRと、言語パッケージ更新用の作業用コンテナ（既定：`false`、計画とtokenが必要） |
+| `remediation.github.token` | 対応付けたGitHubリポジトリに限定したtoken（既定：空） |
+| `remediation.mappings` | Composeワークロードとリポジトリ・base branch・Compose／Dockerfile／依存ファイルの対応付け |
+| `remediation.storage_dir` | 修正処理の記録の永続化先（既定：`/var/lib/kestrelynx/remediation`） |
+| `remediation.limits` | スキャン・レジストリ・PR・依存更新・時間の上限で、詳細は設定リファレンスを参照 |
+| `remediation.worker.image` | digest付きの作業用イメージの上書き（既定：本体のリリースで指定したイメージ） |
 
 - **環境名の文字種**：小文字英数字・ハイフン、先頭と末尾は英数字
 - **環境名の長さ**：1〜63文字、未設定も可
@@ -202,6 +276,12 @@ kubectl logs -n kestrelynx deployment/kestrelynx -f
 - **検索時の送信内容**：悪用情報に基づき「今すぐ対応」となるCVEのID
 - **検索の無効化**：`triage.discussion_links: false`（通知先へのCVE情報の送信は継続）
 - **その他の通信**：Trivyによる脆弱性DB・イメージの取得、設定した通知先への結果送信
+- **修正計画**：公開イメージレジストリと対応付けたソースのGitHub（`api.github.com`）へのHTTPS通信、およびTrivyのDBと候補イメージの取得
+- **言語パッケージの更新**：メタデータと配布ファイルを取得するための公開npmレジストリ（`registry.npmjs.org`）とPyPI（`pypi.org`・`files.pythonhosted.org`）へのHTTPS通信
+- **作業用イメージの取得**：初めて必要になったときに、Dockerデーモンが本体のリリースで指定したdigestの`ghcr.io/kitsunetrail/kestrelynx-worker`、または`remediation.worker.image`のレジストリへ接続
+- **作業用イメージを取得できない場合**：言語パッケージの更新を延期し、本体のコンテナ内でパッケージマネージャーを代わりに実行しない
+- **GitHubへの書き込み**：別途有効にした場合だけPRを作成し、リポジトリのCIが起動する場合がある
+- **作業用コンテナの通信**：Dockerのbridgeネットワークを使い、厳密な通信先制限は行わない
 - **スキャン失敗・実体未確認**：過去の検出結果の保持、その回の結果による解消判定の保留
 - **「解消」の意味**：現在の監視対象からの検出項目の消失（コンテナ停止・対象変更を含む）
 - **アップグレード時の注意度**：バージョン変更の大きさなどの目安（互換性・安全性の保証なし）

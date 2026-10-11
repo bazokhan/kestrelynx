@@ -47,6 +47,7 @@ nav:
       - Overview: documentation/index.md
       - Setup: documentation/getting-started.md
       - Configuration: documentation/configuration.md
+      - Remediation plans and pull requests (experimental): documentation/remediation.md
       - Runtime usage (experimental): documentation/runtime-usage.md
       - How it works: documentation/how-it-works.md
   - Development:
