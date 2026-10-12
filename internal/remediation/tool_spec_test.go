@@ -118,8 +118,21 @@ func TestToolSpec_NodeDeclarationsBeforeAnyRun(t *testing.T) {
 
 		{"packageManager is the default pnpm", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@`+pm+`"`), nil, ""},
 		{"packageManager is the default npm", "npm", withField(npmManifest, `"packageManager":"npm@`+nm+`"`), nil, ""},
-		{"packageManager pnpm@10.34.4", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@10.34.4"`), nil, ReasonManagerSpecUnsupported},
-		{"packageManager npm@10.9.9", "npm", withField(npmManifest, `"packageManager":"npm@10.9.9"`), nil, ReasonManagerSpecUnsupported},
+		{"packageManager pnpm@10.34.4", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@10.34.4"`), nil, ""},
+		{"packageManager npm@10.9.9", "npm", withField(npmManifest, `"packageManager":"npm@10.9.9"`), nil, ""},
+		{"packageManager pnpm@9.15.9", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@9.15.9"`), nil, ""},
+		{"packageManager pnpm@12.11.2", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@12.11.2"`), nil, ""},
+		{"packageManager npm@9.9.4", "npm", withField(npmManifest, `"packageManager":"npm@9.9.4"`), nil, ""},
+		{"packageManager npm@12.2.0", "npm", withField(npmManifest, `"packageManager":"npm@12.2.0"`), nil, ""},
+		{"packageManager pnpm older than 9", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@8.15.9"`), nil, ReasonManagerSpecUnsupported},
+		{"packageManager pnpm newer than 12", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@13.0.0"`), nil, ReasonManagerSpecUnsupported},
+		{"packageManager npm older than 9", "npm", withField(npmManifest, `"packageManager":"npm@8.19.4"`), nil, ReasonManagerSpecUnsupported},
+		{"packageManager npm newer than 12", "npm", withField(npmManifest, `"packageManager":"npm@13.0.0"`), nil, ReasonManagerSpecUnsupported},
+		{"packageManager with a v prefix", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@v10.34.4"`), nil, ReasonManagerSpecInvalid},
+		{"engines.pnpm names the release", "pnpm", withField(pnpmManifest, `"engines":{"pnpm":"10.34.4"}`), nil, ""},
+		{"devEngines.packageManager names the release", "pnpm", withField(pnpmManifest, `"devEngines":{"packageManager":{"name":"pnpm","version":"10.34.4","onFail":"error"}}`), nil, ""},
+		{"devEngines.packageManager with a range around the release", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@10.34.4","devEngines":{"packageManager":{"name":"pnpm","version":"^10"}}`), nil, ""},
+		{"devEngines.packageManager range excludes the packageManager release", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@10.34.4","devEngines":{"packageManager":{"name":"pnpm","version":"^11"}}`), nil, ReasonManagerSpecConflict},
 		{"packageManager pre-release", "pnpm", withField(pnpmManifest, `"packageManager":"pnpm@12.0.0-rc.1"`), nil, ReasonManagerSpecUnsupported},
 		{"packageManager names another manager", "npm", withField(npmManifest, `"packageManager":"pnpm@`+pm+`"`), nil, ReasonManagerSpecConflict},
 		{"packageManager yarn for pnpm", "pnpm", withField(pnpmManifest, `"packageManager":"yarn@4.0.0"`), nil, ReasonManagerSpecConflict},
@@ -249,7 +262,9 @@ func TestToolSpec_PythonAndUvDeclarationsBeforeAnyRun(t *testing.T) {
 		{".python-versions", uvPyproject, map[string]string{"svc/.python-versions": "3.13\n3.12\n"}, ReasonPythonSpecUnsupported},
 		{"requires-python excludes 3.13", req(">=3.9,<3.13"), nil, ReasonPythonSpecUnsupported},
 		{"requires-python from 3.14", req(">=3.14"), nil, ReasonPythonSpecUnsupported},
-		{"required-version fixes 0.12.30", toolSection(`required-version = "==0.12.30"`), nil, ReasonManagerSpecUnsupported},
+		{"required-version fixes 0.12.30", toolSection(`required-version = "==0.12.30"`), nil, ""},
+		{"required-version fixes 0.12.21", toolSection(`required-version = "==0.12.21"`), nil, ReasonManagerSpecUnsupported},
+		{"required-version fixes the default", toolSection(`required-version = "==0.13.0"`), nil, ""},
 		{"required-version below 0.13", toolSection(`required-version = "<0.13"`), nil, ReasonManagerSpecUnsupported},
 
 		{".python-version 3.12.3 against requires-python >=3.12.5", req(">=3.12.5"), map[string]string{"svc/.python-version": "3.12.3\n"}, ReasonPythonSpecConflict},
@@ -339,10 +354,31 @@ func TestToolSpec_ResolvedChoices(t *testing.T) {
 	if uerr != nil || spec.Runtime != "python3.13" || spec.ToolVersion != "" {
 		t.Errorf("pip: %+v %v", spec, uerr)
 	}
-	// A hash for a version other than the default does not get the default run.
-	_, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerPnpm, Manifest: []byte(withField(pnpmManifest, `"packageManager":"pnpm@10.34.4+sha512.`+hash+`"`))})
-	if uerr == nil || uerr.Reason != ReasonManagerSpecUnsupported {
-		t.Errorf("pnpm 10 with a hash: %v", uerr)
+	// A version other than the default that the project names exactly is the
+	// one to run, with the hash it was declared with.
+	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerPnpm, Manifest: []byte(withField(pnpmManifest, `"packageManager":"pnpm@10.34.4+sha512.`+hash+`"`))})
+	if uerr != nil || spec.ToolVersion != "10.34.4" || spec.ToolSource != "declared" || spec.SpecHash != "sha512."+hash || spec.Runtime != "node24" {
+		t.Errorf("pnpm 10 with a hash: %+v %v", spec, uerr)
+	}
+	// Ranges alone leave the default when it is inside all of them.
+	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(withField(npmManifest, `"engines":{"npm":">=10"},"devEngines":{"packageManager":{"name":"npm","version":"^11"}}`))})
+	if uerr != nil || spec.ToolVersion != defaultTool(ManagerNpm) || spec.ToolSource != "default_in_range" {
+		t.Errorf("npm ranges: %+v %v", spec, uerr)
+	}
+	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(withField(npmManifest, `"engines":{"npm":">=10"},"devEngines":{"packageManager":{"name":"npm","version":"10.9.9"}}`))})
+	if uerr != nil || spec.ToolVersion != "10.9.9" || spec.ToolSource != "declared" {
+		t.Errorf("npm exact beside a range: %+v %v", spec, uerr)
+	}
+	if _, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(withField(npmManifest, `"engines":{"npm":"<11"}`))}); uerr == nil || uerr.Reason != ReasonManagerSpecUnsupported {
+		t.Errorf("npm range without the default: %v", uerr)
+	}
+	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerUv, Manifest: []byte(strings.Replace(uvPyproject, "[project]", "[tool.uv]\nrequired-version = \"==0.12.30\"\n\n[project]", 1))})
+	if uerr != nil || spec.ToolVersion != "0.12.30" || spec.ToolSource != "declared" {
+		t.Errorf("uv exact: %+v %v", spec, uerr)
+	}
+	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerUv, Manifest: []byte(strings.Replace(uvPyproject, "[project]", "[tool.uv]\nrequired-version = \">=0.12\"\n\n[project]", 1))})
+	if uerr != nil || spec.ToolVersion != "0.13.0" || spec.ToolSource != "default_in_range" {
+		t.Errorf("uv range: %+v %v", spec, uerr)
 	}
 	if _, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerPnpm, Manifest: []byte(pnpmManifest), Lock: []byte(pnpmLock)}); uerr != nil {
 		t.Errorf("the plain lock: %v", uerr)

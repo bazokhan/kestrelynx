@@ -39,6 +39,17 @@ const (
 	ReasonPipTargetMismatch         Reason = "pip_target_mismatch"
 	ReasonRequirementsRewrite       Reason = "requirements_rewrite_unsupported"
 	ReasonUpdateSetNotApplied       Reason = "update_set_not_applied"
+	// ReasonTargetNotInLockfile: a package to update has no entry in the
+	// lockfile, so there is nothing to update it by.
+	ReasonTargetNotInLockfile Reason = "target_not_in_lockfile"
+	// ReasonNoReresolveTrigger: the project has no direct dependency, other
+	// than the packages being updated, that can be taken out of the lockfile to
+	// make pnpm resolve again.
+	ReasonNoReresolveTrigger Reason = "no_reresolve_trigger"
+	// ReasonPnpm12RemovalUnsupported: the project runs pnpm 12, which takes a
+	// lockfile with entries missing that other entries refer to as broken or
+	// as complete, so the update by taking entries out cannot be made with it.
+	ReasonPnpm12RemovalUnsupported Reason = "pnpm12_removal_unsupported"
 
 	// Manual: what the job did.
 	ReasonUpdateStepFailed       Reason = "update_step_failed"
@@ -57,6 +68,9 @@ const (
 	ReasonUpdatePackageLimit     Reason = "update_package_limit"
 	ReasonResolvedSourceChanged  Reason = "resolved_source_changed"
 	ReasonPostUpdateLockUnstable Reason = "post_update_lockfile_unstable"
+	// ReasonDropSideEffect: the dependency that was taken out of the lockfile
+	// to make pnpm resolve again did not come back as it was.
+	ReasonDropSideEffect Reason = "drop_side_effect"
 
 	// Manual or not comparable: the filesystem check of the dependency files.
 	ReasonSourceTargetNotDetectedBefore Reason = "source_target_not_detected_before"
@@ -110,9 +124,28 @@ type DependencyDiff struct {
 	Changed   []string `json:"changed,omitempty"`
 	Removed   []string `json:"removed,omitempty"`
 	Truncated bool     `json:"truncated,omitempty"`
+	// Followed are the entries that are neither updated packages nor below
+	// them whose dependencies moved to new versions the update brought in.
+	Followed []FollowedEntry `json:"followed,omitempty"`
 	// touched are the entries added or changed, not cut; the update stage
 	// checks each against the registry.
 	touched []string
+}
+
+// FollowedEntry is an entry of the dependency file that the update did not
+// aim at and that changed only in what its dependencies point to: each of its
+// dependencies in Moves went to a version the update added.
+type FollowedEntry struct {
+	Entry string       `json:"entry"`
+	Moves []FollowMove `json:"moves"`
+}
+
+// FollowMove is one dependency of a FollowedEntry going from one version to
+// another.
+type FollowMove struct {
+	Name string `json:"name"`
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 // maxDiffEntries bounds each list of a DependencyDiff.
@@ -129,6 +162,10 @@ type LanguageUpdate struct {
 	// before they were kept have neither.
 	Runtime *RuntimeRecord `json:"runtime,omitempty"`
 	Tool    *ToolRecord    `json:"tool,omitempty"`
+	// DeprecatedChanged is how many lockfile entries gained, lost or changed a
+	// deprecated note, each equal to what the npm registry publishes for that
+	// version.
+	DeprecatedChanged int `json:"deprecated_changed,omitempty"`
 	// ManifestEdits are the version specifiers of direct dependencies this
 	// program changed in the manifest before the update ran, because the
 	// specifier did not allow a fixed version. Empty when the manifest was

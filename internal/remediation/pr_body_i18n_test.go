@@ -124,7 +124,9 @@ func languageBodyFixture(lang BodyLanguage, marker string, full bool) languageBo
 		{File: "svc/package.json", Section: "devDependencies", Name: "lodash", From: "^4.17.0", To: "^4.17.21"},
 	}
 	rec.Runtime = &RuntimeRecord{ID: "node24", Version: "24.21.0", Image: "node@sha256:" + strings.Repeat("c", 64), Support: "lts", EOL: "2028-04-30"}
-	rec.Tool = &ToolRecord{Name: "pnpm", Version: "11.28.2", Source: toolSourceDefault, SHA256: strings.Repeat("d", 64)}
+	rec.Tool = &ToolRecord{Name: "pnpm", Version: "11.28.2", Source: toolSourceDefaultInRange, SHA256: strings.Repeat("d", 64)}
+	rec.DeprecatedChanged = 2
+	rec.Followed = []FollowedEntry{{Entry: "browserslist@4.28.2", Moves: []FollowMove{{Name: "caniuse-lite", From: "1.0.30001792", To: "1.0.30001806"}}}}
 	item.Update = &LanguageUpdate{
 		Steps: []UpdateStep{{Op: "pnpm update lodash", ExitCode: 0}, {Op: "pnpm install --lockfile-only", Scratch: true, ExitCode: 0}},
 		Notes: []string{"the declared packageManager differs from the one installed"},

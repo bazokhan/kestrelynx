@@ -278,7 +278,9 @@ func partialProjects() []partialProject {
 }
 
 // namesSlow reports whether the job's update names the slow package.
-func (p partialProject) namesSlow(job worker.Job) bool { return hasName(namesInUpdate(job), p.slow) }
+func (p partialProject) namesSlow(job worker.Job, src map[string][]byte) bool {
+	return hasName(namesInUpdate(job, src), p.slow)
+}
 
 func TestLangUpdatePartialEveryManagerUsesTheResultAsItIs(t *testing.T) {
 	for _, p := range partialProjects() {
@@ -392,7 +394,7 @@ func TestLangUpdatePartialEveryManagerKeepsATransientFailureOfTheSecondRunRetrya
 			// made manual: it is failed and is tried again in the next cycle.
 			h := p.newHarness(t, "", func(job worker.Job, src map[string][]byte) string { return p.lock(p.fastTo, p.slowMid, "") })
 			h.work.script = func(n int, job worker.Job, src map[string][]byte) fakeOutcome {
-				if !p.namesSlow(job) {
+				if !p.namesSlow(job, src) {
 					return fakeOutcome{err: errors.New("the container could not be started")}
 				}
 				return fakeOutcome{edit: map[string]map[string][]byte{stepUpdate: {p.lockName: []byte(p.lock(p.fastTo, p.slowMid, ""))}}}
@@ -433,7 +435,7 @@ func TestLangUpdatePartialEveryManagerRefusesAContradictoryResultOfTheSecondRun(
 				h := p.newHarness(t, "", func(job worker.Job, src map[string][]byte) string { return p.lock(p.fastTo, p.slowMid, "") })
 				h.work.script = func(n int, job worker.Job, src map[string][]byte) fakeOutcome {
 					o := fakeOutcome{edit: map[string]map[string][]byte{stepUpdate: {p.lockName: []byte(p.lock(p.fastTo, p.slowMid, ""))}}}
-					if !p.namesSlow(job) {
+					if !p.namesSlow(job, src) {
 						spoil(&o)
 					}
 					return o
@@ -458,7 +460,7 @@ func TestLangUpdatePartialEveryManagerKeepsThePlanWhenTheSecondRunRunsOutOfTime(
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			h.work.script = func(n int, job worker.Job, src map[string][]byte) fakeOutcome {
-				if !p.namesSlow(job) {
+				if !p.namesSlow(job, src) {
 					cancel() // the cycle's time is over while the second run is made
 					return fakeOutcome{err: context.Canceled}
 				}

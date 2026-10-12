@@ -18,10 +18,7 @@ import (
 const (
 	stepBaseline = "baseline" // the original input checked as it is
 	stepUpdate   = "update"   // the update itself
-	// stepUpdateMore updates the targets whose specifier was not edited, after
-	// the step that relocks against the edited manifest.
-	stepUpdateMore = "update_more"
-	stepCheck      = "check" // the updated input checked again
+	stepCheck    = "check"    // the updated input checked again
 )
 
 // jobOutput is a finished job whose result passed the structural checks: the
@@ -69,8 +66,8 @@ func (u *LangUpdater) newJob(m worker.Manager, env *jobEnvironment, inputs map[s
 // exactly the ones the steps and the final tree declare with the sizes and
 // hashes declared, and the outcome is mapped to a failure when the job did not
 // complete. roles maps a failed step's id to the failure it stands for.
-func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvironment, inputs map[string][]byte, jobID string, upd *LanguageUpdate) (*jobOutput, *updateFailure) {
-	if f := jobLimitFailure(job, inputs); f != nil {
+func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvironment, inputs, replacements map[string][]byte, jobID string, upd *LanguageUpdate) (*jobOutput, *updateFailure) {
+	if f := jobLimitFailure(job, inputs, replacements); f != nil {
 		return nil, f
 	}
 	if err := job.Validate(); err != nil {
@@ -99,6 +96,9 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvir
 	}
 	for _, in := range job.Inputs {
 		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.SrcDirName + "/" + in.Path, Content: inputs[in.Path]})
+	}
+	for _, in := range job.Replacements {
+		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.ReplaceDirName + "/" + in.Path, Content: replacements[in.Path]})
 	}
 	upd.Runtime, upd.Tool = env.rtRec, env.toolRec
 
@@ -142,7 +142,7 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvir
 
 // jobLimitFailure defers a job that is over a limit of the job format: the
 // work is not wrong, the work image cannot take it in one job.
-func jobLimitFailure(job worker.Job, inputs map[string][]byte) *updateFailure {
+func jobLimitFailure(job worker.Job, inputs, replacements map[string][]byte) *updateFailure {
 	deferred := func(reason Reason, format string, args ...any) *updateFailure {
 		return &updateFailure{category: CategoryDeferred, reason: reason, detail: fmt.Sprintf(format, args...)}
 	}
@@ -155,11 +155,16 @@ func jobLimitFailure(job worker.Job, inputs map[string][]byte) *updateFailure {
 		return deferred(ReasonUpdateInputLimit, "the job has %d steps, more than the %d one job takes", len(job.Steps), worker.MaxSteps)
 	}
 	var total int64
-	for name, c := range inputs {
-		total += int64(len(c))
-		if int64(len(c)) > worker.MaxInputFileBytes {
-			return deferred(ReasonUpdateInputLimit, "%s is %d bytes, more than the %d one job takes", name, len(c), worker.MaxInputFileBytes)
+	for _, files := range []map[string][]byte{inputs, replacements} {
+		for name, c := range files {
+			total += int64(len(c))
+			if int64(len(c)) > worker.MaxInputFileBytes {
+				return deferred(ReasonUpdateInputLimit, "%s is %d bytes, more than the %d one job takes", name, len(c), worker.MaxInputFileBytes)
+			}
 		}
+	}
+	if len(inputs)+len(replacements) > worker.MaxInputs {
+		return deferred(ReasonUpdateInputLimit, "the job has %d input files, more than the %d one job takes", len(inputs)+len(replacements), worker.MaxInputs)
 	}
 	if total > worker.MaxInputTotalBytes {
 		return deferred(ReasonUpdateInputLimit, "the inputs are %d bytes, more than the %d one job takes", total, worker.MaxInputTotalBytes)
@@ -375,7 +380,7 @@ func jobStatusFailure(res worker.Result) *updateFailure {
 	switch s.ID {
 	case stepBaseline:
 		return manualFailure(ReasonLockfileInconsistent, "the original input does not pass %s: %s", s.Op, detail)
-	case stepUpdate, stepUpdateMore:
+	case stepUpdate:
 		return manualFailure(ReasonUpdateStepFailed, "%s", detail)
 	}
 	return manualFailure(ReasonPostUpdateCheckFailed, "%s", detail)

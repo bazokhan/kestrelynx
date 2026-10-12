@@ -471,7 +471,7 @@ func TestCompletedStatusWithAFailedStepIsRefused(t *testing.T) {
 		"a step is missing":       func(r *worker.Result) { r.Steps = r.Steps[:1] },
 		"a step is repeated":      func(r *worker.Result) { r.Steps = append(r.Steps, r.Steps[1]) },
 		"steps in another order":  func(r *worker.Result) { r.Steps[0], r.Steps[1] = r.Steps[1], r.Steps[0] },
-		"another op":              func(r *worker.Result) { r.Steps[1].Op = worker.OpNpmRelock },
+		"another op":              func(r *worker.Result) { r.Steps[1].Op = worker.OpPnpmFrozen },
 		"another id":              func(r *worker.Result) { r.Steps[1].ID = "other" },
 		"another scratch flag":    func(r *worker.Result) { r.Steps[0].Scratch = false },
 		"a failed step has files": func(r *worker.Result) { r.Status = worker.StatusStepFailed; r.Steps[1].ExitCode = 1 },

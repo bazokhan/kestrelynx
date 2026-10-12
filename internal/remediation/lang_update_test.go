@@ -290,9 +290,20 @@ func TestLangUpdateJobs(t *testing.T) {
 			t.Fatalf("jobs = %+v", jobs)
 		}
 		s := jobs[0].Steps
-		if len(s) != 2 || s[0].Op != worker.OpNpmRelock || !s[0].Scratch || s[1].Op != worker.OpNpmUpdate || s[1].Scratch ||
-			len(s[1].Packages) != 1 || s[1].Packages[0] != (worker.Package{Name: "minimist"}) {
+		if len(s) != 2 || s[0].Op != worker.OpNpmRelock || !s[0].Scratch || s[1].Op != worker.OpNpmRelock || s[1].Scratch || len(s[1].Packages) != 0 {
 			t.Errorf("steps = %+v", s)
+		}
+		// The lockfile with the target taken out replaces the original one before
+		// the step that is not a scratch step.
+		if len(jobs[0].Replacements) != 1 || jobs[0].Replacements[0].Path != "package-lock.json" {
+			t.Fatalf("replacements = %+v", jobs[0].Replacements)
+		}
+		repl := h.work.repls[0]["package-lock.json"]
+		if strings.Contains(string(repl), "node_modules/minimist") || !strings.Contains(string(repl), "node_modules/mkdirp") {
+			t.Errorf("replacement lockfile = %s", repl)
+		}
+		if got := h.work.srcs[0]["package-lock.json"]; string(got) != h.files["package-lock.json"] {
+			t.Errorf("package-lock.json input is not the original")
 		}
 		if err := jobs[0].Validate(); err != nil {
 			t.Error(err)
@@ -308,11 +319,21 @@ func TestLangUpdateJobs(t *testing.T) {
 		h := newHarness(t, "pnpm")
 		h.run()
 		s := h.jobsOf()[0].Steps
-		if len(s) != 3 || s[0].Op != worker.OpPnpmFrozen || !s[0].Scratch || s[1].Op != worker.OpPnpmUpdate || s[2].Op != worker.OpPnpmFrozen || !s[2].Scratch {
+		if len(s) != 3 || s[0].Op != worker.OpPnpmFrozen || !s[0].Scratch || s[1].Op != worker.OpPnpmRelock || s[1].Scratch || s[2].Op != worker.OpPnpmFrozen || !s[2].Scratch {
 			t.Fatalf("steps = %+v", s)
 		}
-		if s[1].Packages[0] != (worker.Package{Name: "minimist"}) {
-			t.Errorf("packages = %+v", s[1].Packages)
+		jobs := h.jobsOf()
+		if len(jobs[0].Replacements) != 1 || jobs[0].Replacements[0].Path != "pnpm-lock.yaml" {
+			t.Fatalf("replacements = %+v", jobs[0].Replacements)
+		}
+		repl := string(h.work.repls[0]["pnpm-lock.yaml"])
+		if strings.Contains(repl, "minimist@") {
+			t.Errorf("replacement lockfile still has an entry of the target: %s", repl)
+		}
+		// minimist is only below mkdirp, the one direct dependency, so mkdirp is
+		// the one taken out of the importer to make pnpm resolve again.
+		if strings.Contains(repl, "importers") && strings.Contains(strings.SplitN(strings.SplitN(repl, "importers:", 2)[1], "packages:", 2)[0], "mkdirp") {
+			t.Errorf("mkdirp is still in the importer: %s", repl)
 		}
 	})
 	t.Run("uv pins the target", func(t *testing.T) {
@@ -656,9 +677,15 @@ func TestLangUpdateInspectsTheResult(t *testing.T) {
 		it, _ := h.run()
 		wantCategory(t, it, CategoryManual, ReasonManifestChanged)
 	})
-	t.Run("lockfile unchanged", func(t *testing.T) {
+	t.Run("the relock leaves the lockfile as it was taken out", func(t *testing.T) {
 		h := newHarness(t, "npm")
 		h.work.script = func(int, worker.Job, map[string][]byte) fakeOutcome { return fakeOutcome{} }
+		it, _ := h.run()
+		wantCategory(t, it, CategoryManual, ReasonTargetRemoved)
+	})
+	t.Run("lockfile unchanged", func(t *testing.T) {
+		h := newHarness(t, "npm")
+		h.editLock(h.files["package-lock.json"])
 		it, _ := h.run()
 		wantCategory(t, it, CategoryManual, ReasonTargetNotUpdated)
 	})
@@ -789,10 +816,14 @@ func TestLangUpdateInspectsTheResult(t *testing.T) {
 			Occurrences: []SourceOccurrence{{Path: "node_modules/ms", Version: "2.0.0", Matched: true}},
 		})
 		it, _ := h.run()
-		wantCategory(t, it, CategoryManual, ReasonTargetRemoved)
+		wantCategory(t, it, CategoryManual, ReasonTargetNotInLockfile)
 		// ms is not in the lockfile at all (the fixture has no such package),
-		// so it is the one that fails; minimist is left as part of the set.
-		if it.Packages[1].Reason != ReasonTargetRemoved {
+		// so it is the one that fails before anything runs; minimist is left as
+		// part of the set.
+		if h.work.calls != 0 {
+			t.Errorf("work calls = %d", h.work.calls)
+		}
+		if it.Packages[1].Reason != ReasonTargetNotInLockfile {
 			t.Errorf("package ms = %+v", it.Packages[1])
 		}
 		if it.Packages[0].Reason != ReasonUpdateSetNotApplied || it.Packages[0].Action != ActionManual {
@@ -834,8 +865,8 @@ func TestLangUpdateManifestRanges(t *testing.T) {
 			got, _ := h.run()
 			if c.ok {
 				wantCategory(t, got, CategoryPRCandidate, ReasonUpdateVerified)
-				if h.work.jobs[0].Steps[1].Packages[0].Version != "" {
-					t.Error("npm update takes no version")
+				if len(h.work.jobs[0].Steps[1].Packages) != 0 {
+					t.Error("the relock names no package")
 				}
 				return
 			}
@@ -847,7 +878,7 @@ func TestLangUpdateManifestRanges(t *testing.T) {
 	}
 }
 
-func TestLangUpdatePnpmDirectDependencyIsPinned(t *testing.T) {
+func TestLangUpdatePnpmDirectDependencyIsTakenOutOfTheImporter(t *testing.T) {
 	files := map[string]string{
 		"package.json": `{"name":"a","version":"1.0.0","dependencies":{"minimist":"^1.2.5"}}`,
 		"pnpm-lock.yaml": `lockfileVersion: '9.0'
@@ -885,8 +916,13 @@ snapshots:
 	h.npm.dists["minimist@1.2.8"] = NpmDist{Tarball: minimist128.Tarball, Integrity: "sha512-bbb"}
 	got, _ := h.run()
 	wantCategory(t, got, CategoryPRCandidate, ReasonUpdateVerified)
-	if p := h.work.jobs[0].Steps[1].Packages[0]; p != (worker.Package{Name: "minimist", Version: "1.2.6"}) {
-		t.Errorf("update package = %+v", p)
+	// The direct dependency that is the target is itself what is taken out of
+	// the importer, so that pnpm resolves it again; nothing else is.
+	if repl := string(h.work.repls[0]["pnpm-lock.yaml"]); strings.Contains(repl, "minimist") || !strings.Contains(repl, "importers:") {
+		t.Errorf("replacement lockfile = %s", repl)
+	}
+	if len(h.work.jobs[0].Steps[1].Packages) != 0 {
+		t.Errorf("the relock names packages: %+v", h.work.jobs[0].Steps[1].Packages)
 	}
 	if got.Packages[0].AdoptedVersion != "1.2.8" {
 		t.Errorf("adopted = %q", got.Packages[0].AdoptedVersion)

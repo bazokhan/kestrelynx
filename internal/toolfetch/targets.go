@@ -134,3 +134,15 @@ func resolve(req Request) (target, *Error) {
 	}
 	return t, nil
 }
+
+// CheckVersion reports whether the version of a manager is one the package
+// fetches: an exact release inside the supported range. why says what is
+// wrong when it is not. It looks at the version alone; whether the release
+// exists, is old enough or runs on the Node.js of a job is decided when it is
+// provided.
+func CheckVersion(manager Manager, version string) (ok bool, why string) {
+	if _, err := resolve(Request{Manager: manager, Version: version, Platform: PlatformAmd64}); err != nil {
+		return false, err.Detail
+	}
+	return true, ""
+}

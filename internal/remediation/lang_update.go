@@ -595,6 +595,10 @@ type updateRun struct {
 	// toolSpec is the runtime and package manager release the declarations of
 	// the unit come to (the build's defaults where it declares none).
 	toolSpec ToolSpec
+	// pnpmTrigger is the direct dependency taken out of the importer of the
+	// lockfile a pnpm update was made from so that pnpm resolves again, ""
+	// when a target was taken out instead or the manifest was edited.
+	pnpmTrigger string
 	// manifest is the manifest the update runs on and must leave as it is:
 	// the original, or the original with the edits in upd.ManifestEdits.
 	manifest []byte

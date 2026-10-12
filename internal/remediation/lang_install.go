@@ -260,6 +260,19 @@ func keySet(keys ...string) map[string]bool {
 	return out
 }
 
+// jsonDeprecation reads the deprecation note of an entry of package-lock.json:
+// "" when there is none, and odd when the member is there and is not a string.
+func jsonDeprecation(m map[string]json.RawMessage) (note string, odd bool) {
+	raw, ok := m["deprecated"]
+	if !ok {
+		return "", false
+	}
+	if err := json.Unmarshal(raw, &note); err != nil {
+		return "", true
+	}
+	return note, false
+}
+
 // npmEntryKeys are the members arborist writes for an entry of
 // package-lock.json (lib/shrinkwrap.js of @npmcli/arborist: pkgMetaKeys,
 // nodeMetaKeys and the flags it adds), without the patch records (patched,

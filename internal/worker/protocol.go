@@ -17,6 +17,9 @@ const (
 	WorkDir    = "/work"
 	JobFile    = "/work/job.json"
 	SrcDirName = "src"
+	// ReplaceDirName is the directory of /work that holds the replacement
+	// files (see Job.Replacements).
+	ReplaceDirName = "replace"
 	// ToolsDirName is the directory of /work that holds the package manager
 	// archive, and ProgramPath is where the program itself is placed.
 	ToolsDirName = "tools"
@@ -57,9 +60,7 @@ type Op string
 
 const (
 	OpNpmRelock  Op = "npm.relock"
-	OpNpmUpdate  Op = "npm.update"
 	OpPnpmFrozen Op = "pnpm.frozen_check"
-	OpPnpmUpdate Op = "pnpm.update"
 	OpPnpmRelock Op = "pnpm.relock"
 	OpUvCheck    Op = "uv.check"
 	OpUvUpgrade  Op = "uv.upgrade"
@@ -150,7 +151,13 @@ type Job struct {
 	// Inputs are the files under /work/src, by name, with the size and
 	// SHA-256 the main process computed. No other file may be present.
 	Inputs []Input `json:"inputs"`
-	Steps  []Step  `json:"steps"`
+	// Replacements are files under /work/replace that take the place of the
+	// working tree's file of the same name just before the first step that
+	// is not a scratch step runs: the steps before it (the checks of the
+	// original input) see the inputs, the ones from it on see the
+	// replacements. Only the lockfile of npm or pnpm can be replaced.
+	Replacements []Input `json:"replacements,omitempty"`
+	Steps        []Step  `json:"steps"`
 	// Outputs names the files copied after each step and into final/. Only
 	// names the manager may produce are accepted.
 	Outputs []string `json:"outputs"`
@@ -174,10 +181,8 @@ type Step struct {
 	ID      string `json:"id"`
 	Op      Op     `json:"op"`
 	Scratch bool   `json:"scratch,omitempty"`
-	// Packages are the update targets. npm.update takes names only;
-	// uv.upgrade takes a name and a version; pnpm.update takes a name and
-	// optionally a version (without one, the package moves within the range
-	// its dependents declare, which is how a transitive dependency is updated).
+	// Packages are the update targets of uv.upgrade, each a name and a
+	// version.
 	Packages []Package `json:"packages,omitempty"`
 	// RequireHashes and Target are for pip.dry_run.
 	RequireHashes bool    `json:"require_hashes,omitempty"`

@@ -125,6 +125,43 @@ func checkInputs(srcDir string, inputs []worker.Input) error {
 	return nil
 }
 
+// checkReplacements verifies the replacement files like the inputs. With none
+// declared there must be no directory for them.
+func checkReplacements(dir string, replacements []worker.Input) error {
+	if len(replacements) == 0 {
+		if _, err := os.Lstat(dir); err == nil {
+			return errors.New("undeclared replace directory")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := checkInputs(dir, replacements); err != nil {
+		return fmt.Errorf("replacement: %w", err)
+	}
+	return nil
+}
+
+// replaceFiles puts each replacement in place of the file of the same name in
+// the working tree, checking the copy against the declared size and hash.
+func replaceFiles(dir, tree string, replacements []worker.Input) error {
+	for _, r := range replacements {
+		dst := filepath.Join(tree, r.Path)
+		if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		size, sum, err := copyFile(filepath.Join(dir, r.Path), dst, worker.MaxInputFileBytes)
+		if err != nil {
+			return err
+		}
+		if size != r.Size || sum != r.SHA256 {
+			os.Remove(dst)
+			return fmt.Errorf("%s does not match its declared size and sha256", r.Path)
+		}
+	}
+	return nil
+}
+
 // changedSettings returns the name of the first input of the job that is not
 // one of its outputs (a settings file the manager only reads) and that is no
 // longer in tree as it was declared: missing, not a plain file, or with another

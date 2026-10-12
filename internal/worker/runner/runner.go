@@ -114,6 +114,9 @@ func Run(cfg Config, jobPath string) error {
 	if err := checkInputs(filepath.Join(cfg.WorkDir, worker.SrcDirName), job.Inputs); err != nil {
 		return reject("%v", err)
 	}
+	if err := checkReplacements(filepath.Join(cfg.WorkDir, worker.ReplaceDirName), job.Replacements); err != nil {
+		return reject("%v", err)
+	}
 	if cfg.Environment != nil {
 		if err := cfg.prepareEnvironment(job); err != nil {
 			status := worker.StatusInputRejected
@@ -237,7 +240,13 @@ func execute(cfg Config, job *worker.Job, base string, files map[string][]byte, 
 		return fail(worker.StatusStepFailed, "prepare working tree: %v", err)
 	}
 
-	for _, step := range job.Steps {
+	replacingStep := job.FirstReplacingStep()
+	for i, step := range job.Steps {
+		if i == replacingStep {
+			if err := replaceFiles(filepath.Join(cfg.WorkDir, worker.ReplaceDirName), mainTree, job.Replacements); err != nil {
+				return fail(worker.StatusStepFailed, "step %q: put the replacements in place: %v", step.ID, err)
+			}
+		}
 		argv, err := worker.Argv(*job, step)
 		if err != nil {
 			return fail(worker.StatusInputRejected, "step %q: %v", step.ID, err)

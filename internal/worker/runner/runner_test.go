@@ -129,13 +129,12 @@ func TestCompletedScratchAndMainSteps(t *testing.T) {
 	e.program("npm", `
 case "$1" in
   install) echo '{"v":"relocked"}' > package-lock.json ;;
-  update) echo '{"v":"updated"}' > package-lock.json ;;
 esac
 echo "ran $*"
 `)
 	job := e.npmJob()
 	job.Steps = []worker.Step{
-		{ID: "probe", Op: worker.OpNpmUpdate, Scratch: true, Packages: []worker.Package{{Name: "minimist"}}},
+		{ID: "probe", Op: worker.OpNpmRelock, Scratch: true},
 		{ID: "relock", Op: worker.OpNpmRelock},
 	}
 	res, err := e.run(job)
@@ -148,14 +147,14 @@ echo "ran $*"
 	if len(res.Steps) != 2 || res.Steps[0].ID != "probe" || res.Steps[1].ID != "relock" {
 		t.Fatalf("steps: %+v", res.Steps)
 	}
-	if got := strings.Join(res.Steps[0].Argv, " "); got != "npm update minimist --package-lock-only --ignore-scripts --no-save --no-audit --no-fund" {
+	if got := strings.Join(res.Steps[0].Argv, " "); got != "npm install --package-lock-only --ignore-scripts --no-audit --no-fund" {
 		t.Errorf("argv %q", got)
 	}
-	if !strings.Contains(res.Steps[0].Stdout, "ran update minimist") {
+	if !strings.Contains(res.Steps[0].Stdout, "ran install") {
 		t.Errorf("stdout %q", res.Steps[0].Stdout)
 	}
 	// the scratch step's copy shows its change; the main tree did not get it
-	if got := e.read("steps", "probe", "package-lock.json"); !strings.Contains(got, "updated") {
+	if got := e.read("steps", "probe", "package-lock.json"); !strings.Contains(got, "relocked") {
 		t.Errorf("probe copy %q", got)
 	}
 	if got := e.read("steps", "relock", "package-lock.json"); !strings.Contains(got, "relocked") {
@@ -431,8 +430,8 @@ func TestInputRejections(t *testing.T) {
 		"unknown op": func(e *env, job *worker.Job) any {
 			return json.RawMessage(strings.Replace(mustJSON(job), `"npm.relock"`, `"npm.exec"`, 1))
 		},
-		"dash name": func(e *env, job *worker.Job) any {
-			job.Steps = []worker.Step{{ID: "u", Op: worker.OpNpmUpdate, Packages: []worker.Package{{Name: "--userconfig=/x"}}}}
+		"removed update op": func(e *env, job *worker.Job) any {
+			job.Steps = []worker.Step{{ID: "u", Op: "npm.update", Packages: []worker.Package{{Name: "minimist"}}}}
 			return job
 		},
 		"unknown field": func(e *env, job *worker.Job) any {
@@ -934,4 +933,75 @@ func testTool(m worker.Manager, version string) *worker.Tool {
 	}
 	t.Path = worker.ToolPath(*t)
 	return t
+}
+
+// replacementJob is an npm job whose first step is a scratch step and whose
+// second is a main step, with a replacement for the lockfile.
+func (e *env) replacementJob(content string) *worker.Job {
+	e.t.Helper()
+	job := e.npmJob()
+	job.Steps = []worker.Step{
+		{ID: "base", Op: worker.OpNpmRelock, Scratch: true},
+		{ID: "relock", Op: worker.OpNpmRelock},
+	}
+	if err := os.MkdirAll(filepath.Join(e.cfg.WorkDir, "replace"), 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	e.write(filepath.Join(e.cfg.WorkDir, "replace", "package-lock.json"), content)
+	job.Replacements = []worker.Input{{Path: "package-lock.json", Size: int64(len(content)), SHA256: sum(content)}}
+	return job
+}
+
+func TestReplacementsTakeEffectAtTheFirstMainStep(t *testing.T) {
+	e := newEnv(t)
+	e.program("npm", `
+printf 'saw %s\n' "$(cat package-lock.json)"
+`)
+	job := e.replacementJob(`{"v":"replaced"}`)
+	res, err := e.run(job)
+	if err != nil || res == nil || res.Status != worker.StatusCompleted {
+		t.Fatalf("run: %+v %v", res, err)
+	}
+	if !strings.Contains(res.Steps[0].Stdout, `saw {"v":1}`) {
+		t.Errorf("the scratch step before the replacement saw %q", res.Steps[0].Stdout)
+	}
+	if !strings.Contains(res.Steps[1].Stdout, `saw {"v":"replaced"}`) {
+		t.Errorf("the main step saw %q", res.Steps[1].Stdout)
+	}
+	if got := e.read("final", "package-lock.json"); got != `{"v":"replaced"}` {
+		t.Errorf("final lockfile %q", got)
+	}
+	// The scratch step's copy is the original input.
+	if got := e.read("steps", "base", "package-lock.json"); got != `{"v":1}` {
+		t.Errorf("scratch copy %q", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.cfg.WorkDir, "src", "package-lock.json")); string(b) != `{"v":1}` {
+		t.Errorf("src changed: %q", b)
+	}
+}
+
+func TestReplacementsAreChecked(t *testing.T) {
+	cases := map[string]func(e *env, job *worker.Job){
+		"content differs from the declared hash": func(e *env, job *worker.Job) {
+			e.write(filepath.Join(e.cfg.WorkDir, "replace", "package-lock.json"), `{"v":"other"}!`)
+		},
+		"undeclared file in replace": func(e *env, job *worker.Job) {
+			e.write(filepath.Join(e.cfg.WorkDir, "replace", "package.json"), `{}`)
+		},
+		"replace directory without a declaration": func(e *env, job *worker.Job) {
+			job.Replacements = nil
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.program("npm", `echo ran`)
+			job := e.replacementJob(`{"v":"replaced"}`)
+			mutate(e, job)
+			res, _ := e.run(job)
+			if res == nil || res.Status != worker.StatusInputRejected || len(res.Steps) != 0 {
+				t.Fatalf("result %+v", res)
+			}
+		})
+	}
 }

@@ -59,25 +59,8 @@ func Argv(j Job, s Step) ([]string, error) {
 	switch s.Op {
 	case OpNpmRelock:
 		a = []string{"npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"}
-	case OpNpmUpdate:
-		a = []string{"npm", "update"}
-		for _, p := range s.Packages {
-			a = append(a, p.Name)
-		}
-		a = append(a, "--package-lock-only", "--ignore-scripts", "--no-save", "--no-audit", "--no-fund")
 	case OpPnpmFrozen:
 		a = []string{"pnpm", "install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"}
-		a = append(a, pnpmCfg...)
-	case OpPnpmUpdate:
-		a = []string{"pnpm", "update"}
-		for _, p := range s.Packages {
-			if p.Version == "" {
-				a = append(a, p.Name)
-			} else {
-				a = append(a, p.Name+"@"+p.Version)
-			}
-		}
-		a = append(a, "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile")
 		a = append(a, pnpmCfg...)
 	case OpPnpmRelock:
 		a = []string{"pnpm", "install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"}

@@ -80,8 +80,10 @@ type RuntimeRecord struct {
 type ToolRecord struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
-	// Source says where the version came from; "default" is the version the
-	// build selects for the runtime when the project declares none.
+	// Source says where the version came from: "declared" is the exact version
+	// the project names, "default" the version the build selects for the
+	// runtime when the project declares none, and "default_in_range" that
+	// version when the project declares ranges it falls inside.
 	Source string `json:"source"`
 	Format string `json:"format,omitempty"`
 	Size   int64  `json:"size,omitempty"`
@@ -95,7 +97,14 @@ type ToolRecord struct {
 	SpecHash       string    `json:"spec_hash,omitempty"`
 }
 
-const toolSourceDefault = "default"
+// The values of ToolRecord.Source: the project names the exact version
+// (packageManager, devEngines.packageManager, engines or required-version);
+// it names none, and the build's default version runs; or it names version
+// ranges only, and the build's default version is inside all of them.
+const (
+	toolSourceDefault        = "default"
+	toolSourceDefaultInRange = "default_in_range"
+)
 
 // jobEnvironment is what a job needs besides its inputs: the runtime, the
 // tool (none for pip) with its archive, and the records of both.

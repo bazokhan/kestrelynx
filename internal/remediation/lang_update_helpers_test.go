@@ -53,9 +53,11 @@ func (g *fakeGH) ReadFile(_ context.Context, repo, sha, p string) (github.File, 
 // block in the real format, made from the job it was given and a script of
 // what the steps do.
 type fakeWork struct {
-	mu    sync.Mutex
-	jobs  []worker.Job
-	srcs  []map[string][]byte
+	mu   sync.Mutex
+	jobs []worker.Job
+	srcs []map[string][]byte
+	// repls are the replacement files each job was given, by name.
+	repls []map[string][]byte
 	ids   []string
 	calls int
 	// script returns the outcome of the n-th call (0-based).
@@ -91,6 +93,7 @@ type fakeOutcome struct {
 func (f *fakeWork) RunJob(_ context.Context, spec docker.JobSpec) (docker.JobResult, error) {
 	var job worker.Job
 	src := map[string][]byte{}
+	repl := map[string][]byte{}
 	for _, in := range spec.Inputs {
 		switch {
 		case in.Path == "job.json":
@@ -99,6 +102,8 @@ func (f *fakeWork) RunJob(_ context.Context, spec docker.JobSpec) (docker.JobRes
 			}
 		case strings.HasPrefix(in.Path, "src/"):
 			src[strings.TrimPrefix(in.Path, "src/")] = in.Content
+		case strings.HasPrefix(in.Path, worker.ReplaceDirName+"/"):
+			repl[strings.TrimPrefix(in.Path, worker.ReplaceDirName+"/")] = in.Content
 		}
 	}
 	f.mu.Lock()
@@ -106,9 +111,10 @@ func (f *fakeWork) RunJob(_ context.Context, spec docker.JobSpec) (docker.JobRes
 	f.calls++
 	f.jobs = append(f.jobs, job)
 	f.srcs = append(f.srcs, src)
+	f.repls = append(f.repls, repl)
 	f.ids = append(f.ids, spec.JobID)
 	f.mu.Unlock()
-	o := f.script(n, job, src)
+	o := f.script(n, job, withReplacements(src, repl))
 	if o.err != nil {
 		return docker.JobResult{}, o.err
 	}
@@ -118,7 +124,7 @@ func (f *fakeWork) RunJob(_ context.Context, spec docker.JobSpec) (docker.JobRes
 	if o.exit != 0 {
 		return docker.JobResult{ExitCode: o.exit}, nil
 	}
-	return docker.JobResult{Stdout: buildResult(job, src, o)}, o.cleanupErr
+	return docker.JobResult{Stdout: buildResult(job, src, repl, o)}, o.cleanupErr
 }
 
 func copyFiles(m map[string][]byte) map[string][]byte {
@@ -130,7 +136,7 @@ func copyFiles(m map[string][]byte) map[string][]byte {
 }
 
 // buildResult makes the stdout block the work program would print.
-func buildResult(job worker.Job, src map[string][]byte, o fakeOutcome) []byte {
+func buildResult(job worker.Job, src, repl map[string][]byte, o fakeOutcome) []byte {
 	files := map[string][]byte{}
 	res := worker.Result{Protocol: worker.ProtocolVersion, Status: o.status, Manager: job.Manager}
 	if res.Status == "" {
@@ -153,7 +159,13 @@ func buildResult(job worker.Job, src map[string][]byte, o fakeOutcome) []byte {
 	if res.Status == worker.StatusInputRejected || res.Status == worker.StatusEnvironmentRejected {
 		steps = nil
 	}
-	for _, s := range steps {
+	replacing := job.FirstReplacingStep()
+	for si, s := range steps {
+		if si == replacing {
+			for name, c := range repl {
+				tree[name] = c
+			}
+		}
 		argv, _ := worker.Argv(job, s)
 		sr := worker.StepResult{ID: s.ID, Op: s.Op, Scratch: s.Scratch, Argv: argv, Stderr: o.stderr[s.ID]}
 		res.Steps = append(res.Steps, sr)
@@ -423,6 +435,10 @@ func (f *fakeTools) Provide(_ context.Context, req ToolRequest) (ToolArtifact, e
 	if req.Manager == ManagerUv {
 		art.Format, art.RunWithNode, art.Entry = "wheel", false, "uv-"+req.Version+".data/scripts/uv"
 	}
+	if req.Manager == ManagerPnpm && strings.HasPrefix(req.Version, "12.") {
+		// pnpm 12 is an executable, not a script for node.
+		art.RunWithNode, art.Entry = false, "pnpm"
+	}
 	return art, nil
 }
 
@@ -448,4 +464,74 @@ func withTestTools(t testing.TB, cfg LangUpdateConfig) LangUpdateConfig {
 	cfg.Platform = "linux/amd64"
 	cfg.Program = func() ([]byte, error) { return []byte("work program"), nil }
 	return cfg
+}
+
+// withReplacements returns the input files of a job with its replacement files
+// added under replace/, which is what a script can look at to see what the job
+// took out of the lockfile.
+func withReplacements(src, repl map[string][]byte) map[string][]byte {
+	out := copyFiles(src)
+	for name, c := range repl {
+		out[worker.ReplaceDirName+"/"+name] = c
+	}
+	return out
+}
+
+// namesIn returns the packages the n-th job names: those of its uv.upgrade
+// steps, and those whose entries its replacement lockfile lacks.
+func (f *fakeWork) namesIn(n int) []string {
+	return namesInUpdate(f.jobs[n], withReplacements(f.srcs[n], f.repls[n]))
+}
+
+// namesInUpdate lists the packages an update job names: the ones in the steps
+// that name packages, and the ones the lockfile that replaces the original
+// does not have.
+func namesInUpdate(job worker.Job, src map[string][]byte) []string {
+	var out []string
+	for _, s := range job.Steps {
+		for _, p := range s.Packages {
+			out = append(out, p.Name)
+		}
+	}
+	lock := worker.LockfileName(job.Manager)
+	repl, replaced := src[worker.ReplaceDirName+"/"+lock]
+	if !replaced {
+		return out
+	}
+	had, now := lockPackageNames(job.Manager, src[lock]), lockPackageNames(job.Manager, repl)
+	for name := range had {
+		if !now[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// lockPackageNames are the names of the packages a lockfile has entries for.
+func lockPackageNames(m worker.Manager, lock []byte) map[string]bool {
+	names := map[string]bool{}
+	switch m {
+	case worker.ManagerNpm:
+		doc, err := readNpmLock(lock)
+		if err != nil {
+			panic(err)
+		}
+		for k := range doc.entries {
+			if k != "" {
+				names[npmPathName(k)] = true
+			}
+		}
+	case worker.ManagerPnpm:
+		doc, err := readPnpmLock(lock)
+		if err != nil {
+			panic(err)
+		}
+		for k := range gmap(doc.top["packages"]) {
+			if name, _, ok := splitPnpmKey(pnpmBase(k)); ok {
+				names[name] = true
+			}
+		}
+	}
+	return names
 }

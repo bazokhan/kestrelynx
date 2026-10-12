@@ -41,6 +41,9 @@ type NpmDist struct {
 	// Install is the registry's record of the fields that decide whether and
 	// how the version is installed (see installRecord).
 	Install map[string]string
+	// Deprecated is the registry's deprecation note for the version, "" for
+	// none.
+	Deprecated string
 	// HasShrinkwrap is the registry's _hasShrinkwrap for the version: the
 	// package carries its own npm-shrinkwrap.json, which npm reads again after
 	// unpacking it.
@@ -140,6 +143,7 @@ func parseNpmVersion(body []byte, name, version string) (NpmDist, error) {
 		Dependencies         map[string]string `json:"dependencies"`
 		OptionalDependencies map[string]string `json:"optionalDependencies"`
 		PeerDependencies     map[string]string `json:"peerDependencies"`
+		Deprecated           json.RawMessage   `json:"deprecated"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return NpmDist{}, fmt.Errorf("registry response cannot be read: %w", err)
@@ -172,7 +176,21 @@ func parseNpmVersion(body []byte, name, version string) (NpmDist, error) {
 	if raw, ok := members["_hasShrinkwrap"]; ok {
 		shrink = storedByNpm(raw)
 	}
+	// The note is text. Absent, null and false are no note (the registry has
+	// written a deprecation away as an empty string or false); anything else is
+	// not something to compare a lockfile with.
+	deprecated := ""
+	switch t := strings.TrimSpace(string(doc.Deprecated)); {
+	case t == "" || t == "null" || t == "false":
+	case strings.HasPrefix(t, `"`):
+		if err := json.Unmarshal(doc.Deprecated, &deprecated); err != nil {
+			return NpmDist{}, fmt.Errorf("registry response has a deprecated note that cannot be read: %w", err)
+		}
+	default:
+		return NpmDist{}, errors.New("registry response has a deprecated member that is not text")
+	}
 	return NpmDist{
+		Deprecated:    deprecated,
 		HasShrinkwrap: shrink,
 		Tarball:       doc.Dist.Tarball, Integrity: doc.Dist.Integrity,
 		Dependencies: doc.Dependencies, OptionalDependencies: doc.OptionalDependencies, PeerDependencies: doc.PeerDependencies, Install: rec,

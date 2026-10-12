@@ -1,6 +1,7 @@
 package remediation
 
 import (
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +25,11 @@ func npmRangeAllows(spec string, v semver) (ok, evaluable bool) {
 	}
 	anyAlt := false
 	for _, alt := range strings.Split(spec, "||") {
+		// An alternative that is one pre-release version is met by that version
+		// only, and v is not a pre-release.
+		if exactPrereleaseRE.MatchString(strings.TrimSpace(alt)) {
+			continue
+		}
 		preds, valid := rangePredicates(alt)
 		if !valid {
 			return false, false
@@ -41,6 +47,9 @@ func npmRangeAllows(spec string, v semver) (ok, evaluable bool) {
 	}
 	return anyAlt, true
 }
+
+// exactPrereleaseRE matches a range that names one pre-release version.
+var exactPrereleaseRE = regexp.MustCompile(`^=?v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-[0-9A-Za-z.-]+$`)
 
 // triple is major.minor.patch as decimal strings without leading zeros.
 type triple [3]string

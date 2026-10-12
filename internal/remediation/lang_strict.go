@@ -368,6 +368,12 @@ func yamlLevel(top *yaml.Node) error {
 			if err != nil {
 				return err
 			}
+			// A deprecation note is text, or nothing: a plain false or 1 is a
+			// boolean or a number to pnpm, and becomes text only when the file is
+			// converted for reading.
+			if d := f["deprecated"]; d != nil && !(d.Kind == yaml.ScalarNode && (d.Tag == "!!str" || d.Tag == "!!null")) {
+				return fmt.Errorf("the package %q has a deprecated member that is not text", clip(pkgKey(sm, pk), 100))
+			}
 			if res := f["resolution"]; res != nil {
 				if _, err := yamlFixed(res); err != nil {
 					return err
@@ -481,4 +487,14 @@ func checkTOMLKeys(doc map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// pkgKey names a package record of a section by its value, for a message.
+func pkgKey(section map[string]*yaml.Node, rec *yaml.Node) string {
+	for k, v := range section {
+		if v == rec {
+			return k
+		}
+	}
+	return ""
 }

@@ -183,6 +183,24 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 			writeEntryList(t, &b, t.LTitleRemoved, d.Removed)
 			fmt.Fprintf(&b, t.LLookup, registryName(t, it.Manager))
 		}
+		if n := in.Record.deprecatedChanged(); n > 0 {
+			b.WriteString("\n")
+			fmt.Fprintf(&b, t.LDeprecated, n, registryName(t, it.Manager))
+		}
+		if f := in.Record.followed(); len(f) > 0 {
+			fmt.Fprintf(&b, "\n**%s (%d)**\n\n", t.LFollowedTitle, len(f))
+			for i, e := range f {
+				if i == maxListedEntries {
+					fmt.Fprintf(&b, t.LineMore, len(f)-maxListedEntries)
+					break
+				}
+				var moves []string
+				for _, m := range e.Moves {
+					moves = append(moves, fmt.Sprintf(t.LFollowedMove, mdCode(m.Name), mdCode(m.From), mdCode(m.To)))
+				}
+				fmt.Fprintf(&b, t.LFollowedLine, mdCode(e.Entry), strings.Join(moves, "; "))
+			}
+		}
 		for _, n := range up.Notes {
 			fmt.Fprintf(&b, t.LNote, mdCode(n))
 		}
@@ -329,8 +347,15 @@ func writeEnvironment(t *prText, b *strings.Builder, rec *LangRecord) {
 		}
 	}
 	if tl := rec.Tool; tl != nil {
-		source := t.LEnvToolDefault
-		if tl.Source != toolSourceDefault {
+		var source string
+		switch tl.Source {
+		case toolSourceDefault:
+			source = t.LEnvToolDefault
+		case toolSourceDeclared:
+			source = t.LEnvToolDeclared
+		case toolSourceDefaultInRange:
+			source = t.LEnvToolInRange
+		default:
 			source = fmt.Sprintf(t.LEnvToolSource, mdCode(tl.Source))
 		}
 		fmt.Fprintf(b, t.LEnvTool, mdCode(tl.Name), mdCode(tl.Version), source, mdCode(tl.SHA256))

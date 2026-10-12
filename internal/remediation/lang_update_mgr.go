@@ -32,6 +32,9 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 			return manualFailure(uerr.Reason, "%s", uerr.Detail)
 		}
 		r.toolSpec = ts
+		if r.it.Manager == ManagerPnpm && strings.HasPrefix(ts.ToolVersion, "12.") {
+			return manualFailure(ReasonPnpm12RemovalUnsupported, "the project runs pnpm %s, and pnpm 12 does not make a lockfile again from one with entries taken out, which is how pnpm lockfiles are updated here", ts.ToolVersion)
+		}
 	}
 	// Only a lockfile tells where each package ended up; a pip update pins its
 	// packages exactly and has nothing to leave out.
@@ -47,6 +50,12 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 	if len(src.manifest) > maxManifestBytes {
 		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdateInputLimit,
 			detail: fmt.Sprintf("%s is over %d bytes", src.manifestName, maxManifestBytes)}
+	}
+	// The lockfile is read by this program before it is sent, to make the file
+	// that replaces it, so its size is checked here too.
+	if len(src.lock) > worker.MaxInputFileBytes {
+		return &updateFailure{category: CategoryDeferred, reason: ReasonUpdateInputLimit,
+			detail: fmt.Sprintf("%s is %d bytes, more than the %d one job takes", src.lockName, len(src.lock), worker.MaxInputFileBytes)}
 	}
 	var out *updateFailure
 	switch r.it.Manager {
@@ -67,6 +76,13 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 
 // exec runs one job of the update and notes whether its update step ran.
 func (r *updateRun) exec(ctx context.Context, m worker.Manager, inputs map[string][]byte, steps []worker.Step, role string) (*jobOutput, *updateFailure) {
+	return r.execReplacing(ctx, m, inputs, nil, steps, role)
+}
+
+// execReplacing is exec for a job that has replacement files, which take the
+// place of the inputs of the same name just before its first step that is not
+// a scratch step.
+func (r *updateRun) execReplacing(ctx context.Context, m worker.Manager, inputs, replacements map[string][]byte, steps []worker.Step, role string) (*jobOutput, *updateFailure) {
 	if r.attempt > 0 {
 		role = fmt.Sprintf("%s-again%d", role, r.attempt)
 	}
@@ -74,7 +90,13 @@ func (r *updateRun) exec(ctx context.Context, m worker.Manager, inputs map[strin
 	if fail != nil {
 		return nil, fail
 	}
-	out, fail := r.u.execute(ctx, r.u.newJob(m, env, inputs, steps), env, inputs, r.u.jobID(r.n, role), r.upd)
+	job := r.u.newJob(m, env, inputs, steps)
+	for _, name := range worker.InputNames(m) {
+		if content, ok := replacements[name]; ok {
+			job.Replacements = append(job.Replacements, worker.Input{Path: name, Size: int64(len(content)), SHA256: sha256Hex(content)})
+		}
+	}
+	out, fail := r.u.execute(ctx, job, env, inputs, replacements, r.u.jobID(r.n, role), r.upd)
 	if out != nil {
 		for _, s := range out.result.Steps {
 			if s.ID == stepUpdate && s.ExitCode == 0 && !s.TimedOut && s.Error == "" {
@@ -404,12 +426,19 @@ func (r *updateRun) runNpm(ctx context.Context) *updateFailure {
 	if len(r.upd.ManifestEdits) > 0 {
 		return r.runNpmEdited(ctx)
 	}
+	removal, problem := removeNpmTargets(ctx, r.src.lock, r.targetSet())
+	if problem != nil {
+		return problem.failure()
+	}
+	// The original input is relocked on a scratch copy to see that npm takes it
+	// as it is; the lockfile with the targets taken out then takes its place
+	// and is relocked.
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true},
-		{ID: stepUpdate, Op: worker.OpNpmUpdate, Packages: r.packageArgs(nil, func(string) bool { return false })},
+		{ID: stepUpdate, Op: worker.OpNpmRelock},
 	}
 	inputs := map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock}
-	out, fail := r.exec(ctx, worker.ManagerNpm, inputs, steps, "update")
+	out, fail := r.execReplacing(ctx, worker.ManagerNpm, inputs, map[string][]byte{"package-lock.json": removal.lock}, steps, "update")
 	if fail != nil {
 		return fail
 	}
@@ -434,8 +463,8 @@ func (r *updateRun) checkNpmBaseline(out *jobOutput) *updateFailure {
 
 // runNpmEdited updates with a package.json whose specifiers for some of the
 // targets were edited. The original input is checked as it is in a job of its
-// own; the update then relocks the original lockfile against the edited
-// manifest, and updates the targets whose specifier was not edited.
+// own; the update then relocks the lockfile with the targets taken out against
+// the edited manifest.
 func (r *updateRun) runNpmEdited(ctx context.Context) *updateFailure {
 	base, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock},
 		[]worker.Step{{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true}}, "base")
@@ -445,12 +474,12 @@ func (r *updateRun) runNpmEdited(ctx context.Context) *updateFailure {
 	if fail := r.checkNpmBaseline(base); fail != nil {
 		return fail
 	}
-	edited := r.editedNames()
-	steps := []worker.Step{{ID: stepUpdate, Op: worker.OpNpmRelock}}
-	if rest := r.packageArgs(func(n string) bool { return !edited[n] }, func(string) bool { return false }); len(rest) > 0 {
-		steps = append(steps, worker.Step{ID: stepUpdateMore, Op: worker.OpNpmUpdate, Packages: rest})
+	removal, problem := removeNpmTargets(ctx, r.src.lock, r.targetSet())
+	if problem != nil {
+		return problem.failure()
 	}
-	out, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.manifest, "package-lock.json": r.src.lock}, steps, "update")
+	steps := []worker.Step{{ID: stepUpdate, Op: worker.OpNpmRelock}}
+	out, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.manifest, "package-lock.json": removal.lock}, steps, "update")
 	if fail != nil {
 		return fail
 	}
@@ -506,8 +535,8 @@ func npmPackageSetDiff(a, b []byte) string {
 
 // pnpmInputs are the input files of a pnpm job: the manifest, the lockfile and
 // the settings file when the project has one.
-func (r *updateRun) pnpmInputs(manifest []byte) map[string][]byte {
-	in := map[string][]byte{"package.json": manifest, "pnpm-lock.yaml": r.src.lock}
+func (r *updateRun) pnpmInputs(manifest, lock []byte) map[string][]byte {
+	in := map[string][]byte{"package.json": manifest, "pnpm-lock.yaml": lock}
 	if r.src.settings != nil {
 		in[pnpmWorkspaceName] = r.src.settings
 	}
@@ -521,15 +550,21 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 	if len(r.upd.ManifestEdits) > 0 {
 		return r.runPnpmEdited(ctx)
 	}
+	removal, problem := removePnpmTargets(ctx, r.src.lock, r.targetSet())
+	if problem != nil {
+		return problem.failure()
+	}
+	r.pnpmTrigger = removal.trigger
+	// The original input is checked as it is on a scratch copy; the lockfile
+	// with the targets taken out then takes its place and is relocked, and the
+	// result is checked again.
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true},
-		// A direct dependency is pinned to its target; pnpm refuses a version
-		// for a transitive one, which moves within what its dependents allow.
-		{ID: stepUpdate, Op: worker.OpPnpmUpdate, Packages: r.packageArgs(nil, r.isDirect)},
+		{ID: stepUpdate, Op: worker.OpPnpmRelock},
 		{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true},
 	}
-	inputs := r.pnpmInputs(r.src.manifest)
-	out, fail := r.exec(ctx, worker.ManagerPnpm, inputs, steps, "update")
+	inputs := r.pnpmInputs(r.src.manifest, r.src.lock)
+	out, fail := r.execReplacing(ctx, worker.ManagerPnpm, inputs, map[string][]byte{"pnpm-lock.yaml": removal.lock}, steps, "update")
 	if fail != nil {
 		return fail
 	}
@@ -537,22 +572,26 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 }
 
 // runPnpmEdited is the update with an edited package.json: the original input
-// is checked as it is in a job of its own, then the original lockfile is
-// relocked against the edited manifest, the targets whose specifier was not
-// edited are updated, and the result is checked again.
+// is checked as it is in a job of its own, then the lockfile with the targets
+// taken out is relocked against the edited manifest, and the result is
+// checked again. The edited specifiers make pnpm resolve again, so no other
+// dependency is taken out.
 func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
 	baseSteps := []worker.Step{{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true}}
-	base, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.src.manifest), baseSteps, "base")
+	base, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.src.manifest, r.src.lock), baseSteps, "base")
 	if fail != nil {
 		return fail
 	}
-	edited := r.editedNames()
-	steps := []worker.Step{{ID: stepUpdate, Op: worker.OpPnpmRelock}}
-	if rest := r.packageArgs(func(n string) bool { return !edited[n] }, r.isDirect); len(rest) > 0 {
-		steps = append(steps, worker.Step{ID: stepUpdateMore, Op: worker.OpPnpmUpdate, Packages: rest})
+	removal, problem := removePnpmTargets(ctx, r.src.lock, r.targetSet())
+	if problem != nil {
+		return problem.failure()
 	}
-	steps = append(steps, worker.Step{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true})
-	out, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.manifest), steps, "update")
+	r.pnpmTrigger = removal.trigger
+	steps := []worker.Step{
+		{ID: stepUpdate, Op: worker.OpPnpmRelock},
+		{ID: stepCheck, Op: worker.OpPnpmFrozen, Scratch: true},
+	}
+	out, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.manifest, removal.lock), steps, "update")
 	if fail != nil {
 		return fail
 	}
@@ -564,6 +603,17 @@ func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
 func (r *updateRun) runUv(ctx context.Context) *updateFailure {
 	if fail := r.planUvProject(ctx); fail != nil {
 		return fail
+	}
+	// uv is told nothing of a package it does not have, and then changes
+	// nothing and succeeds, so the names are looked for here first.
+	lf, err := parseUv(r.src.manifest, r.src.lock)
+	if err != nil {
+		return manualFailure(ReasonDependencyFileUnusable, "uv.lock cannot be read: %v", err)
+	}
+	for _, n := range r.set.names {
+		if lf.lookup(n) == nil {
+			return pkgFailure(n, ReasonTargetNotInLockfile, "%s has no entry in uv.lock", n)
+		}
 	}
 	steps := []worker.Step{
 		{ID: stepBaseline, Op: worker.OpUvCheck, Scratch: true},
@@ -756,8 +806,7 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 			return fail
 		}
 	}
-	gb, err1 := buildGraph(ctx, m, r.src.lock)
-	ga, err2 := buildGraph(ctx, m, newLock)
+	gb, ga, err1, err2 := r.buildGraphs(ctx, newLock)
 	if err1 != nil || err2 != nil {
 		if ctx.Err() != nil {
 			return &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
@@ -772,6 +821,14 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 				return manualFailure(ReasonOutputFilesInvalid, "the project's own record in the lockfile cannot be compared: %v", err)
 			}
 		}
+	}
+	if m == ManagerPnpm {
+		if fail := r.checkTriggerReturned(gb, ga, r.src.lock, newLock); fail != nil {
+			return fail
+		}
+	}
+	if fail := r.checkReferences(ctx, newLock); fail != nil {
+		return fail
 	}
 	diff, reason, detail := diffGraphs(ctx, gb, ga, r.targetSet())
 	r.upd.Diff = &diff
@@ -815,6 +872,11 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 	}
 	if reason, detail := checkUnresolvedCtx(ctx, gb, ga); reason != "" {
 		return manualFailure(reason, "%s", detail)
+	}
+	if m == ManagerNpm || m == ManagerPnpm {
+		if fail := r.checkDeprecated(ctx, gb, ga); fail != nil {
+			return fail
+		}
 	}
 	return r.checkRanges(ctx, ga, newLock, check)
 }
@@ -973,11 +1035,20 @@ func sameVersions(a, b []SourceOccurrence) bool {
 }
 
 // meetsFix reports whether version v is fixed for a vulnerability reported
-// fixed in the given versions: v is at or above the highest of them, or there
-// is a fixed version of v's own series (the same major and minor) and v is at
-// or above it (the highest of them, if there are several). A fixed version of another series does not vouch for v, so 4.2.0
-// is not fixed by [4.1.13, 4.2.16]. A pre-release is fixed only by a fixed
-// version that is that pre-release itself.
+// fixed in the given versions. The fixed versions are the first fixed version
+// of each line of releases (4.1.13 and 4.2.16, say), and a line is the major
+// version (the minor version for 0.x). A version is fixed when
+//
+//   - a fixed version of its own series (the same major and minor) exists and v
+//     is at or above the highest of them: 4.2.0 is not fixed by [4.1.13, 4.2.16];
+//   - otherwise, a fixed version of its own line exists and v is at or above
+//     every fixed version of that line: 6.29.0 is fixed by [6.28.1, 7.29.1], a
+//     later release of the line the fix was made in, while 4.1.20 is not fixed by
+//     [4.0.5, 4.2.16], which leaves the series between two fixes undecided;
+//   - otherwise v is at or above every fixed version.
+//
+// A pre-release is fixed only by a fixed version that is that pre-release
+// itself.
 func meetsFix(sc scheme, v string, fixed []string) bool {
 	vv, ok := parseVersion(sc, v)
 	if !ok {
@@ -1004,21 +1075,28 @@ func meetsFix(sc scheme, v string, fixed []string) bool {
 		}
 		return false
 	}
-	// A fixed version of v's own series (the same major and minor) is the
-	// one that counts, the highest of them if there are several; otherwise v
-	// must be at or above every fixed version.
 	var ownMax version
+	lineAbove, lineAny := true, false
 	above := true
 	for _, fv := range all {
 		if seriesOf(vv) == seriesOf(fv) && (ownMax == nil || fv.compare(ownMax) > 0) {
 			ownMax = fv
 		}
+		if lineOf(vv) == lineOf(fv) {
+			lineAny = true
+			if vv.compare(fv) < 0 {
+				lineAbove = false
+			}
+		}
 		if vv.compare(fv) < 0 {
 			above = false
 		}
 	}
-	if ownMax != nil {
+	switch {
+	case ownMax != nil:
 		return vv.compare(ownMax) >= 0
+	case lineAny:
+		return lineAbove
 	}
 	return above
 }
@@ -1044,6 +1122,24 @@ func seriesOf(v version) string {
 			minor = t.release[1]
 		}
 		return t.epoch + "!" + t.release[0] + "." + minor
+	}
+	return ""
+}
+
+// lineOf is the line of releases a version belongs to: its major version, or
+// the major and minor version for 0.x, where a minor release may break.
+func lineOf(v version) string {
+	switch t := v.(type) {
+	case semver:
+		if t.major == "0" {
+			return t.major + "." + t.minor
+		}
+		return t.major
+	case pyVersion:
+		if len(t.release) > 1 && t.release[0] == "0" {
+			return t.epoch + "!" + t.release[0] + "." + t.release[1]
+		}
+		return t.epoch + "!" + t.release[0]
 	}
 	return ""
 }

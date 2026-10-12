@@ -245,7 +245,7 @@ func TestNewJobsDoNotUseOldRecordsAsVersions(t *testing.T) {
 	rec.Tool = &ToolRecord{Name: "npm", Version: "11.21.0", Source: "declared", SHA256: "abc"}
 	b.Reset()
 	writeEnvironment(textFor(BodyEN), &b, rec)
-	if out := b.String(); !strings.Contains(out, "24.21.0") || !strings.Contains(out, "11.21.0") || !strings.Contains(out, "declared") {
+	if out := b.String(); !strings.Contains(out, "24.21.0") || !strings.Contains(out, "11.21.0") || !strings.Contains(out, "declares") {
 		t.Errorf("body = %q", out)
 	}
 }

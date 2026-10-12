@@ -223,15 +223,23 @@ func resolveUvSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 	if !ok {
 		return spec, unsupported(ReasonManagerSpecUnsupported, "no default version of uv is set for %s", defaultPythonRuntime)
 	}
+	if uvExactRE.MatchString(norm) {
+		// The project names the release: it is the one to run, if the fetching
+		// package takes it.
+		exact := strings.TrimPrefix(norm, "==")
+		if ok, why := toolfetch.CheckVersion(toolfetch.ManagerUv, exact); !ok {
+			return spec, unsupported(ReasonManagerSpecUnsupported, "[tool.uv] required-version %s: %s", clip(text, 80), why)
+		}
+		spec.ToolVersion, spec.ToolSource = exact, toolSourceDeclared
+		return spec, nil
+	}
 	admits, evaluable := pySatisfies(dv, norm)
 	switch {
 	case !evaluable:
 		return spec, unsupported(ReasonManagerSpecInvalid, "[tool.uv] required-version %q cannot be judged", clip(text, 80))
 	case !admits:
-		return spec, unsupported(ReasonManagerSpecUnsupported, "[tool.uv] required-version %s does not allow uv %s, which updates run with so far", clip(text, 80), def)
+		return spec, unsupported(ReasonManagerSpecUnsupported, "[tool.uv] required-version %s does not allow uv %s, which updates run with when the project names no exact version", clip(text, 80), def)
 	}
-	if uvExactRE.MatchString(norm) {
-		spec.ToolSource = toolSourceDeclared
-	}
+	spec.ToolSource = toolSourceDefaultInRange
 	return spec, nil
 }

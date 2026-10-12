@@ -61,6 +61,20 @@ type LangRecord struct {
 	// kept.
 	Runtime *RuntimeRecord `json:"runtime,omitempty"`
 	Tool    *ToolRecord    `json:"tool,omitempty"`
+	// DeprecatedChanged is how many lockfile entries gained, lost or changed a
+	// deprecated note in the update. It is not part of the update key.
+	DeprecatedChanged int `json:"deprecated_changed,omitempty"`
+	// Followed are the entries whose dependencies moved to new versions along
+	// with the update. They are not part of the update key.
+	Followed []FollowedEntry `json:"followed,omitempty"`
+}
+
+// deprecatedChanged is the count of the record, 0 for none.
+func (l *LangRecord) deprecatedChanged() int {
+	if l == nil {
+		return 0
+	}
+	return l.DeprecatedChanged
 }
 
 // sortedLangEntries returns a sorted copy of entries with sorted positions.
@@ -178,4 +192,13 @@ func languageUnitTitle(pkgs []PRLanguagePackage, lockPath string) string {
 		t = string(rs[:250]) + "..."
 	}
 	return t
+}
+
+// followed is the entries of the record whose dependencies moved, none for no
+// record.
+func (l *LangRecord) followed() []FollowedEntry {
+	if l == nil {
+		return nil
+	}
+	return l.Followed
 }

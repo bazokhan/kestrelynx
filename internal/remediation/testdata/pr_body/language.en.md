@@ -41,7 +41,7 @@ For each package the target is the lowest version that the vulnerability data li
 The update ran in a throwaway container created from an official image pinned by digest, with fixed operations and no credentials. Its result was treated as untrusted and checked by KestreLynx itself.
 
 - Runtime: `node24` `24.21.0`, from the official image `node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`
-- Package manager: `pnpm` `11.28.2` (the version this build selects when the project declares none), archive sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
+- Package manager: `pnpm` `11.28.2` (this build's default version, which the version ranges the project declares allow), archive sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
 
 **Operations run**
 
@@ -59,6 +59,12 @@ Added:
 - `semver@7.5.4`
 
 Every version the update added or changed was looked up in the npm registry and compared with the distribution the lockfile points at.
+
+- Deprecation notes: 2 package version(s) gained, lost or changed one, and each equals what the npm registry publishes for that version
+
+**Entries whose dependencies moved to newer versions along with the update (1)**
+
+- `browserslist@4.28.2`: `caniuse-lite` `1.0.30001792` to `1.0.30001806`
 
 - Note from the run: `the declared packageManager differs from the one installed`
 

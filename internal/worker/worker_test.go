@@ -107,14 +107,8 @@ func TestArgv(t *testing.T) {
 	}{
 		{"npm relock", ManagerNpm, Step{ID: "a", Op: OpNpmRelock},
 			[]string{"npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"}},
-		{"npm update", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate, Packages: []Package{{Name: "minimist"}, {Name: "@s/x"}}},
-			[]string{"npm", "update", "minimist", "@s/x", "--package-lock-only", "--ignore-scripts", "--no-save", "--no-audit", "--no-fund"}},
 		{"pnpm frozen", ManagerPnpm, Step{ID: "a", Op: OpPnpmFrozen},
 			[]string{"pnpm", "install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
-		{"pnpm update with version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "minimist", Version: "1.2.8"}}},
-			[]string{"pnpm", "update", "minimist@1.2.8", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
-		{"pnpm update without version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "minimist"}, {Name: "@s/x", Version: "2.0.0"}}},
-			[]string{"pnpm", "update", "minimist", "@s/x@2.0.0", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"pnpm relock", ManagerPnpm, Step{ID: "a", Op: OpPnpmRelock},
 			[]string{"pnpm", "install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"uv check", ManagerUv, Step{ID: "a", Op: OpUvCheck},
@@ -151,17 +145,13 @@ func TestStepRejections(t *testing.T) {
 	}{
 		{"unknown op", ManagerNpm, Step{ID: "a", Op: "npm.exec"}},
 		{"wrong manager", ManagerNpm, Step{ID: "a", Op: OpPnpmRelock}},
-		{"dash name npm", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate, Packages: []Package{{Name: "--registry=http://x"}}}},
-		{"dash name pnpm", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "-r", Version: "1.0.0"}}}},
-		{"dash version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "x", Version: "-1.0.0"}}}},
 		{"dash uv name", ManagerUv, Step{ID: "a", Op: OpUvUpgrade, Packages: []Package{{Name: "-x", Version: "1.0"}}}},
-		{"range version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "x", Version: "^1.0.0"}}}},
-		{"npm update with version", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate, Packages: []Package{{Name: "x", Version: "1.0.0"}}}},
-		{"npm update without packages", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate}},
 		{"relock with packages", ManagerNpm, Step{ID: "a", Op: OpNpmRelock, Packages: []Package{{Name: "x"}}}},
-		{"duplicate package", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate, Packages: []Package{{Name: "x"}, {Name: "x"}}}},
+		{"duplicate package", ManagerUv, Step{ID: "a", Op: OpUvUpgrade, Packages: []Package{{Name: "x", Version: "1"}, {Name: "x", Version: "1"}}}},
+		{"uv range version", ManagerUv, Step{ID: "a", Op: OpUvUpgrade, Packages: []Package{{Name: "x", Version: ">=1"}}}},
+		{"removed npm update", ManagerNpm, Step{ID: "a", Op: "npm.update", Packages: []Package{{Name: "x"}}}},
+		{"removed pnpm update", ManagerPnpm, Step{ID: "a", Op: "pnpm.update", Packages: []Package{{Name: "x"}}}},
 		{"uv without version", ManagerUv, Step{ID: "a", Op: OpUvUpgrade, Packages: []Package{{Name: "urllib3"}}}},
-		{"pnpm dash name no version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "-r"}}}},
 		{"hashes on uv", ManagerUv, Step{ID: "a", Op: OpUvCheck, RequireHashes: true}},
 		{"bad target version", ManagerPip, Step{ID: "a", Op: OpPipDryRun, Target: &Target{PythonVersion: "3.13; rm"}}},
 		{"dash platform", ManagerPip, Step{ID: "a", Op: OpPipDryRun, Target: &Target{Platforms: []string{"--index-url=x"}}}},
@@ -266,5 +256,97 @@ func TestPnpmJobMayCarryItsWorkspaceSettings(t *testing.T) {
 	}
 	if got := InputNames(ManagerPnpm); strings.Join(got, ",") != "package.json,pnpm-lock.yaml,pnpm-workspace.yaml" {
 		t.Errorf("inputs = %v", got)
+	}
+}
+
+func TestPnpmToolFormats(t *testing.T) {
+	pnpmJob := func(version string, mutate func(*Tool)) Job {
+		j := testJob(ManagerPnpm)
+		j.Tool = testTool(ManagerPnpm, version)
+		if mutate != nil {
+			mutate(j.Tool)
+			j.Tool.Path = ToolPath(*j.Tool)
+		}
+		h := strings.Repeat("a", 64)
+		j.Inputs = []Input{{Path: "package.json", Size: 1, SHA256: h}, {Path: "pnpm-lock.yaml", Size: 2, SHA256: h}}
+		j.Steps = []Step{{ID: "c", Op: OpPnpmFrozen}}
+		j.Outputs, j.DeadlineSeconds = []string{"package.json", "pnpm-lock.yaml"}, 10
+		return j
+	}
+	exe := func(t *Tool) { t.RunWithNode, t.Entry = false, "pnpm" }
+	cases := []struct {
+		name    string
+		version string
+		mutate  func(*Tool)
+		ok      bool
+	}{
+		{"script for node, 9", "9.15.9", nil, true},
+		{"script for node, 11", "11.28.5", nil, true},
+		{"executable, 12", "12.11.2", exe, true},
+		{"script for node, 12", "12.11.2", nil, false},
+		{"executable, 11", "11.28.5", exe, false},
+	}
+	for _, c := range cases {
+		j := pnpmJob(c.version, c.mutate)
+		if err := j.Validate(); (err == nil) != c.ok {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+	// pnpm 12 gets the setting that keeps its lockfile one document.
+	j := pnpmJob("12.11.2", exe)
+	argv, err := Argv(j, Step{ID: "r", Op: OpPnpmRelock})
+	if err != nil || argv[len(argv)-1] != "--config.pmOnFail=ignore" {
+		t.Errorf("argv %q: %v", argv, err)
+	}
+	j = pnpmJob("10.34.4", nil)
+	argv, err = Argv(j, Step{ID: "r", Op: OpPnpmRelock})
+	if err != nil || argv[len(argv)-1] != "--config.manage-package-manager-versions=false" {
+		t.Errorf("argv %q: %v", argv, err)
+	}
+	j = pnpmJob("9.15.9", nil)
+	argv, err = Argv(j, Step{ID: "r", Op: OpPnpmRelock})
+	if err != nil || argv[len(argv)-1] != "--ignore-pnpmfile" {
+		t.Errorf("argv %q: %v", argv, err)
+	}
+}
+
+func TestJobReplacements(t *testing.T) {
+	h := strings.Repeat("c", 64)
+	withReplacement := func(mutate func(*Job)) *Job {
+		j := goodJob()
+		j.Steps = []Step{{ID: "base", Op: OpNpmRelock, Scratch: true}, {ID: "relock", Op: OpNpmRelock}}
+		j.Replacements = []Input{{Path: "package-lock.json", Size: 3, SHA256: h}}
+		if mutate != nil {
+			mutate(j)
+		}
+		return j
+	}
+	if err := withReplacement(nil).Validate(); err != nil {
+		t.Fatalf("a replacement of the lockfile: %v", err)
+	}
+	if got := withReplacement(nil).FirstReplacingStep(); got != 1 {
+		t.Errorf("the replacements go in before step %d", got)
+	}
+	bad := map[string]func(*Job){
+		"the manifest":             func(j *Job) { j.Replacements[0].Path = "package.json" },
+		"another name":             func(j *Job) { j.Replacements[0].Path = "pnpm-lock.yaml" },
+		"twice":                    func(j *Job) { j.Replacements = append(j.Replacements, j.Replacements[0]) },
+		"no hash":                  func(j *Job) { j.Replacements[0].SHA256 = "" },
+		"too large":                func(j *Job) { j.Replacements[0].Size = MaxInputFileBytes + 1 },
+		"only scratch steps":       func(j *Job) { j.Steps = j.Steps[:1] },
+		"too many inputs in total": func(j *Job) { j.Inputs[0].Size, j.Replacements[0].Size = MaxInputTotalBytes, 1 },
+	}
+	for name, f := range bad {
+		if err := withReplacement(f).Validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	uv := testJob(ManagerUv)
+	uv.Inputs = []Input{{Path: "pyproject.toml", SHA256: h}, {Path: "uv.lock", SHA256: h}}
+	uv.Steps = []Step{{ID: "c", Op: OpUvCheck}}
+	uv.Outputs, uv.DeadlineSeconds = []string{"pyproject.toml", "uv.lock"}, 10
+	uv.Replacements = []Input{{Path: "uv.lock", SHA256: h}}
+	if err := uv.Validate(); err == nil {
+		t.Error("a replacement for uv accepted")
 	}
 }

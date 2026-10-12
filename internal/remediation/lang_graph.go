@@ -51,6 +51,11 @@ type depNode struct {
 	flags map[string]bool
 	// peerRanges are the peer dependency ranges a pnpm package records.
 	peerRanges map[string]string
+	// deprecated is the deprecation note the entry records for its package
+	// version ("" for none). It is not part of attrs: a note is added, changed
+	// or removed when the registry's own does, which is checked against the
+	// registry (see checkDeprecated), not by comparing the entries.
+	deprecated string
 	// id, key and kid identify the entry once the graph is linked: its number
 	// in depGraph.list, its key, and a fixed-size digest of the key to stand
 	// for it where keys of different graphs are compared.
@@ -370,6 +375,9 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		if err != nil {
 			return nil, err
 		}
+		if m, ok := val.(map[string]any); ok {
+			delete(m, "deprecated")
+		}
 		attrs, err := canonicalJSON(val)
 		if err != nil {
 			return nil, err
@@ -380,6 +388,11 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		}
 		n := &depNode{name: pathName, version: e.Version, attrs: attrs, dist: []distRef{{url: e.Resolved, hash: e.Integrity}}}
 		n.unknown = unknownKeys(e.m, npmEntryKeys)
+		note, odd := jsonDeprecation(e.m)
+		if odd {
+			return nil, fmt.Errorf("package-lock.json entry %q has a deprecated member that is not text", clip(k, 100))
+		}
+		n.deprecated = note
 		rec, rerr := installRecord(e.m, pathName, e.Dependencies, "bundleDependencies")
 		n.install = rec
 		n.flags = map[string]bool{}
@@ -632,7 +645,13 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 		// peer context): it is normalized once and the snapshots carry its hash.
 		pkHash, seen := pkHashes[base]
 		if !seen {
-			canon, err := canonicalJSON(pk)
+			withoutNote := make(map[string]any, len(pk))
+			for k, v := range pk {
+				if k != "deprecated" {
+					withoutNote[k] = v
+				}
+			}
+			canon, err := canonicalJSON(withoutNote)
 			if err != nil {
 				return fmt.Errorf("pnpm-lock.yaml has content that cannot be compared: %v", err)
 			}
@@ -698,6 +717,13 @@ func pnpmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 			}
 			n.unknown = append(append(make([]string, 0, len(pu)+len(su)), pu...), su...)
 			sort.Strings(n.unknown)
+		}
+		// A deprecation note is text or nothing, whatever else is true of the
+		// entry; anything else is not a file this program reads.
+		if note, isString := pk["deprecated"].(string); isString {
+			n.deprecated = note
+		} else if pk["deprecated"] != nil {
+			return fmt.Errorf("pnpm-lock.yaml gives %q a deprecated member that is not text", clip(base, 100))
 		}
 		switch {
 		case pk["id"] != nil || pk["patched"] != nil || pk["name"] != nil || pk["version"] != nil || pk["prepare"] != nil:
@@ -1705,6 +1731,13 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 		return isTarget(n) || (belowBefore[k] && !freeBefore[k])
 	}
 
+	// movedAway maps an entry of the original file to the entries whose
+	// dependency on it moved to a version the update brought in.
+	movedAway := map[string]map[string]bool{}
+	// followedTo are the entries the followers now point to, whether or not the
+	// update changed them: each is checked against the registry like an entry
+	// the update added.
+	var followedTo []string
 	var keys []string
 	for k := range after.nodes {
 		keys = append(keys, k)
@@ -1722,7 +1755,18 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 		case old.full(before, targets) != n.full(after, targets):
 			diff.Changed = append(diff.Changed, k)
 			if !mayChange(k, old) {
-				return diff, ReasonUnexplainedDiff, fmt.Sprintf("%s changed but is neither an updated package nor only reachable through one", k)
+				moves, fromKeys, toKeys, ok := followedMoves(before, after, old, n, underTargetAfter)
+				if !ok {
+					return diff, ReasonUnexplainedDiff, fmt.Sprintf("%s changed but is neither an updated package nor only reachable through one", k)
+				}
+				diff.Followed = append(diff.Followed, FollowedEntry{Entry: n.name + "@" + n.version, Moves: moves})
+				followedTo = append(followedTo, toKeys...)
+				for _, from := range fromKeys {
+					if movedAway[from] == nil {
+						movedAway[from] = map[string]bool{}
+					}
+					movedAway[from][k] = true
+				}
 			}
 		default:
 			continue
@@ -1732,6 +1776,18 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 		}
 	}
 	diff.touched = append(append([]string(nil), diff.Added...), diff.Changed...)
+	{
+		have := make(map[string]bool, len(diff.touched))
+		for _, k := range diff.touched {
+			have[k] = true
+		}
+		for _, k := range followedTo {
+			if !have[k] {
+				have[k] = true
+				diff.touched = append(diff.touched, k)
+			}
+		}
+	}
 
 	keys = keys[:0]
 	for k := range before.nodes {
@@ -1743,7 +1799,7 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 			continue
 		}
 		diff.Removed = append(diff.Removed, k)
-		if n := before.nodes[k]; !isTarget(n) && freeBefore[k] {
+		if n := before.nodes[k]; !isTarget(n) && freeBefore[k] && !onlyFollowersRequired(before, k, targets, mayChange, movedAway[k]) {
 			return diff, ReasonUnexplainedDiff, fmt.Sprintf("%s was removed but was required without the updated packages", k)
 		}
 	}
@@ -1751,8 +1807,81 @@ func diffGraphs(ctx context.Context, before, after *depGraph, targets map[string
 	return diff, "", ""
 }
 
+// followedMoves judges an entry that is neither an updated package nor only
+// reachable through one and whose requirements point elsewhere than before. The
+// change is explained when the entry is the same in everything else (its
+// record, and the names it requires), and each requirement that points to
+// another entry points to another version of the same package that an updated
+// package reaches in the updated file. It returns the moves, the keys of the
+// entries they moved away from and the keys of the entries they moved to.
+func followedMoves(before, after *depGraph, old, n *depNode, underTarget map[string]bool) ([]FollowMove, []string, []string, bool) {
+	if old.attrs != n.attrs || n.problem != "" || len(old.deps) != len(n.deps) {
+		return nil, nil, nil, false
+	}
+	before.link()
+	after.link()
+	var moves []FollowMove
+	var from, to []string
+	for i := range old.deps {
+		oe, ne := old.deps[i], n.deps[i]
+		if oe.name != ne.name || oe.optional != ne.optional || oe.local != ne.local {
+			return nil, nil, nil, false
+		}
+		ot, nt := before.target(oe), after.target(ne)
+		switch {
+		case ot == nil && nt == nil:
+			continue
+		case ot == nil || nt == nil:
+			return nil, nil, nil, false
+		case ot.kid == nt.kid:
+			continue
+		}
+		// The same package at another version that an updated package reaches in
+		// the updated file, whether the update added it or the file already had
+		// it: the entry follows the version the update's own subtree uses.
+		if ot.name == nt.name && ot.version != nt.version && underTarget[nt.key] && nt.problem == "" {
+			moves = append(moves, FollowMove{Name: ne.name, From: ot.version, To: nt.version})
+			from = append(from, ot.key)
+			to = append(to, nt.key)
+			continue
+		}
+		return nil, nil, nil, false
+	}
+	if len(moves) == 0 {
+		return nil, nil, nil, false
+	}
+	return moves, from, to, true
+}
+
+// onlyFollowersRequired reports whether every requirement of the original file
+// that pointed to the entry k came from an entry that may change with the
+// update or whose requirement moved away from k (followers).
+func onlyFollowersRequired(before *depGraph, k string, targets map[string]bool, mayChange func(string, *depNode) bool, followers map[string]bool) bool {
+	before.link()
+	for _, e := range before.roots {
+		if e.key == k {
+			return false
+		}
+	}
+	for _, p := range before.list {
+		for _, e := range p.deps {
+			if e.key != k {
+				continue
+			}
+			if !targets[p.name] && !mayChange(p.key, p) && !followers[p.key] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // trim cuts each list at maxDiffEntries.
 func (d *DependencyDiff) trim() {
+	if len(d.Followed) > maxDiffEntries {
+		d.Followed = d.Followed[:maxDiffEntries]
+		d.Truncated = true
+	}
 	for _, l := range []*[]string{&d.Added, &d.Changed, &d.Removed} {
 		if len(*l) > maxDiffEntries {
 			*l = (*l)[:maxDiffEntries]

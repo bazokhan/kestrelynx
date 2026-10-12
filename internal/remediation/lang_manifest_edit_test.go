@@ -270,11 +270,13 @@ func TestNpmDirectDependencyOutOfRangeIsEditedAndUpdated(t *testing.T) {
 			if string(h.work.srcs[0]["package.json"]) != h.files["package.json"] {
 				t.Error("the baseline job was not given the original manifest")
 			}
-			// The update runs on the edited manifest and the original lockfile.
+			// The update runs on the edited manifest and the lockfile with the target
+			// taken out.
 			if s := h.work.jobs[1].Steps; len(s) != 1 || s[0].ID != stepUpdate || s[0].Op != worker.OpNpmRelock || s[0].Scratch {
 				t.Errorf("second job steps = %+v", s)
 			}
-			if string(h.work.srcs[1]["package.json"]) != edited || string(h.work.srcs[1]["package-lock.json"]) != h.files["package-lock.json"] {
+			if string(h.work.srcs[1]["package.json"]) != edited || strings.Contains(string(h.work.srcs[1]["package-lock.json"]), `"node_modules/minimist"`) ||
+				!strings.Contains(string(h.work.srcs[1]["package-lock.json"]), `"lockfileVersion"`) || len(h.work.jobs[1].Replacements) != 0 {
 				t.Errorf("second job input = %q", h.work.srcs[1]["package.json"])
 			}
 			want := []ManifestEdit{{File: "package.json", Section: "dependencies", Name: "minimist", From: c.spec, To: c.edited, MajorChange: c.major}}
@@ -447,7 +449,8 @@ snapshots:
 		if len(s) != 2 || s[0].Op != worker.OpPnpmRelock || s[0].Scratch || s[1].Op != worker.OpPnpmFrozen || !s[1].Scratch {
 			t.Errorf("second job steps = %+v", s)
 		}
-		if !strings.Contains(string(h.work.srcs[1]["package.json"]), `"~1.2.6"`) || string(h.work.srcs[1]["pnpm-lock.yaml"]) != files["pnpm-lock.yaml"] {
+		if !strings.Contains(string(h.work.srcs[1]["package.json"]), `"~1.2.6"`) || strings.Contains(string(h.work.srcs[1]["pnpm-lock.yaml"]), "minimist@") ||
+			len(h.work.jobs[1].Replacements) != 0 {
 			t.Errorf("second job input = %q", h.work.srcs[1]["package.json"])
 		}
 		e := got.Update.ManifestEdits

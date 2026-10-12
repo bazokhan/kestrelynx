@@ -41,7 +41,7 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 更新は、digest で固定した公式イメージから作った使い捨てのコンテナで、固定の操作だけを認証情報なしで実行しました。その結果は信頼できないものとして扱い、KestreLynx 自身が確認しています。
 
 - 実行環境: `node24` `24.21.0` (公式イメージ `node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`)
-- パッケージマネージャー: `pnpm` `11.28.2` (プロジェクトの指定がないときにこのビルドが選ぶ版)、アーカイブの sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
+- パッケージマネージャー: `pnpm` `11.28.2` (プロジェクトが指定する範囲を満たす、このビルドの既定の版)、アーカイブの sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
 
 **実行した操作**
 
@@ -59,6 +59,12 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 - `semver@7.5.4`
 
 更新で追加または変更した版はすべて npm レジストリに照会し、lockfile が指す配布物と照合しました。
+
+- 非推奨の注記: 2 件のパッケージの版で注記が追加・変更・削除され、いずれも npm レジストリが公開するその版の値と一致
+
+**更新に伴って依存先が新しい版に寄ったエントリ (1)**
+
+- `browserslist@4.28.2`: `caniuse-lite` を `1.0.30001792` から `1.0.30001806` へ
 
 - 実行時のメモ: `the declared packageManager differs from the one installed`
 

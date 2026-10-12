@@ -162,6 +162,10 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 	}
 	if it.Update != nil {
 		rec.Runtime, rec.Tool = it.Update.Runtime, it.Update.Tool
+		rec.DeprecatedChanged = it.Update.DeprecatedChanged
+		if d := it.Update.Diff; d != nil {
+			rec.Followed = d.Followed
+		}
 		for _, e := range it.Update.ManifestEdits {
 			rec.ManifestEdits = append(rec.ManifestEdits, LangEdit{File: e.File, Section: e.Section, Name: e.Name, From: e.From, To: e.To, Major: e.MajorChange})
 		}

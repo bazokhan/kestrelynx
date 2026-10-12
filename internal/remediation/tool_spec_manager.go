@@ -132,18 +132,24 @@ func resolveNodeManager(in ToolSpecInput, top map[string]json.RawMessage) (manag
 		return out, unsupported(ReasonManagerSpecUnsupported, "no default version of %s is set for %s", name, defaultNodeRuntime)
 	}
 	if len(points) > 0 {
-		// Consistency makes the exact versions one.
-		if points[0] != def {
-			return out, unsupported(ReasonManagerSpecUnsupported, "the project declares %s %s, and updates run with %s %s so far", name, points[0], name, def)
+		// Consistency makes the exact versions one, and it is inside every range
+		// that was declared. The release is the one the project names; the
+		// fetching package judges the rest (that it exists, is old enough and runs
+		// on this Node.js).
+		if ok, why := toolfetch.CheckVersion(toolfetch.Manager(in.Manager), points[0]); !ok {
+			return out, unsupported(ReasonManagerSpecUnsupported, "the project declares %s %s: %s", name, clip(points[0], 40), why)
 		}
-		out.version, out.source = def, toolSourceDeclared
+		out.version, out.source = points[0], toolSourceDeclared
 		return out, nil
 	}
 	for _, d := range decls {
 		if !d.set.contains(defV) {
-			return out, unsupported(ReasonManagerSpecUnsupported, "%s %s does not allow %s %s, which updates run with so far", d.source, clip(d.value, 80), name, def)
+			return out, unsupported(ReasonManagerSpecUnsupported, "%s %s does not allow %s %s, which updates run with when the project names no exact version", d.source, clip(d.value, 80), name, def)
 		}
 	}
 	out.version, out.source = def, toolSourceDefault
+	if len(decls) > 0 {
+		out.source = toolSourceDefaultInRange
+	}
 	return out, nil
 }

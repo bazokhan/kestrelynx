@@ -24,6 +24,12 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			CVERef{VulnID: "CVE-2023-43804", FixedVers: []string{"1.26.17", "2.0.6"}})
 	}
 
+	// declare adds members to the top level of the package.json of a fixture.
+	declare := func(members string) func(map[string]string) {
+		return func(f map[string]string) {
+			f["package.json"] = strings.Replace(f["package.json"], "{", "{\n  "+members+",", 1)
+		}
+	}
 	cases := []struct {
 		name    string
 		manager DependencyManager
@@ -37,11 +43,14 @@ func TestIntegrationLangUpdate(t *testing.T) {
 		wantNote string
 		// wantEdit is "from>to" of the one manifest edit the run must make.
 		wantEdit string
+		// wantTool and wantSource are the release of the manager the run must
+		// use and why; empty means the default release.
+		wantTool, wantSource string
 	}{
-		{"npm", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist", nil, "", ""},
-		{"pnpm", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist", nil, "", ""},
-		{"uv", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3", nil, "", ""},
-		{"pip", ManagerPip, "pip", []string{"requirements.txt"}, urllib3, "urllib3", nil, "", ""},
+		{"npm", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist", nil, "", "", "", ""},
+		{"pnpm", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist", nil, "", "", "", ""},
+		{"uv", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3", nil, "", "", "", ""},
+		{"pip", ManagerPip, "pip", []string{"requirements.txt"}, urllib3, "urllib3", nil, "", "", "", ""},
 		{"npm_direct_pinned_out_of_range", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
 			func(f map[string]string) {
 				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "1.2.5",
@@ -50,7 +59,7 @@ func TestIntegrationLangUpdate(t *testing.T) {
         "mkdirp": "0.5.5"`, `"dependencies": {
         "minimist": "1.2.5",
         "mkdirp": "0.5.5"`, 1)
-			}, "", "1.2.5>1.2.6"},
+			}, "", "1.2.5>1.2.6", "", ""},
 		{"pnpm_direct_pinned_out_of_range", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			func(f map[string]string) {
 				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "1.2.5",
@@ -61,16 +70,65 @@ func TestIntegrationLangUpdate(t *testing.T) {
         specifier: 1.2.5
         version: 1.2.5
       mkdirp:`, 1)
-			}, "", "1.2.5>1.2.6"},
+			}, "", "1.2.5>1.2.6", "", ""},
 		{"uv_direct_pinned_out_of_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
 			func(f map[string]string) {
 				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], `"urllib3>=1.26,<2"`, `"urllib3==1.26.4"`, 1)
 				f["uv.lock"] = strings.Replace(f["uv.lock"], `specifier = ">=1.26,<2"`, `specifier = "==1.26.4"`, 1)
-			}, "", "urllib3==1.26.4>urllib3==1.26.17"},
+			}, "", "urllib3==1.26.4>urllib3==1.26.17", "", ""},
 		{"pnpm_workspace_allow_builds", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
-			func(f map[string]string) { f["pnpm-workspace.yaml"] = backendWorkspace }, "", ""},
+			func(f map[string]string) { f["pnpm-workspace.yaml"] = backendWorkspace }, "", "", "", ""},
 		{"pnpm_workspace_supported_architectures", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
-			func(f map[string]string) { f["pnpm-workspace.yaml"] = frontendWorkspace }, "", ""},
+			func(f map[string]string) { f["pnpm-workspace.yaml"] = frontendWorkspace }, "", "", "", ""},
+		// A lockfile of version 2 keeps its packages in a second tree as well; the
+		// target is taken out of both.
+		{"npm_lockfile_v2", ManagerNpm, "npm_v2", []string{"package.json", "package-lock.json"}, minimist, "minimist", nil, "", "", "", ""},
+		// A direct dependency whose range allows the fixed version is taken out of
+		// the lockfile and resolved again within its range, with no edit.
+		{"npm_direct_in_range", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			func(f map[string]string) {
+				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "^1.2.0",
+    "mkdirp": "0.5.5"`, 1)
+				f["package-lock.json"] = strings.Replace(f["package-lock.json"], `"dependencies": {
+        "mkdirp": "0.5.5"`, `"dependencies": {
+        "minimist": "^1.2.0",
+        "mkdirp": "0.5.5"`, 1)
+			}, "", "", "", ""},
+		{"pnpm_direct_in_range", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) {
+				f["package.json"] = strings.Replace(f["package.json"], `"mkdirp": "0.5.5"`, `"minimist": "^1.2.0",
+    "mkdirp": "0.5.5"`, 1)
+				f["pnpm-lock.yaml"] = strings.Replace(f["pnpm-lock.yaml"], `    dependencies:
+      mkdirp:`, `    dependencies:
+      minimist:
+        specifier: ^1.2.0
+        version: 1.2.5
+      mkdirp:`, 1)
+			}, "", "", "", ""},
+		// The release of the manager the project declares is the one that runs,
+		// and nothing of the image's own npm, corepack or yarn is used.
+		{"pnpm_declared_9", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			declare(`"packageManager": "pnpm@9.15.9"`), "", "", "9.15.9", "declared"},
+		{"pnpm_declared_10", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			declare(`"packageManager": "pnpm@10.34.4"`), "", "", "10.34.4", "declared"},
+		{"pnpm_declared_12", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			declare(`"packageManager": "pnpm@12.11.2"`), "", "", "12.11.2", "declared"},
+		{"pnpm_range_default", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			declare(`"engines": {"pnpm": ">=10"}`), "", "", itDefaultToolVersions[ManagerPnpm], "default_in_range"},
+		{"npm_declared_9", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			declare(`"packageManager": "npm@9.9.4"`), "", "", "9.9.4", "declared"},
+		{"npm_declared_10", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			declare(`"packageManager": "npm@10.9.9"`), "", "", "10.9.9", "declared"},
+		{"npm_declared_10_with_devEngines", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			declare(`"packageManager": "npm@10.9.9", "devEngines": {"packageManager": {"name": "npm", "version": "^10", "onFail": "error"}}`), "", "", "10.9.9", "declared"},
+		{"npm_declared_12", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			declare(`"packageManager": "npm@12.2.0"`), "", "", "12.2.0", "declared"},
+		{"npm_devEngines_range_default", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			declare(`"devEngines": {"packageManager": {"name": "npm", "version": "^11", "onFail": "error"}}`), "", "", itDefaultToolVersions[ManagerNpm], "default_in_range"},
+		{"uv_declared", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			func(f map[string]string) {
+				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], "[tool.uv]", "[tool.uv]\nrequired-version = \"==0.12.24\"", 1)
+			}, "", "", "0.12.24", "declared"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -97,6 +155,14 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			if got.Update != nil {
 				t.Logf("steps=%+v notes=%v diff=%+v", got.Update.Steps, got.Update.Notes, got.Update.Diff)
 			}
+			if strings.HasPrefix(c.name, "pnpm_declared_12") {
+				// A lockfile with entries taken out cannot be made again by pnpm 12, so
+				// the unit is left to a person before anything runs.
+				if got.Category != CategoryManual || got.Reason != ReasonPnpm12RemovalUnsupported || use.Jobs != 1 {
+					t.Fatalf("category = %s (%s: %s), want manual / %s", got.Category, got.Reason, got.Detail, ReasonPnpm12RemovalUnsupported)
+				}
+				return
+			}
 			if got.Category != CategoryPRCandidate {
 				for _, p := range got.Packages {
 					t.Logf("package %s: %s %s %s", p.Name, p.Action, p.Reason, p.Detail)
@@ -113,8 +179,14 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			}
 			if tl := got.Update.Tool; c.manager == ManagerPip && tl != nil {
 				t.Errorf("pip has a tool record: %+v", tl)
-			} else if c.manager != ManagerPip && (tl == nil || tl.Version != itDefaultToolVersions[c.manager] || tl.SHA256 == "") {
-				t.Errorf("tool record = %+v", tl)
+			} else if c.manager != ManagerPip {
+				wantTool, wantSource := c.wantTool, c.wantSource
+				if wantTool == "" {
+					wantTool, wantSource = itDefaultToolVersions[c.manager], "default"
+				}
+				if tl == nil || tl.Version != wantTool || tl.Source != wantSource || tl.SHA256 == "" {
+					t.Errorf("tool record = %+v, want %s (%s)", tl, wantTool, wantSource)
+				}
 			}
 			if c.wantEdit != "" {
 				edits := got.Update.ManifestEdits

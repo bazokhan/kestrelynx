@@ -27,9 +27,7 @@ var optionalInputNames = map[Manager][]string{
 // opManager is the manager each operation belongs to.
 var opManager = map[Op]Manager{
 	OpNpmRelock:  ManagerNpm,
-	OpNpmUpdate:  ManagerNpm,
 	OpPnpmFrozen: ManagerPnpm,
-	OpPnpmUpdate: ManagerPnpm,
 	OpPnpmRelock: ManagerPnpm,
 	OpUvCheck:    ManagerUv,
 	OpUvUpgrade:  ManagerUv,
@@ -137,6 +135,9 @@ func (j *Job) Validate() error {
 	if err := j.validateInputs(); err != nil {
 		return err
 	}
+	if err := j.validateReplacements(); err != nil {
+		return err
+	}
 	if len(j.Steps) == 0 {
 		return fmt.Errorf("no steps")
 	}
@@ -239,7 +240,8 @@ func (j *Job) validateTool() error {
 		return fmt.Errorf("invalid tool version %q", t.Version)
 	}
 	switch {
-	case t.Format == FormatNpmTgz && t.Name != ManagerUv && t.RunWithNode:
+	case t.Format == FormatNpmTgz && t.Name != ManagerUv && t.RunWithNode && !pnpmIsExecutable(t):
+	case t.Format == FormatNpmTgz && t.Name == ManagerPnpm && !t.RunWithNode && pnpmIsExecutable(t):
 	case t.Format == FormatWheel && t.Name == ManagerUv && !t.RunWithNode:
 	default:
 		return fmt.Errorf("tool format %q (run with node: %v) does not fit %s", t.Format, t.RunWithNode, t.Name)
@@ -257,6 +259,16 @@ func (j *Job) validateTool() error {
 		return fmt.Errorf("tool entry: %w", err)
 	}
 	return nil
+}
+
+// pnpmIsExecutable reports whether the tool is a pnpm release that is shipped
+// as an executable and not as a script for node: from version 12 on.
+func pnpmIsExecutable(t *Tool) bool {
+	if t.Name != ManagerPnpm {
+		return false
+	}
+	major, _, _ := strings.Cut(t.Version, ".")
+	return major == "12"
 }
 
 // ValidEntry checks a path inside an archive: relative, clean, free of "..",
@@ -312,6 +324,75 @@ func (j *Job) validateInputs() error {
 	return nil
 }
 
+// LockfileName returns the name of the lockfile a job for m can replace, ""
+// for a manager that has none to replace.
+func LockfileName(m Manager) string {
+	switch m {
+	case ManagerNpm, ManagerPnpm:
+		return inputNames[m][1]
+	}
+	return ""
+}
+
+// validateReplacements checks the replacement files: only the lockfile of npm
+// or pnpm, at most once, each within the limit of an input file and, with the
+// inputs, within the totals; and a job that has them has a step that is not a
+// scratch step, which is where they are put in place.
+func (j *Job) validateReplacements() error {
+	if len(j.Replacements) == 0 {
+		return nil
+	}
+	lock := LockfileName(j.Manager)
+	if lock == "" {
+		return fmt.Errorf("%s has no lockfile to replace", j.Manager)
+	}
+	if len(j.Inputs)+len(j.Replacements) > MaxInputs {
+		return fmt.Errorf("%d inputs and replacements exceed %d", len(j.Inputs)+len(j.Replacements), MaxInputs)
+	}
+	var total int64
+	for _, in := range j.Inputs {
+		total += in.Size
+	}
+	seen := map[string]bool{}
+	for _, r := range j.Replacements {
+		if r.Path != lock {
+			return fmt.Errorf("replacement %q is not %s, the only file of %s that is replaced", r.Path, lock, j.Manager)
+		}
+		if seen[r.Path] {
+			return fmt.Errorf("duplicate replacement %q", r.Path)
+		}
+		seen[r.Path] = true
+		if r.Size < 0 || r.Size > MaxInputFileBytes {
+			return fmt.Errorf("replacement %q size %d is outside 0..%d", r.Path, r.Size, MaxInputFileBytes)
+		}
+		total += r.Size
+		if !ValidSHA256(r.SHA256) {
+			return fmt.Errorf("replacement %q has no valid sha256", r.Path)
+		}
+	}
+	if total > MaxInputTotalBytes {
+		return fmt.Errorf("inputs and replacements total %d bytes, over %d", total, MaxInputTotalBytes)
+	}
+	for _, s := range j.Steps {
+		if !s.Scratch {
+			return nil
+		}
+	}
+	return fmt.Errorf("replacements need a step that is not a scratch step")
+}
+
+// FirstReplacingStep returns the index of the step the replacements are put in
+// place before: the first that is not a scratch step. It is -1 when there is
+// none.
+func (j *Job) FirstReplacingStep() int {
+	for i, s := range j.Steps {
+		if !s.Scratch {
+			return i
+		}
+	}
+	return -1
+}
+
 // Validate checks one step against the manager of its job.
 func (s *Step) Validate(m Manager) error {
 	if !ValidStepID(s.ID) {
@@ -327,15 +408,7 @@ func (s *Step) Validate(m Manager) error {
 	if len(s.Packages) > MaxPackages {
 		return fmt.Errorf("%d packages exceed %d", len(s.Packages), MaxPackages)
 	}
-	needPkgs, mode := false, versionNone
-	switch s.Op {
-	case OpNpmUpdate:
-		needPkgs = true
-	case OpPnpmUpdate:
-		needPkgs, mode = true, versionOptional
-	case OpUvUpgrade:
-		needPkgs, mode = true, versionRequired
-	}
+	needPkgs := s.Op == OpUvUpgrade
 	if needPkgs != (len(s.Packages) > 0) {
 		if needPkgs {
 			return fmt.Errorf("%s needs packages", s.Op)
@@ -347,7 +420,7 @@ func (s *Step) Validate(m Manager) error {
 	}
 	pkgSeen := map[string]bool{}
 	for _, p := range s.Packages {
-		if err := validatePackage(m, p, mode); err != nil {
+		if err := validatePackage(p); err != nil {
 			return err
 		}
 		if pkgSeen[p.Name] {
@@ -361,35 +434,20 @@ func (s *Step) Validate(m Manager) error {
 	return nil
 }
 
-// versionMode says whether a package of an operation carries a version.
-type versionMode int
-
-const (
-	versionNone versionMode = iota
-	versionRequired
-	// versionOptional is for pnpm.update: with a version it pins that
-	// version, without one it updates within the range the lockfile's
-	// dependents declare (the only form pnpm accepts for a transitive
-	// dependency).
-	versionOptional
-)
-
-func validatePackage(m Manager, p Package, mode versionMode) error {
+// validatePackage checks a package of a uv.upgrade step: a Python project
+// name and a normalized version.
+func validatePackage(p Package) error {
 	if strings.HasPrefix(p.Name, "-") || strings.HasPrefix(p.Version, "-") {
 		return fmt.Errorf("value starting with '-' is refused")
 	}
-	python := m == ManagerUv || m == ManagerPip
-	nameOK, verOK := ValidNpmName, ValidSemver
-	if python {
-		nameOK, verOK = ValidPythonName, ValidPythonVersion
-	}
+	nameOK, verOK := ValidPythonName, ValidPythonVersion
 	if !nameOK(p.Name) {
 		return fmt.Errorf("invalid package name %q", p.Name)
 	}
 	switch {
-	case mode == versionNone && p.Version != "":
-		return fmt.Errorf("package %q takes no version", p.Name)
-	case mode == versionRequired && p.Version == "", p.Version != "" && !verOK(p.Version):
+	case p.Version == "":
+		return fmt.Errorf("package %q needs a version", p.Name)
+	case !verOK(p.Version):
 		return fmt.Errorf("invalid version %q for %q", p.Version, p.Name)
 	}
 	return nil

@@ -169,17 +169,6 @@ func newPartialHarness(t *testing.T, pinnedDirect string, packages []string, loc
 	return h
 }
 
-// namesInUpdate lists the packages the job's update steps name.
-func namesInUpdate(job worker.Job) []string {
-	var out []string
-	for _, s := range job.Steps {
-		for _, p := range s.Packages {
-			out = append(out, p.Name)
-		}
-	}
-	return out
-}
-
 func hasName(list []string, name string) bool {
 	for _, n := range list {
 		if n == name {
@@ -224,7 +213,7 @@ func TestLangUpdateLeavesOutAPackageThatStaysBelowItsTarget(t *testing.T) {
 		t.Errorf("detail = %q", it.Detail)
 	}
 	// Only minimist was named to the update, and only it is judged by the scans.
-	if got := namesInUpdate(h.work.jobs[0]); !hasName(got, "minimist") || !hasName(got, "pinned") {
+	if got := h.work.namesIn(0); !hasName(got, "minimist") || !hasName(got, "pinned") {
 		t.Errorf("the first run named %v, want both packages", got)
 	}
 	if it.SourceCheck == nil || !it.SourceCheck.Passed {
@@ -252,7 +241,7 @@ func TestLangUpdateRunsAgainWithoutAPackageItMoved(t *testing.T) {
 	// result cannot be used; the second run, which does not name pinned,
 	// leaves it alone.
 	h := newPartialHarness(t, "", []string{"minimist", "pinned"}, func(job worker.Job, src map[string][]byte) string {
-		if hasName(namesInUpdate(job), "pinned") {
+		if hasName(namesInUpdate(job, src), "pinned") {
 			return partialLock("1.2.8", "2.0.1", "")
 		}
 		return partialLock("1.2.8", "2.0.0", "")
@@ -266,7 +255,7 @@ func TestLangUpdateRunsAgainWithoutAPackageItMoved(t *testing.T) {
 	if h.work.calls != 2 {
 		t.Fatalf("containers = %d, want 2", h.work.calls)
 	}
-	if got := namesInUpdate(h.work.jobs[1]); hasName(got, "pinned") || !hasName(got, "minimist") {
+	if got := h.work.namesIn(1); hasName(got, "pinned") || !hasName(got, "minimist") {
 		t.Errorf("the second run named %v, want minimist only", got)
 	}
 	if h.work.ids[0] == h.work.ids[1] {
@@ -294,13 +283,13 @@ func TestLangUpdateRunsAgainWithoutAPackageItMoved(t *testing.T) {
 }
 
 func TestLangUpdateRunsAgainWhenTheOthersMoveAroundAPackageLeftOut(t *testing.T) {
-	// pinned stays where it is, but holder, which holds it, changes in the
-	// first run (a new requirement of the same version); with pinned out of
-	// the set that change has no explanation, so the update is run again.
+	// pinned stays where it is, but mkdirp, which is above minimist, changes in
+	// the first run (a new record of the same version); with pinned out of the
+	// set that change has no explanation, so the update is run again.
 	h := newPartialHarness(t, "", []string{"minimist", "pinned"}, func(job worker.Job, src map[string][]byte) string {
 		l := partialLock("1.2.8", "2.0.0", "")
-		if hasName(namesInUpdate(job), "pinned") {
-			return strings.Replace(l, "resolution: {integrity: "+partialIntegrity("holder", "1.0.0")+"}", "resolution: {integrity: "+partialIntegrity("holder", "1.0.0")+"}\n    hasBin: true", 1)
+		if hasName(namesInUpdate(job, src), "pinned") {
+			return strings.Replace(l, "    hasBin: true", "    hasBin: true\n    engines: {node: '>=1'}", 1)
 		}
 		return l
 	})
