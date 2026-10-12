@@ -1,6 +1,6 @@
 ## 概要
 
-KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッケージエントリを `pnpm` で更新することを提案します。ベースブランチは `main`、コミットは `1111111111111111111111111111111111111111` です。
+KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッケージエントリを `pnpm` で更新することを提案します。
 
 - 依存関係のディレクトリ: `svc`
 - パッケージマネージャー: `pnpm`

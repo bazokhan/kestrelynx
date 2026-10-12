@@ -1,6 +1,6 @@
 ## 概要
 
-KestreLynx は、`example/app` の `compose.yml` にある 2 件の Compose サービスについて、新しいイメージタグを提案します。ベースブランチは `main`、コミットは `1111111111111111111111111111111111111111` です。
+KestreLynx は、`example/app` の `compose.yml` にある 2 件の Compose サービスについて、新しいイメージタグを提案します。
 
 - 稼働中のイメージ: `nginx:1.25.3`
 - 編集したサービス: `web`、`worker`

@@ -1,6 +1,6 @@
 ## What
 
-KestreLynx proposes a newer tag for the base image of `build/Dockerfile` in `example/app`, against base branch `main` at commit `1111111111111111111111111111111111111111`.
+KestreLynx proposes a newer tag for the base image of `build/Dockerfile` in `example/app`.
 
 - Base image now: `app:2.0`
 - Edited: the FROM of stage 1, line 3

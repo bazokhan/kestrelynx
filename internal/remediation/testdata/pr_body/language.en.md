@@ -1,6 +1,6 @@
 ## What
 
-KestreLynx proposes updating 2 package entries in `svc/pnpm-lock.yaml` of `example/app` with `pnpm`, against base branch `main` at commit `1111111111111111111111111111111111111111`.
+KestreLynx proposes updating 2 package entries in `svc/pnpm-lock.yaml` of `example/app` with `pnpm`.
 
 - Dependency directory: `svc`
 - Package manager: `pnpm`

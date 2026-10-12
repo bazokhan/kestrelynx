@@ -1,6 +1,6 @@
 ## What
 
-KestreLynx proposes a new image tag for 2 Compose service(s) in `compose.yml` of `example/app`, against base branch `main` at commit `1111111111111111111111111111111111111111`.
+KestreLynx proposes a new image tag for 2 Compose service(s) in `compose.yml` of `example/app`.
 
 - Running image: `nginx:1.25.3`
 - Services edited: `web`, `worker`

@@ -141,7 +141,7 @@ var enPRText = prText{
 	Locations:    "- Locations: %s\n",
 	DigestNote:   "  - The running digest comes from the container runtime; whether it is the image config digest or an index or manifest digest is not confirmed.\n",
 
-	CWhat:       "KestreLynx proposes a new image tag for %[1]d Compose service(s) in %[2]s of %[3]s, against base branch %[4]s at commit %[5]s.\n\n",
+	CWhat:       "KestreLynx proposes a new image tag for %[1]d Compose service(s) in %[2]s of %[3]s.\n\n",
 	CRunning:    "- Running image: %s\n",
 	CServices:   "- Services edited: %s\n",
 	CWorkloads:  "- Workloads running them: %s\n",
@@ -151,7 +151,7 @@ var enPRText = prText{
 	CCandidate:  "- Candidate: %[1]s, tag digest %[2]s, platform manifest %[3]s, config digest %[4]s, platform %[5]s\n",
 	CScanned:    "Both images were scanned by Trivy %s",
 
-	DWhat:          "KestreLynx proposes a newer tag for the base image of %[1]s in %[2]s, against base branch %[3]s at commit %[4]s.\n\n",
+	DWhat:          "KestreLynx proposes a newer tag for the base image of %[1]s in %[2]s.\n\n",
 	DBaseNow:       "- Base image now: %s\n",
 	DEdited:        "- Edited: the FROM of stage %[1]d, line %[2]d\n",
 	DWorkloads:     "- Workloads built from it: %s\n",
@@ -166,7 +166,7 @@ var enPRText = prText{
 	DScanned:       "Both base images were scanned by Trivy %s",
 	DAttribution:   "\nTrivy attributes a package to the lowest layer that holds that name and version, so a package installed again by a later instruction of the Dockerfile can still be attributed to a base image layer. A finding listed above is therefore matched to the base image, not proven to come from it.\n",
 
-	LWhat:              "KestreLynx proposes updating %[1]d package %[2]s in %[3]s of %[4]s with %[5]s, against base branch %[6]s at commit %[7]s.\n\n",
+	LWhat:              "KestreLynx proposes updating %[1]d package %[2]s in %[3]s of %[4]s with %[5]s.\n\n",
 	LDir:               "- Dependency directory: %s\n",
 	LManager:           "- Package manager: %s\n",
 	LWorkloads:         "- Workloads running these packages: %s\n",
@@ -264,7 +264,7 @@ var jaPRText = prText{
 	Locations:    "- 場所: %s\n",
 	DigestNote:   "  - 稼働中の digest はコンテナランタイムから得たもので、イメージの config digest か、index または manifest の digest かは確認していません。\n",
 
-	CWhat:       "KestreLynx は、%[3]s の %[2]s にある %[1]d 件の Compose サービスについて、新しいイメージタグを提案します。ベースブランチは %[4]s、コミットは %[5]s です。\n\n",
+	CWhat:       "KestreLynx は、%[3]s の %[2]s にある %[1]d 件の Compose サービスについて、新しいイメージタグを提案します。\n\n",
 	CRunning:    "- 稼働中のイメージ: %s\n",
 	CServices:   "- 編集したサービス: %s\n",
 	CWorkloads:  "- これらを実行しているワークロード: %s\n",
@@ -274,7 +274,7 @@ var jaPRText = prText{
 	CCandidate:  "- 候補: %[1]s、タグの digest %[2]s、プラットフォームの manifest %[3]s、config digest %[4]s、プラットフォーム %[5]s\n",
 	CScanned:    "両方のイメージを Trivy %s でスキャンしました",
 
-	DWhat:          "KestreLynx は、%[2]s の %[1]s にあるベースイメージについて、新しいタグを提案します。ベースブランチは %[3]s、コミットは %[4]s です。\n\n",
+	DWhat:          "KestreLynx は、%[2]s の %[1]s にあるベースイメージについて、新しいタグを提案します。\n\n",
 	DBaseNow:       "- 現在のベースイメージ: %s\n",
 	DEdited:        "- 編集した箇所: ステージ %[1]d の FROM (%[2]d 行目)\n",
 	DWorkloads:     "- このイメージから作られるワークロード: %s\n",
@@ -289,7 +289,7 @@ var jaPRText = prText{
 	DScanned:       "両方のベースイメージを Trivy %s でスキャンしました",
 	DAttribution:   "\nTrivy は、同じ名前と版のパッケージを、それを含む最も下のレイヤーに割り当てます。そのため、Dockerfile の後ろの命令で再びインストールされたパッケージも、ベースイメージのレイヤーに割り当てられることがあります。上に挙げた検出結果はベースイメージに対応付けたものであり、ベースイメージ由来であると証明したものではありません。\n",
 
-	LWhat:              "KestreLynx は、%[4]s の %[3]s にある %[1]d 件のパッケージ%[2]sを %[5]s で更新することを提案します。ベースブランチは %[6]s、コミットは %[7]s です。\n\n",
+	LWhat:              "KestreLynx は、%[4]s の %[3]s にある %[1]d 件のパッケージ%[2]sを %[5]s で更新することを提案します。\n\n",
 	LDir:               "- 依存関係のディレクトリ: %s\n",
 	LManager:           "- パッケージマネージャー: %s\n",
 	LWorkloads:         "- これらのパッケージを実行しているワークロード: %s\n",

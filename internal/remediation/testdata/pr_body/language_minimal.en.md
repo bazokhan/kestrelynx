@@ -1,6 +1,6 @@
 ## What
 
-KestreLynx proposes updating 1 package entry in `svc/pnpm-lock.yaml` of `example/app` with `uv`, against base branch `main` at commit `1111111111111111111111111111111111111111`.
+KestreLynx proposes updating 1 package entry in `svc/pnpm-lock.yaml` of `example/app` with `uv`.
 
 - Dependency directory: `svc`
 - Package manager: `uv`
