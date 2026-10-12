@@ -265,7 +265,7 @@ func pullRequestRepositories(ms []config.RemediationMapping) []string {
 // exists only here, so with pull requests off nothing in the process can
 // write to GitHub. Each cycle gets its own write and read clients, each with
 // its own request budget; the token goes to those clients alone.
-func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConfig {
+func buildPullRequestConfig(rc config.RemediationConfig, language string) *runner.PullRequestConfig {
 	token := rc.GitHub.Token.Value()
 	store := remediation.PRStore{Dir: rc.StorageDir}
 	limits := remediation.PRLimits{NewPRsPerCycle: rc.Limits.NewPRsPerCycle, OpenPRs: rc.Limits.OpenPRs}
@@ -277,6 +277,7 @@ func buildPullRequestConfig(rc config.RemediationConfig) *runner.PullRequestConf
 				Resolver: resolver,
 				Store:    store,
 				Limits:   limits,
+				Language: remediation.BodyLanguage(language),
 			})
 			if err != nil {
 				return nil, err
@@ -320,7 +321,7 @@ func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 		Delivered:           remediation.DeliveredStore{Path: remediation.DefaultDeliveredPath(rc.StorageDir)},
 	}
 	if rc.PullRequests.Enabled {
-		pc.PullRequests = buildPullRequestConfig(rc)
+		pc.PullRequests = buildPullRequestConfig(rc, cfg.Notify.Language)
 	}
 	pc.Dependencies = dependencyMappings(rc.Mappings)
 	pc.Dockerfiles = dockerfileMappings(rc.Mappings)

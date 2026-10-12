@@ -21,14 +21,15 @@ type languageBodyInput struct {
 	Workloads             []string
 	UpdateKey, AttemptKey string
 	Marker                string
+	Language              BodyLanguage
 }
 
 // registryName is the public registry a manager's packages come from.
-func registryName(m DependencyManager) string {
+func registryName(t *prText, m DependencyManager) string {
 	if m == ManagerUv || m == ManagerPip {
-		return "PyPI"
+		return t.RegistryPyPI
 	}
-	return "the npm registry"
+	return t.RegistryNpm
 }
 
 // installCheck is an example of a CI step that installs from the changed
@@ -51,20 +52,21 @@ func installCheck(m DependencyManager) string {
 // the installer's view of the files go only as far as they can. The text is
 // cut like buildPRBody's and ends with the marker.
 func buildLanguagePRBody(in languageBodyInput) (string, error) {
+	t := textFor(in.Language)
 	it := in.Item
 	var b strings.Builder
-	b.WriteString("## What\n\n")
-	fmt.Fprintf(&b, "KestreLynx proposes updating %d package entr%s in %s of %s with %s, against base branch %s at commit %s.\n\n",
-		len(in.Record.Packages), pluralY(len(in.Record.Packages)), mdCode(in.LockPath), mdCode(in.Repo), mdCode(string(it.Manager)),
+	b.WriteString("## " + t.HeadWhat + "\n\n")
+	fmt.Fprintf(&b, t.LWhat,
+		len(in.Record.Packages), entryWord(t, len(in.Record.Packages)), mdCode(in.LockPath), mdCode(in.Repo), mdCode(string(it.Manager)),
 		mdCode(in.BaseBranch), mdCode(in.BaseSHA))
-	fmt.Fprintf(&b, "- Dependency directory: %s\n", mdCode(in.Root))
-	fmt.Fprintf(&b, "- Package manager: %s\n", mdCode(string(it.Manager)))
-	fmt.Fprintf(&b, "- Workloads running these packages: %s\n", codeList(in.Workloads, maxListedNames))
+	fmt.Fprintf(&b, t.LDir, mdCode(in.Root))
+	fmt.Fprintf(&b, t.LManager, mdCode(string(it.Manager)))
+	fmt.Fprintf(&b, t.LWorkloads, codeListIn(t, in.Workloads, maxListedNames))
 	var paths []string
 	for _, f := range in.Files {
 		paths = append(paths, f.Path)
 	}
-	fmt.Fprintf(&b, "- Files changed: %s\n", codeList(paths, maxListedNames))
+	fmt.Fprintf(&b, t.LFiles, codeListIn(t, paths, maxListedNames))
 
 	pkgs := updatedPackages(it)
 	var majorPkgs, majorEdits int
@@ -81,55 +83,55 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 	if majorPkgs+majorEdits > 0 {
 		b.WriteString("\n")
 		if majorPkgs > 0 {
-			fmt.Fprintf(&b, "**%d package(s) move to another major version (for 0.x, another minor version). Review these first: the application may need changes.**\n", majorPkgs)
+			fmt.Fprintf(&b, t.LMajorPkgs, majorPkgs)
 		}
 		if majorEdits > 0 {
-			fmt.Fprintf(&b, "**%d manifest edit(s) allow a new major version and no longer allow the one before; see Manifest edits below.**\n", majorEdits)
+			fmt.Fprintf(&b, t.LMajorEdits, majorEdits)
 		}
 	}
 
-	b.WriteString("\n## Change\n\n")
-	b.WriteString("Running version to version after the update, with how the project requires the package:\n\n")
+	b.WriteString("\n## " + t.HeadChange + "\n\n")
+	b.WriteString(t.LChangeIntro)
 	for i, p := range pkgs {
 		if i == maxListedNames {
-			fmt.Fprintf(&b, "- and %d more\n", len(pkgs)-maxListedNames)
+			fmt.Fprintf(&b, t.LineMore, len(pkgs)-maxListedNames)
 			break
 		}
-		fmt.Fprintf(&b, "- %s: %s to %s (%s)", mdCode(p.Name), mdCode(p.Installed), mdCode(p.AdoptedVersion), relationText(p.Relation))
+		fmt.Fprintf(&b, t.LPkgLine, mdCode(p.Name), mdCode(p.Installed), mdCode(p.AdoptedVersion), relationText(t, p.Relation))
 		if majorChanged(p.Installed, p.AdoptedVersion) {
-			b.WriteString(" — **major version change**")
+			b.WriteString(t.LMajor)
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n### Vulnerabilities this update targets\n\n")
+	b.WriteString("\n### " + t.HeadVulnTargets + "\n\n")
 	for i, p := range pkgs {
 		if i == maxListedNames {
-			fmt.Fprintf(&b, "- and %d more packages\n", len(pkgs)-maxListedNames)
+			fmt.Fprintf(&b, t.LineMorePkgs, len(pkgs)-maxListedNames)
 			break
 		}
 		for j, c := range p.CVEs {
 			if j == maxListedVulns {
-				fmt.Fprintf(&b, "- and %d more for %s\n", len(p.CVEs)-maxListedVulns, mdCode(p.Name))
+				fmt.Fprintf(&b, t.LineMoreFor, len(p.CVEs)-maxListedVulns, mdCode(p.Name))
 				break
 			}
-			fmt.Fprintf(&b, "- %s in %s", mdCode(c.VulnID), mdCode(p.Name))
+			fmt.Fprintf(&b, t.VulnLineLang, mdCode(c.VulnID), mdCode(p.Name))
 			if c.Severity != "" {
-				fmt.Fprintf(&b, ", severity %s", mdCode(string(c.Severity)))
+				fmt.Fprintf(&b, t.VulnSeverity, mdCode(string(c.Severity)))
 			}
 			if c.KEV {
-				b.WriteString(", in the CISA KEV catalog")
+				b.WriteString(t.VulnKEV)
 			}
 			if c.Priority != PriorityNone {
-				fmt.Fprintf(&b, ", priority %s", mdCode(string(c.Priority)))
+				fmt.Fprintf(&b, t.VulnPriority, mdCode(string(c.Priority)))
 			}
 			b.WriteString("\n")
 		}
 	}
 
 	if edits := in.Record.ManifestEdits; len(edits) > 0 {
-		b.WriteString("\n### Manifest edits\n\n")
-		b.WriteString("The version specifier of these direct dependencies did not allow a fixed version, so it was edited before the lockfile was updated.\n\n")
+		b.WriteString("\n### " + t.HeadManifestEdits + "\n\n")
+		b.WriteString(t.LEditsIntro)
 		var major []LangEdit
 		for _, e := range edits {
 			if e.Major {
@@ -137,104 +139,104 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 			}
 		}
 		if len(major) > 0 {
-			fmt.Fprintf(&b, "**%d edit(s) below allow a new major version (for 0.x, a new minor version) and no longer allow the one before. Review these first: the application may need changes.**\n\n", len(major))
+			fmt.Fprintf(&b, t.LEditsMajor, len(major))
 		}
 		for i, e := range edits {
 			if i == maxListedNames {
-				fmt.Fprintf(&b, "- and %d more\n", len(edits)-maxListedNames)
+				fmt.Fprintf(&b, t.LineMore, len(edits)-maxListedNames)
 				break
 			}
-			fmt.Fprintf(&b, "- %s, %s, %s: %s to %s", mdCode(e.File), mdCode(e.Section), mdCode(e.Name), mdCode(e.From), mdCode(e.To))
+			fmt.Fprintf(&b, t.LEditLine, mdCode(e.File), mdCode(e.Section), mdCode(e.Name), mdCode(e.From), mdCode(e.To))
 			if e.Major {
-				b.WriteString(" — **major version change**")
+				b.WriteString(t.LMajor)
 			}
 			b.WriteString("\n")
 		}
 	}
 
-	b.WriteString("\n## Why these versions\n\n")
-	b.WriteString("For each package the target is the lowest version that the vulnerability data lists as fixed for every vulnerability found in the running image; the version in the updated file is the lowest version of the package it holds.\n")
+	b.WriteString("\n## " + t.HeadWhyVersions + "\n\n")
+	b.WriteString(t.LWhy)
 
-	b.WriteString("\n## Verification\n\n")
-	fmt.Fprintf(&b, "The update ran in a throwaway container built from a fixed work image, with fixed operations and no credentials. Its result was treated as untrusted and checked by KestreLynx itself.\n\n")
+	b.WriteString("\n## " + t.HeadVerification + "\n\n")
+	b.WriteString(t.LVerification)
 	if up := it.Update; up != nil {
-		b.WriteString("**Operations run**\n\n")
+		b.WriteString(t.LOps)
 		if len(up.Steps) == 0 {
-			b.WriteString("- none recorded\n")
+			b.WriteString(t.LNoOps)
 		}
 		for _, s := range up.Steps {
-			fmt.Fprintf(&b, "- %s, exit code %d", mdCode(s.Op), s.ExitCode)
+			fmt.Fprintf(&b, t.LStep, mdCode(s.Op), s.ExitCode)
 			if s.Scratch {
-				b.WriteString(" (run on a scratch copy; its result was only compared)")
+				b.WriteString(t.LScratch)
 			}
 			b.WriteString("\n")
 		}
 		if d := up.Diff; d != nil {
-			fmt.Fprintf(&b, "\n**Lockfile entries**: %d added, %d changed, %d removed", len(d.Added), len(d.Changed), len(d.Removed))
+			fmt.Fprintf(&b, t.LEntries, len(d.Added), len(d.Changed), len(d.Removed))
 			if d.Truncated {
-				b.WriteString(" (the lists are cut)")
+				b.WriteString(t.LTruncated)
 			}
 			b.WriteString("\n\n")
-			writeEntryList(&b, "Changed", d.Changed)
-			writeEntryList(&b, "Added", d.Added)
-			writeEntryList(&b, "Removed", d.Removed)
-			fmt.Fprintf(&b, "Every version the update added or changed was looked up in %s and compared with the distribution the lockfile points at.\n", registryName(it.Manager))
+			writeEntryList(t, &b, t.LTitleChanged, d.Changed)
+			writeEntryList(t, &b, t.LTitleAdded, d.Added)
+			writeEntryList(t, &b, t.LTitleRemoved, d.Removed)
+			fmt.Fprintf(&b, t.LLookup, registryName(t, it.Manager))
 		}
 		for _, n := range up.Notes {
-			fmt.Fprintf(&b, "\n- Note from the run: %s\n", mdCode(n))
+			fmt.Fprintf(&b, t.LNote, mdCode(n))
 		}
 	}
 
 	if sc := it.SourceCheck; sc != nil {
-		b.WriteString("\n**Scan of the dependency files before and after (Trivy, filesystem mode)**\n\n")
-		fmt.Fprintf(&b, "- Before: %s\n", hashedFileList(sc.Before))
-		fmt.Fprintf(&b, "- After: %s\n", hashedFileList(sc.After))
-		fmt.Fprintf(&b, "- Resolved %d, remaining %d, introduced %d (over every package of the files, not only the updated ones)\n", sc.Counts[0], sc.Counts[1], sc.Counts[2])
+		b.WriteString(t.LSourceHead)
+		fmt.Fprintf(&b, t.LBefore, hashedFileList(t, sc.Before))
+		fmt.Fprintf(&b, t.LAfter, hashedFileList(t, sc.After))
+		fmt.Fprintf(&b, t.LSourceCounts, sc.Counts[0], sc.Counts[1], sc.Counts[2])
 		if sc.Truncated {
-			b.WriteString("- The lists below are cut\n")
+			b.WriteString(t.LListCut)
 		}
-		writeSourceVulns(&b, "Resolved", sc.Resolved, sc.Counts[0])
-		writeSourceVulns(&b, "Remaining", sc.Remaining, sc.Counts[1])
-		writeSourceVulns(&b, "Introduced", sc.Introduced, sc.Counts[2])
-		fmt.Fprintf(&b, "\nBoth scans used Trivy %s", mdCode(sc.Conditions.TrivyVersion))
-		if t := sc.Conditions.VulnerabilityDB.UpdatedAt; !t.IsZero() {
-			fmt.Fprintf(&b, ", the vulnerability database built at %s", t.UTC().Format(time.RFC3339))
+		writeSourceVulns(t, &b, t.TitleResolved, sc.Resolved, sc.Counts[0])
+		writeSourceVulns(t, &b, t.TitleRemaining, sc.Remaining, sc.Counts[1])
+		writeSourceVulns(t, &b, t.TitleIntroduced, sc.Introduced, sc.Counts[2])
+		fmt.Fprintf(&b, t.LBothScans, mdCode(sc.Conditions.TrivyVersion))
+		if at := sc.Conditions.VulnerabilityDB.UpdatedAt; !at.IsZero() {
+			fmt.Fprintf(&b, t.LDBBuilt, at.UTC().Format(time.RFC3339))
 		}
-		fmt.Fprintf(&b, ", the same severity range (%s) and the same settings; the repository's own Trivy configuration, ignore files and VEX documents were not read. The scan shows that the target vulnerabilities are no longer detected in the lockfile; it is a check of the source files, not of an image.\n",
-			codeList(sc.Conditions.Severities, 10))
+		fmt.Fprintf(&b, t.LScanTail, codeListIn(t, sc.Conditions.Severities, 10))
 	}
 
-	b.WriteString("\n## Not verified\n\n")
-	b.WriteString("- Whether the image built from these files has the vulnerabilities resolved: the image is not rebuilt or scanned, and what a build installs can differ from the lockfile\n")
-	b.WriteString("- Whether the application works with the updated packages, and its tests: compatibility and tests were not run\n")
-	fmt.Fprintf(&b, "- Whether the dependencies in the updated files agree exactly with what the registry declares for each version, and whether the installer accepts the format: both were checked only as far as possible, so run a CI job that installs from the lockfile (for example %s) before merging\n", mdCode(installCheck(it.Manager)))
-	b.WriteString("- Continuous integration; opening this pull request may start the repository's CI\n")
-	b.WriteString("- Deployment after merge: merging changes the files only, and running containers keep the old image until it is built again and they are recreated\n")
-	b.WriteString("- Vulnerabilities of severities outside the range above\n")
+	b.WriteString("\n## " + t.HeadNotVerified + "\n\n")
+	b.WriteString(t.LNVImage)
+	b.WriteString(t.LNVApp)
+	fmt.Fprintf(&b, t.LNVInstall, mdCode(installCheck(it.Manager)))
+	b.WriteString(t.NVCI)
+	b.WriteString(t.LNVDeploy)
+	b.WriteString(t.NVSeverity)
 
 	b.WriteString("\n---\n\n")
-	fmt.Fprintf(&b, "Opened by KestreLynx. Update key %s, attempt key %s.\n", mdCode(in.UpdateKey), mdCode(in.AttemptKey))
+	fmt.Fprintf(&b, t.Footer, mdCode(in.UpdateKey), mdCode(in.AttemptKey))
 
-	return assembleBody(b.String(), in.Marker)
+	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }
 
-func pluralY(n int) string {
+// entryWord is the word for n lockfile entries.
+func entryWord(t *prText, n int) string {
 	if n == 1 {
-		return "y"
+		return t.LEntryOne
 	}
-	return "ies"
+	return t.LEntryMany
 }
 
-func relationText(r Relation) string {
+func relationText(t *prText, r Relation) string {
 	switch r {
 	case RelationDirect:
-		return "direct dependency"
+		return t.RelDirect
 	case RelationTransitive:
-		return "transitive dependency"
+		return t.RelTransitive
 	case RelationMixed:
-		return "direct and transitive dependency"
+		return t.RelMixed
 	}
-	return "relation not known"
+	return t.RelUnknown
 }
 
 // updatedPackages are the item's packages the update changed, sorted.
@@ -254,14 +256,14 @@ func updatedPackages(it *LanguageItem) []LanguagePackage {
 	return out
 }
 
-func writeEntryList(b *strings.Builder, title string, entries []string) {
+func writeEntryList(t *prText, b *strings.Builder, title string, entries []string) {
 	if len(entries) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "%s:\n\n", title)
 	for i, e := range entries {
 		if i == maxListedEntries {
-			fmt.Fprintf(b, "- and %d more\n", len(entries)-maxListedEntries)
+			fmt.Fprintf(b, t.LineMore, len(entries)-maxListedEntries)
 			break
 		}
 		fmt.Fprintf(b, "- %s\n", mdCode(e))
@@ -269,9 +271,9 @@ func writeEntryList(b *strings.Builder, title string, entries []string) {
 	b.WriteString("\n")
 }
 
-func hashedFileList(files []HashedFile) string {
+func hashedFileList(t *prText, files []HashedFile) string {
 	if len(files) == 0 {
-		return "no files"
+		return t.NoFiles
 	}
 	var parts []string
 	for _, f := range files {
@@ -281,13 +283,13 @@ func hashedFileList(files []HashedFile) string {
 		}
 		parts = append(parts, f.Path+" sha256:"+h)
 	}
-	return codeList(parts, maxListedNames)
+	return codeListIn(t, parts, maxListedNames)
 }
 
-func writeSourceVulns(b *strings.Builder, title string, vs []SourceVuln, total int) {
-	fmt.Fprintf(b, "\n**%s (%d)**\n\n", title, total)
+func writeSourceVulns(t *prText, b *strings.Builder, title string, vs []SourceVuln, total int) {
+	fmt.Fprintf(b, t.ListTitle, title, total)
 	if len(vs) == 0 && total == 0 {
-		b.WriteString("- none\n")
+		b.WriteString(t.None)
 		return
 	}
 	shown := len(vs)
@@ -295,19 +297,19 @@ func writeSourceVulns(b *strings.Builder, title string, vs []SourceVuln, total i
 		shown = maxListedVulns
 	}
 	for _, v := range vs[:shown] {
-		fmt.Fprintf(b, "- %s in %s %s", mdCode(v.VulnID), mdCode(v.Package), mdCode(v.Version))
+		fmt.Fprintf(b, t.SourceVulnLine, mdCode(v.VulnID), mdCode(v.Package), mdCode(v.Version))
 		if v.Severity != "" {
-			fmt.Fprintf(b, ", severity %s", mdCode(string(v.Severity)))
+			fmt.Fprintf(b, t.VulnSeverity, mdCode(string(v.Severity)))
 		}
 		if v.KEV {
-			b.WriteString(", in the CISA KEV catalog")
+			b.WriteString(t.VulnKEV)
 		}
 		if v.FixedVer != "" {
-			fmt.Fprintf(b, ", fixed in %s", mdCode(v.FixedVer))
+			fmt.Fprintf(b, t.SourceFixed, mdCode(v.FixedVer))
 		}
 		b.WriteString("\n")
 	}
 	if total > shown {
-		fmt.Fprintf(b, "- and %d more\n", total-shown)
+		fmt.Fprintf(b, t.LineMore, total-shown)
 	}
 }

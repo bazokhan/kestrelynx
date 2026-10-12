@@ -69,6 +69,10 @@ type PRStageConfig struct {
 	// MaxListPages caps the pages (of 100) of one pull request or comment
 	// listing; a listing the cap stops is incomplete. Zero means 30.
 	MaxListPages int
+	// Language is the wording of the pull request bodies; the empty value
+	// means English. A body's wording never changes how a pull request is
+	// recognised, since only its marker is read back.
+	Language BodyLanguage
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -109,6 +113,9 @@ func NewPRStage(cfg PRStageConfig) (*PRStage, error) {
 	if cfg.Limits.NewPRsPerCycle <= 0 || cfg.Limits.OpenPRs <= 0 {
 		return nil, errors.New("remediation: pull request limits must be positive")
 	}
+	if err := cfg.Language.validate(); err != nil {
+		return nil, err
+	}
 	if cfg.MaxListPages < 0 {
 		return nil, errors.New("remediation: the listing page cap must not be negative")
 	}
@@ -119,6 +126,14 @@ func NewPRStage(cfg PRStageConfig) (*PRStage, error) {
 		cfg.Now = time.Now
 	}
 	return &PRStage{cfg: cfg}, nil
+}
+
+// Language is the wording this stage writes pull request bodies in.
+func (s *PRStage) Language() BodyLanguage {
+	if s.cfg.Language == "" {
+		return BodyEN
+	}
+	return s.cfg.Language
 }
 
 // repoState is one configured repository during a run.
@@ -1268,14 +1283,14 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		body, err = buildLanguagePRBody(languageBodyInput{
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, LockPath: a.Path, Root: c.u.lang.root,
 			Item: c.u.lang.item, Record: c.u.lang.record, Files: a.fileChanges(), Workloads: c.u.workloads,
-			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = c.u.lang.title
 	} else if c.u.df != nil {
 		body, err = buildDockerfilePRBody(dockerfileBodyInput{
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
 			Workloads: c.u.workloads, Stage: c.u.df.stage, Change: change.dockerfile, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
-			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = dockerfileUnitTitle(imageRepo, a.CandidateTag, a.Path)
 	} else {
@@ -1283,7 +1298,7 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
 			Services: a.Services, Locations: a.Locations, Workloads: c.u.workloads, AlsoRunning: c.u.also,
 			Changes: change.compose, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
-			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker),
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = composeUnitTitle(imageRepo, a.CandidateTag, a.Path)
 	}
