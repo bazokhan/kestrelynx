@@ -43,12 +43,13 @@ func (o *jobOutput) finalFile(name string) ([]byte, bool) {
 	return b, ok
 }
 
-// newJob builds a job for manager m. The deadline leaves the client time to
-// collect the result before its own limit.
-func (u *LangUpdater) newJob(m worker.Manager, inputs map[string][]byte, steps []worker.Step) worker.Job {
+// newJob builds a job for manager m in the runtime and with the tool of env.
+// The deadline leaves the client time to collect the result before its own
+// limit.
+func (u *LangUpdater) newJob(m worker.Manager, env *jobEnvironment, inputs map[string][]byte, steps []worker.Step) worker.Job {
 	deadline := jobDeadlineSeconds(u.cfg.JobTimeout)
 	job := worker.Job{
-		Protocol: worker.ProtocolVersion, Manager: m, Steps: steps,
+		Protocol: worker.ProtocolVersion, Manager: m, Runtime: env.runtime, Tool: env.tool, Steps: steps,
 		Outputs:         worker.OutputNames(m),
 		DeadlineSeconds: deadline, StepTimeoutSeconds: deadline,
 	}
@@ -68,7 +69,7 @@ func (u *LangUpdater) newJob(m worker.Manager, inputs map[string][]byte, steps [
 // exactly the ones the steps and the final tree declare with the sizes and
 // hashes declared, and the outcome is mapped to a failure when the job did not
 // complete. roles maps a failed step's id to the failure it stands for.
-func (u *LangUpdater) execute(ctx context.Context, job worker.Job, inputs map[string][]byte, jobID string, upd *LanguageUpdate) (*jobOutput, *updateFailure) {
+func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvironment, inputs map[string][]byte, jobID string, upd *LanguageUpdate) (*jobOutput, *updateFailure) {
 	if f := jobLimitFailure(job, inputs); f != nil {
 		return nil, f
 	}
@@ -79,19 +80,33 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, inputs map[st
 	if err != nil {
 		return nil, failedFailure(ReasonUpdateInputInvalid, "encode the update job: %v", err)
 	}
+	program, fail := u.readProgram()
+	if fail != nil {
+		return nil, fail
+	}
 	spec := docker.JobSpec{
-		JobID:     jobID,
-		Inputs:    []docker.InputFile{{Path: "job.json", Content: jobJSON}},
+		JobID:   jobID,
+		Runtime: job.Runtime.ID,
+		Inputs: []docker.InputFile{
+			{Path: "job.json", Content: jobJSON},
+			{Path: worker.ProgramInputPath, Content: program, Kind: docker.KindProgram, Executable: true},
+		},
 		Timeout:   u.cfg.JobTimeout,
 		Resources: u.cfg.Resources,
+	}
+	if job.Tool != nil {
+		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: job.Tool.Path, Content: env.archive, Kind: docker.KindTool})
 	}
 	for _, in := range job.Inputs {
 		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.SrcDirName + "/" + in.Path, Content: inputs[in.Path]})
 	}
+	upd.Runtime, upd.Tool = env.rtRec, env.toolRec
 
 	res, err := u.cfg.Work.RunJob(ctx, spec)
 	if err != nil {
 		switch {
+		case errors.Is(err, docker.ErrImageUnavailable):
+			return nil, &updateFailure{category: CategoryDeferred, reason: ReasonWorkImageUnavailable, detail: clip(err.Error(), 300)}
 		case errors.Is(err, docker.ErrCleanup) && res.Stdout != nil:
 			upd.Notes = append(upd.Notes, "the work container could not be deleted after the job: "+clip(err.Error(), 200))
 		case ctx.Err() != nil:
@@ -167,7 +182,7 @@ func checkResultFiles(job worker.Job, files map[string][]byte) (*jobOutput, erro
 		return nil, fmt.Errorf("result.json has protocol %d", res.Protocol)
 	}
 	switch res.Status {
-	case worker.StatusCompleted, worker.StatusStepFailed, worker.StatusTimedOut, worker.StatusInputRejected:
+	case worker.StatusCompleted, worker.StatusStepFailed, worker.StatusTimedOut, worker.StatusInputRejected, worker.StatusEnvironmentRejected:
 	default:
 		return nil, fmt.Errorf("result.json has the unknown status %q", res.Status)
 	}
@@ -194,7 +209,7 @@ func checkResultFiles(job worker.Job, files map[string][]byte) (*jobOutput, erro
 	}
 	for i, s := range res.Steps {
 		want := job.Steps[i]
-		argv, err := worker.Argv(job.Manager, want)
+		argv, err := worker.Argv(job, want)
 		if err != nil {
 			return nil, err
 		}
@@ -310,9 +325,9 @@ func checkStatusAgainstSteps(job worker.Job, res worker.Result) error {
 		if n == 0 || !res.Steps[n-1].TimedOut {
 			return errors.New("result.json says timed out but its last step did not time out")
 		}
-	case worker.StatusInputRejected:
+	case worker.StatusInputRejected, worker.StatusEnvironmentRejected:
 		if n != 0 {
-			return errors.New("result.json says the input was rejected but lists steps")
+			return fmt.Errorf("result.json says %s but lists steps", res.Status)
 		}
 	}
 	if res.Status != worker.StatusCompleted && len(res.Final) != 0 {
@@ -336,6 +351,8 @@ func jobStatusFailure(res worker.Result) *updateFailure {
 		return nil
 	case worker.StatusInputRejected:
 		return failedFailure(ReasonUpdateJobInputRefused, "the job program refused the input: %s", clip(res.Error, 300))
+	case worker.StatusEnvironmentRejected:
+		return failedFailure(ReasonWorkEnvironmentRejected, "the job program refused the container or the runtime: %s", clip(res.Error, 300))
 	case worker.StatusTimedOut:
 		return failedFailure(ReasonUpdateJobTimedOut, "%s", clip(res.Error, 300))
 	}
@@ -365,9 +382,9 @@ func jobStatusFailure(res worker.Result) *updateFailure {
 }
 
 // pnpmWarnings returns the warnings pnpm printed about the pnpm version the
-// project declares in packageManager. The work image runs its own pnpm
-// whatever the project declares, and says so ("[WARN] This project is
-// configured to use 9.0.0 of pnpm. Your current pnpm is v12.10.1"); the update
+// project declares in packageManager. pnpm is told not to switch to the
+// declared version, and where it still says so ("[WARN] This project is
+// configured to use 9.0.0 of pnpm. Your current pnpm is v11.28.2"); the update
 // goes on and the difference is kept as a note.
 func pnpmWarnings(stderr string) []string {
 	var out []string

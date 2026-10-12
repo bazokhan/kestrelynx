@@ -1,23 +1,44 @@
+# The program that runs inside the update containers: a static binary for each
+# platform the main image is published for, cross-compiled once on the build
+# host. The main image carries both and places the one that matches its own
+# platform into each container; nothing else of the update containers is built
+# here (they use the official Node.js and Python images).
+FROM --platform=$BUILDPLATFORM golang:1.26 AS worker
+WORKDIR /src
+COPY go.mod ./
+COPY cmd/kestrelynx-worker ./cmd/kestrelynx-worker
+COPY internal/worker ./internal/worker
+RUN set -eu; \
+    mkdir -p /out/libexec; \
+    for arch in amd64 arm64; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=${arch} \
+        go build -trimpath -ldflags="-s -w" -o /out/libexec/kestrelynx-worker-${arch} ./cmd/kestrelynx-worker; \
+      sha256sum /out/libexec/kestrelynx-worker-${arch} | cut -d' ' -f1 > /out/kestrelynx-worker-${arch}.sha256; \
+    done
+
 # Build the static kestrelynx binary.
 FROM golang:1.26 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=worker /out/ /worker/
 # -tags timetzdata embeds the IANA timezone database in the binary so daily_at is
 # interpreted in TZ (e.g. Asia/Tokyo) even on base images without tzdata.
-# WORKER_IMAGE is the work image (repository@sha256:digest) this build is
-# released with; it is linked in as the default work image reference and is
-# empty in a build that does not pin one.
-ARG WORKER_IMAGE=""
+# The sha256 of each work program is linked in; the binary checks the files in
+# /usr/local/libexec/kestrelynx against them when it starts and again whenever
+# it places one into a container.
 RUN CGO_ENABLED=0 go build -trimpath -tags timetzdata \
-    -ldflags="-s -w -X github.com/kitsunetrail/kestrelynx/internal/worker.DefaultImage=${WORKER_IMAGE}" \
+    -ldflags="-s -w \
+      -X github.com/kitsunetrail/kestrelynx/internal/worker.ProgramSHA256Amd64=$(cat /worker/kestrelynx-worker-amd64.sha256) \
+      -X github.com/kitsunetrail/kestrelynx/internal/worker.ProgramSHA256Arm64=$(cat /worker/kestrelynx-worker-arm64.sha256)" \
     -o /out/kestrelynx ./cmd/kestrelynx
 
 # Final image is the official Trivy image (Trivy + its DB tooling already on PATH),
 # so KestreLynx shells out to a pinned trivy version (ADR-002). It is Alpine-based.
 FROM aquasec/trivy:0.71.2
 COPY --from=build /out/kestrelynx /usr/local/bin/kestrelynx
+COPY --from=worker --chmod=0755 /out/libexec/ /usr/local/libexec/kestrelynx/
 # A separate copy, not a symlink or hardlink to /usr/local/bin/kestrelynx:
 # the file capability set below is stored as an extended attribute on this
 # one file, and only this copy is meant to run with it. The main body's own

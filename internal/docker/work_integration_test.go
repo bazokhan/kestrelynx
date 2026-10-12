@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ const itImage = "busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff7
 func itResources() Resources {
 	return Resources{
 		MemoryBytes: 64 << 20, NanoCPUs: 500_000_000, PidsLimit: 64, NofileLimit: 256, ShmSizeBytes: 4 << 20,
-		TmpSizeBytes: 8 << 20, HomeSizeBytes: 8 << 20,
+		TmpSizeBytes: 8 << 20, HomeSizeBytes: 8 << 20, ToolsSizeBytes: 8 << 20,
 	}
 }
 
@@ -39,6 +40,7 @@ func itClient(t *testing.T, script string) *WorkClient {
 	}
 	c, err := NewWork(sock, WorkConfig{
 		Image:          itImage,
+		Platform:       "linux/" + runtime.GOARCH,
 		Entrypoint:     []string{"/bin/sh", "-c", script, "worker"},
 		AllowedEnvKeys: []string{"PATH", "HOME"},
 		Env:            []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/home/worker"},
@@ -171,7 +173,7 @@ func TestIntegrationTimeoutKills(t *testing.T) {
 func TestIntegrationPullFailureReportsStreamError(t *testing.T) {
 	c := itClient(t, `true`)
 	c2, err := newWorkClient(c.baseURL, c.httpClient, WorkConfig{
-		Image:      "busybox@sha256:" + strings.Repeat("0", 64),
+		Image: "busybox@sha256:" + strings.Repeat("0", 64), Platform: c.cfg.Platform,
 		Entrypoint: []string{"/bin/true"}, AllowedEnvKeys: []string{"PATH"}, InstanceID: c.cfg.InstanceID, Limits: c.cfg.Limits,
 	})
 	if err != nil {

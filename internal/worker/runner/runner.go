@@ -32,8 +32,14 @@ type Config struct {
 	TmpDir string
 	// HomeDir is HOME for the children.
 	HomeDir string
-	// Path is both the children's PATH and the place their programs are found.
-	Path string
+	// BinDir is the only directory a step's program is found in, by the
+	// absolute path it is started with, and Path is the PATH the children get.
+	BinDir string
+	Path   string
+	// Environment, when set, makes the program check the container and
+	// prepare the runtime and the tool before it runs a job. Without it the
+	// caller has put the programs in BinDir itself.
+	Environment *EnvironmentConfig
 	// FileSizeLimit is RLIMIT_FSIZE for the children, in bytes (0 leaves it
 	// and the core file limit alone); core files are turned off with it. It is lowered for this process too, hard limit included, so a
 	// child cannot raise it again; this program itself never writes a larger
@@ -47,9 +53,12 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		WorkDir: worker.WorkDir,
-		TmpDir:  "/tmp",
-		HomeDir: "/home/worker",
-		Path:    "/usr/local/bin:/usr/bin:/bin",
+		TmpDir:  worker.TmpDir,
+		HomeDir: worker.HomeDir,
+		BinDir:  worker.ToolsBinDir,
+		Path:    worker.ToolsBinDir + ":/usr/bin:/bin",
+
+		Environment: DefaultEnvironment(),
 
 		FileSizeLimit: worker.ChildMaxFileBytes,
 		Stdout:        os.Stdout,
@@ -81,6 +90,13 @@ func Run(cfg Config, jobPath string) error {
 		return reject("cannot keep inherited descriptors from the children: %v", err)
 	}
 
+	// The container is checked before anything the job names is read.
+	if cfg.Environment != nil {
+		if err := cfg.Environment.selfCheck(); err != nil {
+			return finish(&worker.Result{Status: worker.StatusEnvironmentRejected, Error: sanitize(err.Error())})
+		}
+	}
+
 	job, err := readJob(jobPath)
 	var bad *malformedError
 	if errors.As(err, &bad) {
@@ -97,6 +113,16 @@ func Run(cfg Config, jobPath string) error {
 	}
 	if err := checkInputs(filepath.Join(cfg.WorkDir, worker.SrcDirName), job.Inputs); err != nil {
 		return reject("%v", err)
+	}
+	if cfg.Environment != nil {
+		if err := cfg.prepareEnvironment(job); err != nil {
+			status := worker.StatusInputRejected
+			var env *environmentError
+			if errors.As(err, &env) {
+				status = worker.StatusEnvironmentRejected
+			}
+			return finish(&worker.Result{Status: status, Error: sanitize(err.Error())})
+		}
 	}
 
 	base, err := os.MkdirTemp(cfg.TmpDir, "kestrelynx-worker-")
@@ -212,7 +238,7 @@ func execute(cfg Config, job *worker.Job, base string, files map[string][]byte, 
 	}
 
 	for _, step := range job.Steps {
-		argv, err := worker.Argv(job.Manager, step)
+		argv, err := worker.Argv(*job, step)
 		if err != nil {
 			return fail(worker.StatusInputRejected, "step %q: %v", step.ID, err)
 		}

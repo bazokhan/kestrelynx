@@ -26,11 +26,11 @@ func TestLanguagePlan_PnpmRecordsThatThereWasNoSettingsFile(t *testing.T) {
 	}
 	sorted := append([]string(nil), none.Source.Absent...)
 	sort.Strings(sorted)
-	if strings.Join(sorted, ",") != "pnpm-workspace.yaml,web/pnpm-workspace.yaml" {
+	if strings.Join(sorted, ",") != "pnpm-workspace.yaml,web/.node-version,web/.nvmrc,web/pnpm-workspace.yaml" {
 		t.Errorf("absent = %v", none.Source.Absent)
 	}
 	with := plan(func(f *fakeGitHub) { f.put("ex/app", "web", "pnpm-workspace.yaml", backendWorkspace) })
-	if len(with.Source.Absent) != 1 || with.Source.Absent[0] != "pnpm-workspace.yaml" {
+	if strings.Join(with.Source.Absent, ",") != "pnpm-workspace.yaml,web/.node-version,web/.nvmrc" {
 		t.Errorf("absent with the file = %v", with.Source.Absent)
 	}
 	if LanguageInputFingerprint(none) == LanguageInputFingerprint(with) {
@@ -42,10 +42,11 @@ func TestLanguagePlan_PnpmRecordsThatThereWasNoSettingsFile(t *testing.T) {
 	if LanguageInputFingerprint(none) == LanguageInputFingerprint(other) {
 		t.Error("the fingerprint does not depend on where the file was looked for")
 	}
-	// npm and the others have no such file to look for.
+	// npm has no such file to look for; it looks for the files that declare
+	// the Node.js version.
 	gh := newFakeGitHub()
 	npmRepo(gh, "ex/app", "web")
-	if it := langPlan(t, gh, deps, nil, in).LanguageItems[0]; len(it.Source.Absent) != 0 {
+	if it := langPlan(t, gh, deps, nil, in).LanguageItems[0]; strings.Join(it.Source.Absent, ",") != "web/.node-version,web/.nvmrc" {
 		t.Errorf("npm absent = %v", it.Source.Absent)
 	}
 }
@@ -156,7 +157,7 @@ func TestLanguagePlan_PnpmWorkspaceFileInADirectoryAbove(t *testing.T) {
 		}
 		got := append([]string(nil), it.Source.Absent...)
 		sort.Strings(got)
-		if strings.Join(got, ",") != "a/b/pnpm-workspace.yaml,a/b/web/pnpm-workspace.yaml,a/pnpm-workspace.yaml,pnpm-workspace.yaml" {
+		if strings.Join(got, ",") != "a/b/pnpm-workspace.yaml,a/b/web/.node-version,a/b/web/.nvmrc,a/b/web/pnpm-workspace.yaml,a/pnpm-workspace.yaml,pnpm-workspace.yaml" {
 			t.Errorf("absent = %v", got)
 		}
 		for _, call := range gh.calls {
@@ -167,7 +168,7 @@ func TestLanguagePlan_PnpmWorkspaceFileInADirectoryAbove(t *testing.T) {
 	})
 	t.Run("a project at the root has nothing above", func(t *testing.T) {
 		it, gh := plan(".", func(*fakeGitHub) {})
-		if len(it.Source.Absent) != 1 || it.Source.Absent[0] != "pnpm-workspace.yaml" {
+		if strings.Join(it.Source.Absent, ",") != "pnpm-workspace.yaml,.node-version,.nvmrc" {
 			t.Errorf("absent = %v", it.Source.Absent)
 		}
 		for _, call := range gh.calls {
@@ -199,7 +200,7 @@ func TestLanguagePlan_PnpmWorkspaceFileInADirectoryAbove(t *testing.T) {
 		gh.put("ex/app", ".", "pnpm-workspace.yaml", "packages: []\n")
 		deps := []DependencyMapping{depMapping("compose/shop/api", "ex/app", "a/web")}
 		it := langPlan(t, gh, deps, nil, in).LanguageItems[0]
-		if it.Category != CategoryDependencyUpdateCandidate || len(it.Source.Absent) != 0 {
+		if it.Category != CategoryDependencyUpdateCandidate || strings.Join(it.Source.Absent, ",") != "a/web/.node-version,a/web/.nvmrc" {
 			t.Errorf("item = %s / %s, absent %v", it.Category, it.Reason, it.Source.Absent)
 		}
 	})

@@ -9,16 +9,17 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
-const goodWorkImage = "registry.example.com:5000/kestrelynx-worker@sha256:0d18f19513e094d4b1a1f0e9b7332992d2eeb481657e609d6ceeb1f6af20040c"
-
 func TestParse_WorkerDefaults(t *testing.T) {
 	c, err := Parse([]byte(minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := c.Remediation
-	if r.Worker.Image != "" {
-		t.Errorf("Worker.Image = %q, want the build's own image (empty)", r.Worker.Image)
+	if r.Worker.Registry != "" || r.Worker.LegacyImage != "" || r.Worker.ProgramDir != "" {
+		t.Errorf("Worker = %+v, want no registry, legacy image or program dir", r.Worker)
+	}
+	if r.Worker.ToolVersions.MinReleaseAge != 72*time.Hour || r.Worker.ToolVersions.CacheMaxSize != 1<<30 {
+		t.Errorf("ToolVersions = %+v, want 72h and 1GiB", r.Worker.ToolVersions)
 	}
 	if r.Limits.DependencyJobsPerCycle != 3 {
 		t.Errorf("DependencyJobsPerCycle = %d, want 3", r.Limits.DependencyJobsPerCycle)
@@ -32,7 +33,11 @@ func TestParse_WorkerExplicit(t *testing.T) {
 	c, err := Parse([]byte(minimal + `
 remediation:
   worker:
-    image: ` + goodWorkImage + `
+    registry: registry.example.com:5000/dockerhub
+    program_dir: /opt/worker
+    tool_versions:
+      min_release_age: 96h
+      cache_max_size: 512MiB
   limits:
     dependency_jobs_per_cycle: 7
     job_timeout: 90s
@@ -41,8 +46,25 @@ remediation:
 		t.Fatalf("Parse: %v", err)
 	}
 	r := c.Remediation
-	if r.Worker.Image != goodWorkImage || r.Limits.DependencyJobsPerCycle != 7 || r.Limits.JobTimeout != 90*time.Second {
-		t.Errorf("remediation = %+v", r)
+	w := r.Worker
+	if w.Registry != "registry.example.com:5000/dockerhub" || w.ProgramDir != "/opt/worker" ||
+		w.ToolVersions.MinReleaseAge != 96*time.Hour || w.ToolVersions.CacheMaxSize != 512<<20 {
+		t.Errorf("worker = %+v", w)
+	}
+	if r.Limits.DependencyJobsPerCycle != 7 || r.Limits.JobTimeout != 90*time.Second {
+		t.Errorf("limits = %+v", r.Limits)
+	}
+}
+
+// The removed worker.image key still parses, so that the program can say it
+// has no effect and keep language package updates off.
+func TestParse_LegacyWorkerImageIsRecorded(t *testing.T) {
+	c, err := Parse([]byte(minimal + "\nremediation:\n  worker:\n    image: ghcr.io/example/worker@sha256:" + strings.Repeat("a", 64) + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(c.Remediation.Worker.LegacyImage, "ghcr.io/example/worker@") {
+		t.Errorf("LegacyImage = %q", c.Remediation.Worker.LegacyImage)
 	}
 }
 
@@ -61,14 +83,20 @@ func TestParse_JobTimeoutBounds(t *testing.T) {
 }
 
 func TestParse_WorkerInvalid(t *testing.T) {
-	digest := "sha256:0d18f19513e094d4b1a1f0e9b7332992d2eeb481657e609d6ceeb1f6af20040c"
 	cases := map[string]struct{ yaml, want string }{
-		"tag instead of digest":           {"worker:\n    image: ghcr.io/example/worker:latest", "worker.image"},
-		"short digest":                    {"worker:\n    image: ghcr.io/example/worker@sha256:abc", "worker.image"},
-		"upper case repository":           {"worker:\n    image: GHCR.io/example/worker@" + digest, "worker.image"},
-		"tag and digest":                  {"worker:\n    image: ghcr.io/example/worker:1@" + digest, "worker.image"},
-		"double slash":                    {"worker:\n    image: ghcr.io//worker@" + digest, "worker.image"},
-		"parent segment":                  {"worker:\n    image: ghcr.io/../worker@" + digest, "worker.image"},
+		"registry with a scheme":          {"worker:\n    registry: https://registry.example.com", "worker.registry"},
+		"registry with a tag":             {"worker:\n    registry: registry.example.com/dockerhub:latest", "worker.registry"},
+		"registry with a digest":          {"worker:\n    registry: registry.example.com/x@sha256:abc", "worker.registry"},
+		"registry with upper case":        {"worker:\n    registry: Registry.example.com", "worker.registry"},
+		"registry with a double slash":    {"worker:\n    registry: registry.example.com//x", "worker.registry"},
+		"registry with a parent segment":  {"worker:\n    registry: registry.example.com/../x", "worker.registry"},
+		"registry with a trailing slash":  {"worker:\n    registry: registry.example.com/x/", "worker.registry"},
+		"program dir not absolute":        {"worker:\n    program_dir: bin", "worker.program_dir"},
+		"zero release age":                {"worker:\n    tool_versions:\n      min_release_age: 0s", "min_release_age"},
+		"negative release age":            {"worker:\n    tool_versions:\n      min_release_age: -1h", "min_release_age"},
+		"cache not a size":                {"worker:\n    tool_versions:\n      cache_max_size: lots", "cache_max_size"},
+		"cache too small":                 {"worker:\n    tool_versions:\n      cache_max_size: 64MiB", "cache_max_size"},
+		"cache negative":                  {"worker:\n    tool_versions:\n      cache_max_size: -5", "cache_max_size"},
 		"zero jobs":                       {"limits:\n    dependency_jobs_per_cycle: 0", "dependency_jobs_per_cycle"},
 		"negative jobs":                   {"limits:\n    dependency_jobs_per_cycle: -1", "dependency_jobs_per_cycle"},
 		"zero job timeout":                {"limits:\n    job_timeout: 0s", "job_timeout"},
@@ -91,17 +119,38 @@ func TestParse_WorkerInvalid(t *testing.T) {
 	}
 }
 
-// Pull requests with a work image set still need Docker mode, as before.
-func TestParse_WorkerImageWithKubernetesStillRejected(t *testing.T) {
+// Pull requests with a mirror set still need Docker mode, as before.
+func TestParse_WorkerRegistryWithKubernetesStillRejected(t *testing.T) {
 	_, err := Parse([]byte(minimal + `
 kubernetes:
   enabled: true
 remediation:
   enabled: true
   worker:
-    image: ` + goodWorkImage + `
+    registry: registry.example.com
 `))
 	if err == nil || !strings.Contains(err.Error(), "kubernetes") {
 		t.Fatalf("err = %v, want the kubernetes rejection", err)
+	}
+}
+
+func TestParse_WorkerRegistryForms(t *testing.T) {
+	for _, v := range []string{"registry.example.com", "registry.example.com:5000", "localhost:5000/dockerhub", "harbor.example.com/proxy-cache/dockerhub"} {
+		if _, err := Parse([]byte(minimal + "\nremediation:\n  worker:\n    registry: " + v + "\n")); err != nil {
+			t.Errorf("%s: %v", v, err)
+		}
+	}
+}
+
+func TestParseByteSize(t *testing.T) {
+	for in, want := range map[string]int64{"1GiB": 1 << 30, "512MiB": 512 << 20, "128 MiB": 128 << 20, "2048": 2048, "4KiB": 4096} {
+		if got, err := parseByteSize(in); err != nil || got != want {
+			t.Errorf("%q = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "GiB", "-1MiB", "1.5GiB", "9999999999999GiB"} {
+		if _, err := parseByteSize(in); err == nil {
+			t.Errorf("%q accepted", in)
+		}
 	}
 }

@@ -178,6 +178,7 @@ func newHarness(t *testing.T, name string) *harness {
 		Scanner: h.fs, Work: h.work, PyPI: h.pypi, Npm: h.npm, GitHub: h.gh,
 		Prepared: fsConds, Images: map[string]ImageEnv{"img": debianAmd64}, MaxJobs: 5,
 	}
+	h.cfg = withTestTools(h.t, h.cfg)
 	return h
 }
 
@@ -904,9 +905,9 @@ func TestLangUpdateUvProjectChecks(t *testing.T) {
 		cat            Category
 		reason         Reason
 	}{
-		{"requires-python excludes 3.13", `">=3.9"`, `">=3.9,<3.13"`, CategoryManual, ReasonRequiresPythonUnsupported},
-		{"requires-python above", `">=3.9"`, `">=3.14"`, CategoryManual, ReasonRequiresPythonUnsupported},
-		{"requires-python unreadable", `">=3.9"`, `"~3"`, CategoryManual, ReasonRequiresPythonUnsupported},
+		{"requires-python excludes 3.13", `">=3.9"`, `">=3.9,<3.13"`, CategoryManual, "python_spec_unsupported"},
+		{"requires-python above", `">=3.9"`, `">=3.14"`, CategoryManual, "python_spec_unsupported"},
+		{"requires-python unreadable", `">=3.9"`, `"~3"`, CategoryManual, "python_spec_invalid"},
 		{"specifier excludes the target", `"urllib3>=1.26,<2"`, `"urllib3>=1.26,<1.26.10"`, CategoryManual, ReasonManifestEditRequired},
 		{"upper bound excludes the target", `"urllib3>=1.26,<2"`, `"urllib3<=1.26.4"`, CategoryManual, ReasonManifestEditRequired},
 		{"arbitrary equality is not judged", `"urllib3>=1.26,<2"`, `"urllib3===1.26.4"`, CategoryManual, ReasonManifestEditRequired},

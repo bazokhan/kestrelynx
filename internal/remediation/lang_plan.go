@@ -284,6 +284,9 @@ type LanguageItem struct {
 	Category Category `json:"category"`
 	Reason   Reason   `json:"reason,omitempty"`
 	Detail   string   `json:"detail,omitempty"`
+	// RuntimeEOL is set with the reason runtime_eol: the runtime the update
+	// would run in and the date its support ended.
+	RuntimeEOL *RuntimeEOLInfo `json:"runtime_eol,omitempty"`
 
 	Source   SourceRecord      `json:"source"`
 	Packages []LanguagePackage `json:"packages,omitempty"`

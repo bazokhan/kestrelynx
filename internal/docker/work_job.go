@@ -20,7 +20,23 @@ import (
 type InputFile struct {
 	Path    string
 	Content []byte
+	// Kind says what the file is, which decides the limits it counts against;
+	// the zero value is an ordinary input.
+	Kind InputKind
+	// Executable makes the file mode 0755 instead of 0644 (the work program
+	// only).
+	Executable bool
 }
+
+// InputKind is the class of an input file. Package manager archives and the
+// program have limits of their own, apart from the input files.
+type InputKind int
+
+const (
+	KindInput   InputKind = iota // a file of the project
+	KindTool                     // a package manager archive
+	KindProgram                  // the program the container runs
+)
 
 // JobSpec describes one job.
 type JobSpec struct {
@@ -33,6 +49,9 @@ type JobSpec struct {
 	Timeout time.Duration
 	// Resources are the limits applied to the container.
 	Resources Resources
+	// Runtime names the client a WorkSet runs the job with; a WorkClient
+	// ignores it.
+	Runtime string
 }
 
 // JobResult is what a finished job left behind. The client does not
@@ -60,6 +79,7 @@ var (
 var (
 	inputModeFile int64 = 0o644
 	inputModeDir  int64 = 0o755
+	inputModeExec int64 = 0o755
 	tarMtime            = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
@@ -98,13 +118,25 @@ func validRelPath(p string) error {
 // input files below it, every entry owned by root with fixed mode and mtime. Intermediate directories are added automatically. Duplicate or
 // conflicting paths are rejected.
 func buildInputTar(inputs []InputFile, lim TransferLimits) ([]byte, error) {
-	if len(inputs) > lim.MaxInputFiles {
+	// Input files, tool archives and the program count against separate
+	// limits; the whole archive is bounded below.
+	var count, bytes [3]int64
+	maxFiles := [3]int64{int64(lim.MaxInputFiles), 2, 1}
+	maxBytes := [3]int64{lim.MaxInputBytes, lim.MaxToolBytes, lim.MaxProgramBytes}
+	what := [3]string{"input", "tool archive", "program"}
+	if len(inputs) > lim.MaxInputFiles+int(maxFiles[1]+maxFiles[2]) {
 		return nil, fmt.Errorf("input has %d files, over the %d file limit", len(inputs), lim.MaxInputFiles)
 	}
 	files := map[string][]byte{}
+	exec := map[string]bool{}
 	dirs := map[string]bool{}
-	var total int64
 	for _, in := range inputs {
+		if in.Kind < KindInput || in.Kind > KindProgram {
+			return nil, fmt.Errorf("input %q has an unknown kind", in.Path)
+		}
+		if in.Executable && in.Kind != KindProgram {
+			return nil, fmt.Errorf("input %q: only the program may be executable", in.Path)
+		}
 		if err := validRelPath(in.Path); err != nil {
 			return nil, fmt.Errorf("input: %w", err)
 		}
@@ -114,11 +146,17 @@ func buildInputTar(inputs []InputFile, lim TransferLimits) ([]byte, error) {
 		if _, dup := files[in.Path]; dup {
 			return nil, fmt.Errorf("input: duplicate path %q", in.Path)
 		}
-		total += int64(len(in.Content))
-		if total > lim.MaxInputBytes {
-			return nil, fmt.Errorf("input exceeds %d bytes", lim.MaxInputBytes)
+		k := in.Kind
+		count[k]++
+		bytes[k] += int64(len(in.Content))
+		if count[k] > maxFiles[k] {
+			return nil, fmt.Errorf("%s: %d files are over the %d file limit", what[k], count[k], maxFiles[k])
+		}
+		if bytes[k] > maxBytes[k] {
+			return nil, fmt.Errorf("%s exceeds %d bytes", what[k], maxBytes[k])
 		}
 		files[in.Path] = in.Content
+		exec[in.Path] = in.Executable
 		for d := path.Dir(in.Path); d != "."; d = path.Dir(d) {
 			dirs[d] = true
 		}
@@ -145,6 +183,9 @@ func buildInputTar(inputs []InputFile, lim TransferLimits) ([]byte, error) {
 			h.Typeflag, h.Mode, h.Name = tar.TypeDir, inputModeDir, name+"/"
 		} else {
 			h.Typeflag, h.Mode, h.Size = tar.TypeReg, inputModeFile, int64(len(content))
+			if exec[strings.TrimPrefix(name, "work/")] {
+				h.Mode = inputModeExec
+			}
 		}
 		if err := tw.WriteHeader(h); err != nil {
 			return err

@@ -12,10 +12,6 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
-// workImagePython is the one Python the work image has; uv locks with it, so
-// a project whose requires-python does not admit it cannot be locked there.
-const workImagePython = "3.13.16"
-
 // run reads the unit's files and carries out the update of its manager.
 func (r *updateRun) run(ctx context.Context) *updateFailure {
 	src, fail := r.u.readSources(ctx, r.it)
@@ -24,6 +20,19 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 	}
 	r.src = src
 	r.manifest = src.manifest
+	if r.it.Manager != ManagerPip {
+		in := ToolSpecInput{
+			Manager: r.it.Manager, Manifest: src.manifest, Lock: src.lock, Files: src.specFiles, UvToml: src.uvToml,
+		}
+		if f := r.u.declaredRuntimeEndOfLife(in); f != nil {
+			return f
+		}
+		ts, uerr := ResolveToolSpec(in)
+		if uerr != nil {
+			return manualFailure(uerr.Reason, "%s", uerr.Detail)
+		}
+		r.toolSpec = ts
+	}
 	// Only a lockfile tells where each package ended up; a pip update pins its
 	// packages exactly and has nothing to leave out.
 	if r.it.Manager == ManagerPip {
@@ -61,7 +70,11 @@ func (r *updateRun) exec(ctx context.Context, m worker.Manager, inputs map[strin
 	if r.attempt > 0 {
 		role = fmt.Sprintf("%s-again%d", role, r.attempt)
 	}
-	out, fail := r.u.execute(ctx, r.u.newJob(m, inputs, steps), inputs, r.u.jobID(r.n, role), r.upd)
+	env, fail := r.u.prepareJob(ctx, m, r.toolSpec)
+	if fail != nil {
+		return nil, fail
+	}
+	out, fail := r.u.execute(ctx, r.u.newJob(m, env, inputs, steps), env, inputs, r.u.jobID(r.n, role), r.upd)
 	if out != nil {
 		for _, s := range out.result.Steps {
 			if s.ID == stepUpdate && s.ExitCode == 0 && !s.TimedOut && s.Error == "" {
@@ -290,7 +303,7 @@ func (r *updateRun) planUvProject(ctx context.Context) *updateFailure {
 	rp, present := project["requires-python"]
 	spec, isStr := rp.(string)
 	if !present || !isStr {
-		return manualFailure(ReasonRequiresPythonUnsupported, "pyproject.toml has no requires-python; uv would lock for the work image's Python %s", workImagePython)
+		return manualFailure(ReasonRequiresPythonUnsupported, "pyproject.toml has no requires-python; uv would lock for the work image's Python %s", workImagePython())
 	}
 	var clauses []string
 	for _, c := range strings.Split(spec, ",") {
@@ -300,9 +313,9 @@ func (r *updateRun) planUvProject(ctx context.Context) *updateFailure {
 		}
 		clauses = append(clauses, cm[1]+cm[2])
 	}
-	pv, _ := parsePEP440(workImagePython)
+	pv, _ := parsePEP440(workImagePython())
 	if ok, evaluable := pySatisfies(pv, strings.Join(clauses, ",")); !evaluable || !ok {
-		return manualFailure(ReasonRequiresPythonUnsupported, "requires-python %q does not admit the work image's Python %s", spec, workImagePython)
+		return manualFailure(ReasonRequiresPythonUnsupported, "requires-python %q does not admit the work image's Python %s", spec, workImagePython())
 	}
 
 	f := &updateFailure{category: CategoryManual, reason: ReasonManifestEditRequired, pkgs: map[string]updateFailureDetail{}}

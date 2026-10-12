@@ -32,22 +32,21 @@ type procResult struct {
 	err           error // the program could not be started or waited for
 }
 
-// lookPath finds name in the colon-separated path list, never in the current
-// directory and never through the program's own PATH.
-func lookPath(path, name string) (string, error) {
-	if strings.Contains(name, "/") {
-		return "", fmt.Errorf("program name %q has a slash", name)
+// lookPath finds name in dir, the directory of the tools, and nowhere else:
+// never in the current directory and never through the program's own PATH. The
+// program is started by the absolute path this returns.
+func lookPath(dir, name string) (string, error) {
+	if name == "" || strings.Contains(name, "/") {
+		return "", fmt.Errorf("program name %q is empty or has a slash", name)
 	}
-	for _, dir := range filepath.SplitList(path) {
-		if dir == "" || !filepath.IsAbs(dir) {
-			continue
-		}
-		p := filepath.Join(dir, name)
-		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
-			return p, nil
-		}
+	if dir == "" || !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("the directory of the tools %q is not absolute", dir)
 	}
-	return "", fmt.Errorf("%s not found in %s", name, path)
+	p := filepath.Join(dir, name)
+	if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
+		return p, nil
+	}
+	return "", fmt.Errorf("%s not found in %s", name, dir)
 }
 
 // runProc runs argv in dir in its own process group. When ctx ends, or after
@@ -57,10 +56,15 @@ func lookPath(path, name string) (string, error) {
 // pipes this program reads (never to its own standard output), and no other
 // descriptor is passed on.
 func runProc(ctx context.Context, cfg *Config, m worker.Manager, argv []string, dir string) procResult {
-	exe, err := lookPath(cfg.Path, argv[0])
+	exe, err := lookPath(cfg.BinDir, argv[0])
 	if err != nil {
 		return procResult{exitCode: -1, err: err}
 	}
+	return runExe(ctx, cfg, m, exe, argv, dir)
+}
+
+// runExe is runProc for a program whose absolute path is already known.
+func runExe(ctx context.Context, cfg *Config, m worker.Manager, exe string, argv []string, dir string) procResult {
 	stdout := newTailBuffer(worker.MaxStreamTail)
 	stderr := newMarkedTailBuffer(worker.MaxStreamTail, releaseAgeMarker)
 	cmd := &exec.Cmd{

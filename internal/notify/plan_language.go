@@ -81,7 +81,8 @@ func languageFromUpdateStage(li remediation.LanguageItem) bool {
 	}
 	switch li.Reason {
 	case remediation.ReasonUpdateJobLimit, remediation.ReasonUpdateInputLimit,
-		remediation.ReasonWorkImageNotConfigured, remediation.ReasonWorkImageUnavailable:
+		remediation.ReasonWorkImageNotConfigured, remediation.ReasonWorkImageUnavailable,
+		remediation.ReasonRuntimeEndOfLife:
 		return true
 	}
 	return false
@@ -159,7 +160,11 @@ func languageUpdateLines(plan remediation.Plan, msg messages) (warn, adopted []s
 			}
 		case remediation.CategoryManual, remediation.CategoryNotComparable:
 			if languageFromUpdateStage(li) {
-				warn = append(warn, fmt.Sprintf(msg.PlanDepManualLine, services, lock, reason))
+				if e := li.RuntimeEOL; li.Reason == remediation.ReasonRuntimeEndOfLife && e != nil {
+					warn = append(warn, fmt.Sprintf(msg.PlanDepRuntimeEOLLine, services, lock, escMrkdwn(e.Name), escMrkdwn(e.EOL)))
+				} else {
+					warn = append(warn, fmt.Sprintf(msg.PlanDepManualLine, services, lock, reason))
+				}
 			}
 		case remediation.CategoryFailed:
 			if languageFromUpdateStage(li) {

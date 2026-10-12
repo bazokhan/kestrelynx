@@ -892,6 +892,9 @@ type languageItemPayload struct {
 	Priority  string                   `json:"priority,omitempty"`
 	Workloads []string                 `json:"workloads"`
 	Source    remediation.SourceRecord `json:"source"`
+	// RuntimeEOL is the runtime (id, name) and the date its support ended,
+	// set with the reason runtime_eol.
+	RuntimeEOL *remediation.RuntimeEOLInfo `json:"runtime_eol,omitempty"`
 	// UpdateExecuted and PostUpdateCheckExecuted are false in a plan: no
 	// package manager was run and no result was inspected.
 	UpdateExecuted          bool `json:"update_executed"`
@@ -957,7 +960,7 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 	out := languageItemPayload{
 		Key: li.Key, Category: string(li.Category), Reason: string(li.Reason), Detail: li.Detail,
 		Manager: string(li.Manager), Priority: string(li.Priority), Workloads: li.Workloads,
-		Source:         li.Source,
+		Source: li.Source, RuntimeEOL: li.RuntimeEOL,
 		UpdateExecuted: li.UpdateExecuted, PostUpdateCheckExecuted: li.PostUpdateCheckExecuted,
 		PackageCount: len(li.Packages),
 		Update:       li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,

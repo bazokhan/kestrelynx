@@ -38,7 +38,10 @@ For each package the target is the lowest version that the vulnerability data li
 
 ## Verification
 
-The update ran in a throwaway container built from a fixed work image, with fixed operations and no credentials. Its result was treated as untrusted and checked by KestreLynx itself.
+The update ran in a throwaway container created from an official image pinned by digest, with fixed operations and no credentials. Its result was treated as untrusted and checked by KestreLynx itself.
+
+- Runtime: `node24` `24.21.0`, from the official image `node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`
+- Package manager: `pnpm` `11.28.2` (the version this build selects when the project declares none), archive sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
 
 **Operations run**
 

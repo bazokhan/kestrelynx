@@ -296,13 +296,25 @@ runtime:
 #     # job's deadline for startup and reporting (internal maximum: 60m).
 #     dependency_jobs_per_cycle: 3
 #     job_timeout: 6m
-#   # Each main release specifies ghcr.io/kitsunetrail/kestrelynx-worker by
-#   # digest. Leave worker.image unset to use it; override with a reference
-#   # repository@sha256:<64 lowercase hex digits> for a mirror or verification.
-#   # The Docker daemon fetches it when first needed. An unavailable image,
-#   # or a custom build with neither a default nor an override, defers language
-#   # updates; package managers are never run in the main container instead.
-#   # The override's format, mappings, storage path and limits are validated
-#   # at startup even when remediation is disabled.
+#   # Language package updates run in throwaway containers of the official
+#   # Node.js (npm, pnpm) and Python (uv, pip) images that each main release
+#   # pins by digest. The package manager itself is fetched from the public
+#   # registry by KestreLynx, checked, cached under storage_dir and handed to
+#   # the container; the Docker daemon pulls the images when first needed.
+#   # An unavailable image or package manager defers language updates;
+#   # package managers are never run in the main container instead.
+#   # The settings below are validated at startup even when remediation is
+#   # disabled.
 #   # worker:
-#   #   image: registry.example.com/kestrelynx-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000
+#   #   # A Docker Hub mirror, as host[:port][/path]. It replaces the host and
+#   #   # path the official images are pulled from; the digests stay those of
+#   #   # the release, so a mirror that alters an image is refused.
+#   #   registry: registry.example.com:5000/dockerhub
+#   #   tool_versions:
+#   #     # A package manager release is used only once it has been published
+#   #     # this long.
+#   #     min_release_age: 72h
+#   #     # Capacity of the cache of package manager releases.
+#   #     cache_max_size: 1GiB
+#   #   # The old "image" key was removed. While it is set, language package
+#   #   # updates stay off.

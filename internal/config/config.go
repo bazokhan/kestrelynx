@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -171,20 +172,38 @@ type RemediationConfig struct {
 	// no effect unless Enabled.
 	Mappings []RemediationMapping
 	Limits   RemediationLimits
-	// Worker configures the work image language package updates run in.
+	// Worker configures the containers language package updates run in.
 	Worker RemediationWorkerConfig
 }
 
-// RemediationWorkerConfig configures the work image. With pull requests
-// enabled, language package updates run in throwaway containers of this
-// image.
+// RemediationWorkerConfig configures where language package updates run. With
+// pull requests enabled they run in throwaway containers of the official
+// Node.js and Python images this build pins by digest, with package manager
+// releases this process fetches and checks.
 type RemediationWorkerConfig struct {
-	// Image overrides the work image this build is released with. It is a
-	// digest-pinned reference, repository@sha256:<64 hex>, and is meant for
-	// testing a work image and for a mirror of the released one. Empty means
-	// the image the build carries; a build that carries none cannot run
-	// language package updates.
-	Image string
+	// Registry is a mirror of Docker Hub, as a host (with a port) and a path
+	// ("registry.example.com:5000/dockerhub"). It replaces the host and path
+	// the official images are pulled from; the digests stay those of the
+	// build, so a mirror that changes an image is refused. Empty pulls from
+	// Docker Hub.
+	Registry string
+	// ToolVersions sets how package manager releases are chosen and kept.
+	ToolVersions RemediationToolVersions
+	// ProgramDir, when set, is the directory the work program files are read
+	// from instead of the build's own, which are checked against the hashes
+	// the build embeds. It is meant for developing the program.
+	ProgramDir string
+	// LegacyImage is the value of the removed key worker.image, kept only to
+	// say that it is set. While it is, language package updates are off.
+	LegacyImage string
+}
+
+// RemediationToolVersions holds the settings of the package manager cache.
+type RemediationToolVersions struct {
+	// MinReleaseAge is how long a release must have been published before it
+	// is run. CacheMaxSize is the capacity of the cache in bytes.
+	MinReleaseAge time.Duration
+	CacheMaxSize  int64
 }
 
 // RemediationPullRequestsConfig is the switch for pull requests.
@@ -392,7 +411,15 @@ type rawConfig struct {
 		} `yaml:"registries"`
 		StorageDir string `yaml:"storage_dir"`
 		Worker     struct {
-			Image string `yaml:"image"`
+			// Image is the removed key; it is read so that its presence can
+			// be reported.
+			Image        string `yaml:"image"`
+			Registry     string `yaml:"registry"`
+			ProgramDir   string `yaml:"program_dir"`
+			ToolVersions struct {
+				MinReleaseAge *time.Duration `yaml:"min_release_age"`
+				CacheMaxSize  *string        `yaml:"cache_max_size"`
+			} `yaml:"tool_versions"`
 		} `yaml:"worker"`
 		Mappings []struct {
 			Workload   string `yaml:"workload"`
@@ -505,6 +532,22 @@ func Parse(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("config: remediation.github.token: %w", err)
 	}
 
+	rw := raw.Remediation.Worker
+	wk := RemediationWorkerConfig{
+		Registry: rw.Registry, ProgramDir: rw.ProgramDir, LegacyImage: rw.Image,
+		ToolVersions: RemediationToolVersions{
+			MinReleaseAge: durationOr(rw.ToolVersions.MinReleaseAge, defaultToolMinReleaseAge),
+			CacheMaxSize:  defaultToolCacheMaxSize,
+		},
+	}
+	if sz := rw.ToolVersions.CacheMaxSize; sz != nil {
+		n, err := parseByteSize(*sz)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: remediation.worker.tool_versions.cache_max_size: %w", err)
+		}
+		wk.ToolVersions.CacheMaxSize = n
+	}
+
 	var registries []RemediationRegistry
 	for i := range raw.Remediation.Registries {
 		rr := &raw.Remediation.Registries[i]
@@ -552,7 +595,7 @@ func Parse(data []byte) (Config, error) {
 			GitHub:       RemediationGitHubConfig{Token: githubToken},
 			Registries:   registries,
 			StorageDir:   raw.Remediation.StorageDir,
-			Worker:       RemediationWorkerConfig{Image: raw.Remediation.Worker.Image},
+			Worker:       wk,
 			Limits: RemediationLimits{
 				CandidateScansPerCycle:   intOr(raw.Remediation.Limits.CandidateScansPerCycle, defaultCandidateScansPerCycle),
 				BaselineRescansPerCycle:  intOr(raw.Remediation.Limits.BaselineRescansPerCycle, defaultBaselineRescansPerCycle),
@@ -732,10 +775,8 @@ func validateRemediation(c *Config) error {
 	if r.Limits.JobTimeout < minJobTimeout || r.Limits.JobTimeout > maxJobTimeout {
 		return fmt.Errorf("config: remediation.limits.job_timeout must be between %s and %s, got %s", minJobTimeout, maxJobTimeout, r.Limits.JobTimeout)
 	}
-	if img := r.Worker.Image; img != "" {
-		if !workImageRE.MatchString(img) {
-			return fmt.Errorf("config: remediation.worker.image must be a digest-pinned reference, repository@sha256:<64 hex digits>")
-		}
+	if err := validateWorker(r.Worker); err != nil {
+		return err
 	}
 	if err := validateRegistries(r.Registries); err != nil {
 		return err
@@ -782,9 +823,57 @@ func (r RemediationConfig) RegistryCredentials() (*regauth.Store, error) {
 	return regauth.NewStore(creds)
 }
 
-// workImageRE is the form of a work image reference: a repository (with an
-// optional registry host and port) and a SHA-256 digest, never a tag.
-var workImageRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}$`)
+// registryRE is the form of the mirror setting: a lowercase host, optionally
+// with a port, and optionally a path, with no scheme, tag or digest.
+var registryRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
+
+// Bounds of the cache of package manager releases.
+const (
+	defaultToolMinReleaseAge = 72 * time.Hour
+	defaultToolCacheMaxSize  = 1 << 30
+	minToolCacheMaxSize      = 128 << 20
+)
+
+// validateWorker checks the settings of the work containers.
+func validateWorker(w RemediationWorkerConfig) error {
+	if w.Registry != "" {
+		if !registryRE.MatchString(w.Registry) || strings.Contains(w.Registry, "//") || strings.Contains(w.Registry, "..") {
+			return fmt.Errorf("config: remediation.worker.registry must be a host and an optional path, for example registry.example.com:5000/dockerhub, with no scheme, tag or digest")
+		}
+	}
+	if w.ProgramDir != "" && !filepath.IsAbs(w.ProgramDir) {
+		return fmt.Errorf("config: remediation.worker.program_dir must be an absolute path")
+	}
+	if w.ToolVersions.MinReleaseAge <= 0 {
+		return fmt.Errorf("config: remediation.worker.tool_versions.min_release_age must be positive, got %s", w.ToolVersions.MinReleaseAge)
+	}
+	if w.ToolVersions.CacheMaxSize < minToolCacheMaxSize {
+		return fmt.Errorf("config: remediation.worker.tool_versions.cache_max_size must be at least 128MiB, got %d bytes", w.ToolVersions.CacheMaxSize)
+	}
+	return nil
+}
+
+// parseByteSize reads a size such as "1GiB", "512MiB" or a plain number of
+// bytes.
+func parseByteSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	units := []struct {
+		suffix string
+		mult   int64
+	}{{"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}, {"B", 1}}
+	mult := int64(1)
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			s, mult = strings.TrimSpace(strings.TrimSuffix(s, u.suffix)), u.mult
+			break
+		}
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 || n > (1<<62)/mult {
+		return 0, fmt.Errorf("%q is not a size such as 1GiB, 512MiB or a number of bytes", s)
+	}
+	return n * mult, nil
+}
 
 func boolOr(p *bool, def bool) bool {
 	if p != nil {

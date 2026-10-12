@@ -161,6 +161,7 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 		})
 	}
 	if it.Update != nil {
+		rec.Runtime, rec.Tool = it.Update.Runtime, it.Update.Tool
 		for _, e := range it.Update.ManifestEdits {
 			rec.ManifestEdits = append(rec.ManifestEdits, LangEdit{File: e.File, Section: e.Section, Name: e.Name, From: e.From, To: e.To, Major: e.MajorChange})
 		}

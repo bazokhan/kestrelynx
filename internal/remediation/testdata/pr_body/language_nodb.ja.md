@@ -38,7 +38,10 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 
 ## 確認したこと
 
-更新は、固定の作業用イメージから作った使い捨てのコンテナで、固定の操作だけを認証情報なしで実行しました。その結果は信頼できないものとして扱い、KestreLynx 自身が確認しています。
+更新は、digest で固定した公式イメージから作った使い捨てのコンテナで、固定の操作だけを認証情報なしで実行しました。その結果は信頼できないものとして扱い、KestreLynx 自身が確認しています。
+
+- 実行環境: `node24` `24.21.0` (公式イメージ `node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`)
+- パッケージマネージャー: `pnpm` `11.28.2` (プロジェクトの指定がないときにこのビルドが選ぶ版)、アーカイブの sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
 
 **実行した操作**
 

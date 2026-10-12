@@ -344,6 +344,12 @@ func (r *run) analyseUnit(it *LanguageItem, u *depUnit, groups []*findingGroup, 
 		return
 	}
 
+	// The runtime and tool versions the project declares, and the settings
+	// that fetch tools, are settled before anything is matched or run.
+	if !r.planToolSpec(it, u, groups, entries, pair, manifest, lockData, sha, read) {
+		return
+	}
+
 	pkgs := make([]LanguagePackage, 0, len(groups))
 	for _, g := range groups {
 		pkgs = append(pkgs, matchPackage(lock, g))

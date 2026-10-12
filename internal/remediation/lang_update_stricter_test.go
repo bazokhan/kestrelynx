@@ -1438,7 +1438,7 @@ func TestJobTimeoutMustFitTheWorkProgramsDeadlineLimit(t *testing.T) {
 			continue
 		}
 		if err == nil {
-			if d := u.newJob(worker.ManagerNpm, map[string][]byte{}, []worker.Step{{ID: "a", Op: worker.OpNpmRelock}}).DeadlineSeconds; d < 1 || d > worker.MaxDeadlineSeconds {
+			if d := u.newJob(worker.ManagerNpm, &jobEnvironment{}, map[string][]byte{}, []worker.Step{{ID: "a", Op: worker.OpNpmRelock}}).DeadlineSeconds; d < 1 || d > worker.MaxDeadlineSeconds {
 				t.Errorf("%s: deadline %d", name, d)
 			}
 		}

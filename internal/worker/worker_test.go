@@ -1,8 +1,6 @@
 package worker
 
 import (
-	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -63,6 +61,43 @@ func TestNameAndVersionValidation(t *testing.T) {
 	}
 }
 
+// testRuntime and testTool give a job the runtime and tool its manager needs.
+func testRuntime(m Manager) Runtime {
+	id := "node24"
+	if KindFor(m) == KindPython {
+		id = "python3.13"
+	}
+	spec, ok := LookupRuntime(id)
+	if !ok {
+		panic("no runtime " + id)
+	}
+	return spec.JobRuntime()
+}
+
+func testTool(m Manager, version string) *Tool {
+	t := &Tool{Name: m, Version: version, Format: FormatNpmTgz, RunWithNode: true, Size: 1000,
+		SHA256: strings.Repeat("a", 64), SHA512: strings.Repeat("b", 128), Entry: "bin/" + string(m) + ".cjs"}
+	if m == ManagerUv {
+		t.Format, t.RunWithNode, t.Entry = FormatWheel, false, "uv-"+version+".data/scripts/uv"
+	}
+	t.Path = ToolPath(*t)
+	return t
+}
+
+// testJob is a job for m with its runtime and tool, and no steps.
+func testJob(m Manager) Job {
+	j := Job{Protocol: ProtocolVersion, Manager: m, Runtime: testRuntime(m)}
+	switch m {
+	case ManagerNpm:
+		j.Tool = testTool(m, "11.19.0")
+	case ManagerPnpm:
+		j.Tool = testTool(m, "11.28.2")
+	case ManagerUv:
+		j.Tool = testTool(m, "0.13.0")
+	}
+	return j
+}
+
 func TestArgv(t *testing.T) {
 	cases := []struct {
 		name string
@@ -75,29 +110,29 @@ func TestArgv(t *testing.T) {
 		{"npm update", ManagerNpm, Step{ID: "a", Op: OpNpmUpdate, Packages: []Package{{Name: "minimist"}, {Name: "@s/x"}}},
 			[]string{"npm", "update", "minimist", "@s/x", "--package-lock-only", "--ignore-scripts", "--no-save", "--no-audit", "--no-fund"}},
 		{"pnpm frozen", ManagerPnpm, Step{ID: "a", Op: OpPnpmFrozen},
-			[]string{"pnpm", "install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"}},
+			[]string{"pnpm", "install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"pnpm update with version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "minimist", Version: "1.2.8"}}},
-			[]string{"pnpm", "update", "minimist@1.2.8", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile"}},
+			[]string{"pnpm", "update", "minimist@1.2.8", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"pnpm update without version", ManagerPnpm, Step{ID: "a", Op: OpPnpmUpdate, Packages: []Package{{Name: "minimist"}, {Name: "@s/x", Version: "2.0.0"}}},
-			[]string{"pnpm", "update", "minimist", "@s/x@2.0.0", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile"}},
+			[]string{"pnpm", "update", "minimist", "@s/x@2.0.0", "--lockfile-only", "--no-save", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"pnpm relock", ManagerPnpm, Step{ID: "a", Op: OpPnpmRelock},
-			[]string{"pnpm", "install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"}},
+			[]string{"pnpm", "install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.pmOnFail=ignore"}},
 		{"uv check", ManagerUv, Step{ID: "a", Op: OpUvCheck},
-			[]string{"uv", "lock", "--check", "--no-build", "--no-config", "--no-python-downloads"}},
+			[]string{"uv", "lock", "--check", "--no-build", "--no-config", "--no-python-downloads", "--python", "/usr/local/bin/python3.13"}},
 		{"uv upgrade", ManagerUv, Step{ID: "a", Op: OpUvUpgrade, Packages: []Package{{Name: "urllib3", Version: "2.2.2"}, {Name: "idna", Version: "3.7"}}},
-			[]string{"uv", "lock", "--upgrade-package", "urllib3==2.2.2", "--upgrade-package", "idna==3.7", "--no-build", "--no-config", "--no-python-downloads"}},
+			[]string{"uv", "lock", "--upgrade-package", "urllib3==2.2.2", "--upgrade-package", "idna==3.7", "--no-build", "--no-config", "--no-python-downloads", "--python", "/usr/local/bin/python3.13"}},
 		{"pip dry run", ManagerPip, Step{ID: "a", Op: OpPipDryRun},
-			[]string{"python", "-m", "pip", "--isolated", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:",
+			[]string{"python3.13", "-m", "pip", "--isolated", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:",
 				"--disable-pip-version-check", "--no-input", "--index-url", "https://pypi.org/simple", "--report", "pip-report.json", "-r", "requirements.txt"}},
 		{"pip hashes and target", ManagerPip, Step{ID: "a", Op: OpPipDryRun, RequireHashes: true,
 			Target: &Target{PythonVersion: "3.13", Platforms: []string{"manylinux2014_x86_64", "linux_x86_64"}, Implementation: "cp", ABIs: []string{"cp313"}}},
-			[]string{"python", "-m", "pip", "--isolated", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:",
+			[]string{"python3.13", "-m", "pip", "--isolated", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:",
 				"--disable-pip-version-check", "--no-input", "--index-url", "https://pypi.org/simple", "--report", "pip-report.json",
 				"--require-hashes", "--python-version", "3.13", "--platform", "manylinux2014_x86_64", "--platform", "linux_x86_64",
 				"--implementation", "cp", "--abi", "cp313", "-r", "requirements.txt"}},
 	}
 	for _, c := range cases {
-		got, err := Argv(c.m, c.step)
+		got, err := Argv(testJob(c.m), c.step)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -135,7 +170,7 @@ func TestStepRejections(t *testing.T) {
 		{"bad step id", ManagerNpm, Step{ID: "../a", Op: OpNpmRelock}},
 	}
 	for _, c := range cases {
-		if _, err := Argv(c.m, c.step); err == nil {
+		if _, err := Argv(testJob(c.m), c.step); err == nil {
 			t.Errorf("%s: accepted", c.name)
 		}
 	}
@@ -143,8 +178,9 @@ func TestStepRejections(t *testing.T) {
 
 func goodJob() *Job {
 	h := strings.Repeat("a", 64)
+	j := testJob(ManagerNpm)
 	return &Job{
-		Protocol: ProtocolVersion, Manager: ManagerNpm,
+		Protocol: ProtocolVersion, Manager: ManagerNpm, Runtime: j.Runtime, Tool: j.Tool,
 		Inputs:  []Input{{Path: "package.json", Size: 1, SHA256: h}, {Path: "package-lock.json", Size: 2, SHA256: h}},
 		Steps:   []Step{{ID: "relock", Op: OpNpmRelock}},
 		Outputs: []string{"package.json", "package-lock.json"}, DeadlineSeconds: 60, StepTimeoutSeconds: 30,
@@ -186,7 +222,7 @@ func TestJobValidate(t *testing.T) {
 		}
 	}
 	// the pip report is collectable for pip only
-	pj := &Job{Protocol: ProtocolVersion, Manager: ManagerPip,
+	pj := &Job{Protocol: ProtocolVersion, Manager: ManagerPip, Runtime: testRuntime(ManagerPip),
 		Inputs:  []Input{{Path: "requirements.txt", SHA256: strings.Repeat("a", 64)}},
 		Steps:   []Step{{ID: "d", Op: OpPipDryRun, Scratch: true}},
 		Outputs: []string{"requirements.txt", PipReportName}, DeadlineSeconds: 10}
@@ -195,23 +231,11 @@ func TestJobValidate(t *testing.T) {
 	}
 }
 
-// The protocol label in the work image's Dockerfile must be the version this
-// package speaks, or the main process would refuse (or wrongly accept) the image.
-func TestDockerfileLabelMatchesProtocol(t *testing.T) {
-	b, err := os.ReadFile("../../Dockerfile.worker")
-	if err != nil {
-		t.Skipf("Dockerfile.worker not readable: %v", err)
-	}
-	want := fmt.Sprintf("LABEL %s=%q", ProtocolLabel, fmt.Sprint(ProtocolVersion))
-	if !strings.Contains(string(b), want) {
-		t.Errorf("Dockerfile.worker lacks %s", want)
-	}
-}
-
 func TestPnpmJobMayCarryItsWorkspaceSettings(t *testing.T) {
 	sum := strings.Repeat("a", 64)
 	job := func(extra ...Input) *Job {
-		return &Job{Protocol: ProtocolVersion, Manager: ManagerPnpm,
+		pj := testJob(ManagerPnpm)
+		return &Job{Protocol: ProtocolVersion, Manager: ManagerPnpm, Runtime: pj.Runtime, Tool: pj.Tool,
 			Inputs:  append([]Input{{Path: "package.json", SHA256: sum}, {Path: "pnpm-lock.yaml", SHA256: sum}}, extra...),
 			Steps:   []Step{{ID: "r", Op: OpPnpmRelock}},
 			Outputs: []string{"package.json", "pnpm-lock.yaml"}, DeadlineSeconds: 10}

@@ -405,6 +405,7 @@ type messages struct {
 	PlanDepNotOpenedLine    string // "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s" (services, lockfile, first package change, the "and more" clause, the status and reason)
 	PlanDepManualLine       string // "• %[1]s (%[2]s): dependency update needs a person — %[3]s" (services, lockfile, reason)
 	PlanDepFailedLine       string // "• %[1]s (%[2]s): dependency update failed — %[3]s"
+	PlanDepRuntimeEOLLine   string // "• %[1]s (%[2]s): %[3]s reached the end of its support on %[4]s; upgrade the runtime before updating" (services, lockfile, runtime name, date)
 	PlanDepDeferredLine     string // "• %[1]s (%[2]s): dependency update deferred — %[3]s"
 	PlanDepLeftOutLine      string // "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s" (services, lockfile, first package change, the "and more" clause, the reason)
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
@@ -752,6 +753,7 @@ var enMessages = messages{
 	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s",
 	PlanDepManualLine:       "• %[1]s (%[2]s): dependency update needs a person — %[3]s",
 	PlanDepFailedLine:       "• %[1]s (%[2]s): dependency update failed — %[3]s",
+	PlanDepRuntimeEOLLine:   "• %[1]s (%[2]s): %[3]s reached the end of its support on %[4]s; upgrade the runtime before updating",
 	PlanDepDeferredLine:     "• %[1]s (%[2]s): dependency update deferred — %[3]s",
 	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s",
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
@@ -1096,6 +1098,7 @@ var jaMessages = messages{
 	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — 更新は検査済み。Pull Requestは未作成: %[5]s",
 	PlanDepManualLine:       "• %[1]s (%[2]s): 依存パッケージの更新は要判断 — %[3]s",
 	PlanDepFailedLine:       "• %[1]s (%[2]s): 依存パッケージの更新は失敗 — %[3]s",
+	PlanDepRuntimeEOLLine:   "• %[1]s (%[2]s): %[3]s は %[4]s にサポート終了。実行環境を上げてから更新してください",
 	PlanDepDeferredLine:     "• %[1]s (%[2]s): 依存パッケージの更新は延期 — %[3]s",
 	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s は今回の更新から除外。要判断 — %[5]s",
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",

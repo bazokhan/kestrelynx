@@ -33,63 +33,8 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -short
 
-  # The work image (Dockerfile.worker) is built and pushed before the main
-  # image, because the main image is released with the exact digest of the work
-  # image it starts. Pushes that touch only the work image's files, the job
-  # runner or the job protocol also run this workflow: only docs-style paths
-  # are ignored above.
-  publish-worker:
-    needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.ref.outputs.image }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}-worker
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.worker
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=worker
-          cache-to: type=gha,mode=max,scope=worker
-
-      # repository@sha256:digest, with the repository name lowercased as the
-      # registry requires. The main image embeds this reference.
-      - id: ref
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          set -eu
-          case "$DIGEST" in sha256:????????????????????????????????????????????????????????????????) ;; *) echo "unexpected digest: $DIGEST" >&2; exit 1 ;; esac
-          repo="${GITHUB_REPOSITORY,,}"
-          echo "image=ghcr.io/${repo}-worker@${DIGEST}" >> "$GITHUB_OUTPUT"
-
   publish:
-    needs: [test, publish-worker]
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +66,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            WORKER_IMAGE=${{ needs.publish-worker.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,0 +1,93 @@
+name: Runtime table
+
+# Moves the pins of internal/worker/runtimes.json (the official Node.js and
+# Python images the update containers run in) to the images the series tags
+# point at now, and opens a pull request when something changed. The pull
+# request is made only after the new images pass every check:
+#   - the tags are resolved to image index digests, and both platforms are run
+#     to read the exact versions of Node.js, Python and pip
+#   - the image configuration declares no volumes and no health check
+#   - the final filesystem of each platform holds exactly the paths the table
+#     says are covered by a tmpfs as writable by the job user
+#   - the fixture tests of the update stage pass against the new images of
+#     node24 and python3.13 (the runtimes the build selects); only those two
+#     rows are recorded as tested
+#   - Trivy scans every image (a scan that cannot be made stops the run) and
+#     what it finds goes into the pull request
+# A change to the table is normally taken in the monthly release; a serious
+# problem reachable from the update containers is released within a week.
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      TRIVY_VERSION: "0.71.2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # arm64 images are run under emulation to read their versions.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Check the script
+        run: python3 -m unittest update_runtimes_test
+        working-directory: scripts
+
+      - name: Resolve the tags and check the images
+        run: python3 scripts/update_runtimes.py resolve --report runtimes-report.md
+
+      - name: Stop when nothing changed
+        id: changed
+        run: |
+          if git diff --quiet -- internal/worker/runtimes.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Trivy for the fixture tests
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          set -eu
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" trivy
+          "$HOME/.local/bin/trivy" image --download-db-only --quiet
+
+      - name: Fixture tests against the new images
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          KESTRELYNX_WORKER_IT: "1"
+        run: go test ./internal/remediation -run 'TestIntegrationLangUpdate$' -count=1 -timeout 30m
+
+      # The fixture tests run in node24 and python3.13 only, so only those two
+      # rows are recorded as tested; the other pins are checked by the steps
+      # above but carry no record of an integration test.
+      - name: Record the runtimes and platform that passed
+        if: steps.changed.outputs.changed == 'true'
+        run: python3 scripts/update_runtimes.py mark-tested --platform linux/amd64 --only node24 python3.13
+
+      - name: Unit tests with the new table
+        if: steps.changed.outputs.changed == 'true'
+        run: go test ./internal/worker/... ./internal/docker/... ./internal/remediation/... -short -count=1
+
+      - name: Open the pull request
+        if: steps.changed.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: runtimes/update
+          commit-message: "Update the pinned Node.js and Python images"
+          title: "Update the pinned Node.js and Python images"
+          body-path: runtimes-report.md
+          add-paths: internal/worker/runtimes.json

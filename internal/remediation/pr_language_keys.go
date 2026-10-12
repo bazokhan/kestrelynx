@@ -56,6 +56,11 @@ type LangRecord struct {
 	// LanguageInputFingerprint); it is not part of the update key. A record
 	// without one was made before it existed.
 	InputFingerprint string `json:"input_fingerprint,omitempty"`
+	// Runtime and Tool are what the update ran in and with. They are not part
+	// of the update key. A record without them was made before they were
+	// kept.
+	Runtime *RuntimeRecord `json:"runtime,omitempty"`
+	Tool    *ToolRecord    `json:"tool,omitempty"`
 }
 
 // sortedLangEntries returns a sorted copy of entries with sorted positions.

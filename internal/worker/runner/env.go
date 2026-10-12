@@ -69,25 +69,28 @@ func (c *Config) childEnv(m worker.Manager) []string {
 		env["npm_config_progress"] = "false"
 		env["COREPACK_ENABLE_NETWORK"] = "0"
 		env["COREPACK_ENABLE_AUTO_PIN"] = "0"
+		env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+		env["COREPACK_ENABLE_STRICT"] = "0"
 		if m == worker.ManagerNpm {
 			env["npm_config_cache"] = filepath.Join(cache, "npm")
 			env["npm_config_prefix"] = filepath.Join(cache, "npm-prefix")
 		} else {
 			// pnpm reads its own settings from pnpm_config_* variables; the
-			// npm_config_* names above only matter for the shared files.
-			// pm_on_fail=warn keeps the bundled pnpm when package.json's
-			// packageManager names another version: nothing is fetched or
-			// switched, and a warning is printed.
+			// npm_config_* names above only matter for the shared files. The
+			// settings that stop pnpm from fetching another version of itself
+			// are not set here: pnpm 10 does not read them from the
+			// environment, so they are arguments of the command line (see
+			// worker.PnpmFixedConfig).
 			env["pnpm_config_registry"] = npmRegistry
 			env["pnpm_config_store_dir"] = filepath.Join(cache, "pnpm-store")
 			env["pnpm_config_cache_dir"] = filepath.Join(cache, "pnpm-cache")
-			env["pnpm_config_pm_on_fail"] = "warn"
 			env["pnpm_config_update_notifier"] = "false"
 			env["PNPM_HOME"] = filepath.Join(cache, "pnpm-home")
 		}
 	case worker.ManagerUv:
 		env["UV_NO_CONFIG"] = "1"
 		env["UV_PYTHON_DOWNLOADS"] = "never"
+		env["UV_PYTHON_PREFERENCE"] = "only-system"
 		env["UV_CACHE_DIR"] = filepath.Join(cache, "uv")
 		env["UV_NO_PROGRESS"] = "1"
 	case worker.ManagerPip:

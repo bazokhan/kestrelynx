@@ -89,8 +89,18 @@ type createBody struct {
 	WorkingDir string            `json:"WorkingDir"`
 	Env        []string          `json:"Env"`
 	Labels     map[string]string `json:"Labels"`
-	Host       hostConfig        `json:"HostConfig"`
+	// Healthcheck turns off the health check an image may declare; a check
+	// would run commands in the container on a schedule.
+	Healthcheck healthcheck `json:"Healthcheck"`
+	Host        hostConfig  `json:"HostConfig"`
 }
+
+type healthcheck struct {
+	Test []string `json:"Test"`
+}
+
+// healthcheckNone is the Test that disables health checking.
+var healthcheckNone = []string{"NONE"}
 
 type ulimit struct {
 	Name string `json:"Name"`
@@ -132,7 +142,7 @@ func tmpfsOpts(size int64, extra string) string {
 
 func (r Resources) validate() error {
 	if r.MemoryBytes <= 0 || r.NanoCPUs <= 0 || r.PidsLimit <= 0 || r.NofileLimit <= 0 ||
-		r.ShmSizeBytes <= 0 || r.TmpSizeBytes <= 0 || r.HomeSizeBytes <= 0 {
+		r.ShmSizeBytes <= 0 || r.TmpSizeBytes <= 0 || r.HomeSizeBytes <= 0 || r.ToolsSizeBytes <= 0 {
 		return errors.New("every work resource value must be positive")
 	}
 	return nil
@@ -153,10 +163,19 @@ func (c *WorkClient) buildCreateBody(jobID string, r Resources) createBody {
 			labelJob:      jobID,
 			labelImage:    c.digest,
 		},
+		Healthcheck: healthcheck{Test: append([]string(nil), healthcheckNone...)},
 		Host: hostConfig{
+			// The job may write only into these size-limited tmpfs. /tmp stays
+			// noexec (the daemon's default); only the directory the package
+			// manager is unpacked into allows execution. /var/tmp and
+			// /run/lock, which the official images leave writable by anyone,
+			// are covered by tiny tmpfs that root owns.
 			Tmpfs: map[string]string{
-				tmpMount:  tmpfsOpts(r.TmpSizeBytes, "mode=1777"),
-				homeMount: tmpfsOpts(r.HomeSizeBytes, fmt.Sprintf("uid=%d,gid=%d,mode=0700", workUID, workGID)),
+				tmpMount:    tmpfsOpts(r.TmpSizeBytes, "mode=1777"),
+				homeMount:   tmpfsOpts(r.HomeSizeBytes, fmt.Sprintf("uid=%d,gid=%d,mode=0700", workUID, workGID)),
+				toolsMount:  tmpfsOpts(r.ToolsSizeBytes, fmt.Sprintf("exec,uid=%d,gid=%d,mode=0755", workUID, workGID)),
+				varTmpMount: tmpfsOpts(coveredTmpfsBytes, "mode=0755"),
+				lockMount:   tmpfsOpts(coveredTmpfsBytes, "mode=0755"),
 			},
 			CapDrop:       []string{"ALL"},
 			SecurityOpt:   []string{"no-new-privileges"},
@@ -186,11 +205,19 @@ type createResponse struct {
 type workInspect struct {
 	ID     string `json:"Id"`
 	Config struct {
-		User       string            `json:"User"`
-		WorkingDir string            `json:"WorkingDir"`
-		Entrypoint []string          `json:"Entrypoint"`
-		Labels     map[string]string `json:"Labels"`
+		User        string            `json:"User"`
+		WorkingDir  string            `json:"WorkingDir"`
+		Entrypoint  []string          `json:"Entrypoint"`
+		Labels      map[string]string `json:"Labels"`
+		Volumes     map[string]any    `json:"Volumes"`
+		Healthcheck *struct {
+			Test []string `json:"Test"`
+		} `json:"Healthcheck"`
 	} `json:"Config"`
+	// Mounts are the mounts the daemon made for the container other than the
+	// tmpfs of HostConfig.Tmpfs: bind mounts and the anonymous volumes an
+	// image's VOLUME lines would create. There must be none.
+	Mounts     []any `json:"Mounts"`
 	HostConfig struct {
 		ReadonlyRootfs  bool              `json:"ReadonlyRootfs"`
 		Tmpfs           map[string]string `json:"Tmpfs"`
@@ -286,6 +313,8 @@ func verifyInspect(want createBody, got workInspect) []string {
 	chk(!h.Privileged, "Privileged")
 	chk(!h.PublishAllPorts && len(h.PortBindings) == 0, "ports")
 	chk(len(h.Binds) == 0 && len(h.Mounts) == 0 && len(h.Devices) == 0, "Binds/Mounts/Devices")
+	chk(len(got.Mounts) == 0 && len(got.Config.Volumes) == 0, "Mounts/Volumes")
+	chk(got.Config.Healthcheck != nil && slices.Equal(got.Config.Healthcheck.Test, healthcheckNone), "Healthcheck")
 	chk(h.NetworkMode == w.NetworkMode, "NetworkMode")
 	chk(h.PidMode != "host" && !strings.HasPrefix(h.PidMode, "container:"), "PidMode")
 	chk(h.IpcMode != "host" && !strings.HasPrefix(h.IpcMode, "container:"), "IpcMode")
@@ -319,7 +348,7 @@ func (c *WorkClient) createContainer(ctx context.Context, jobID string, r Resour
 	}
 	octx, cancel := c.withTimeout(ctx, c.cfg.OpTimeout)
 	var cr createResponse
-	err = c.call(octx, containerCreateOp(name, raw), &cr, http.StatusCreated)
+	err = c.call(octx, containerCreateOp(name, c.platform, raw), &cr, http.StatusCreated)
 	cancel()
 	if err != nil {
 		err = fmt.Errorf("create work container: %w", err)

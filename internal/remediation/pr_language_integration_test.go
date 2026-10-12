@@ -2,18 +2,11 @@ package remediation
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/github"
-	"github.com/kitsunetrail/kestrelynx/internal/inventory"
-	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 )
 
 // prReader serves the update stage from the fake GitHub the pull request
@@ -24,68 +17,15 @@ func (prReader) ListDirectory(context.Context, string, string, string) ([]github
 	return nil, os.ErrInvalid
 }
 
-// TestIntegrationLangUpdateToPullRequest runs the update stage against a real
-// work image, Docker daemon and Trivy, and hands its result to the pull
-// request stage with a fake GitHub: an update of each manager becomes one
+// TestIntegrationLangUpdateToPullRequest runs the update stage against the
+// pinned official images, a Docker daemon and Trivy, and hands its result to the
+// pull request stage with a fake GitHub: an update of each manager becomes one
 // commit of the changed files, and a second cycle opens nothing more. It runs
-// only when KESTRELYNX_WORKER_IT_IMAGE names the work image by digest; the
-// optional settings of TestIntegrationLangUpdate apply.
+// only when KESTRELYNX_WORKER_IT=1; the optional settings of
+// TestIntegrationLangUpdate apply.
 func TestIntegrationLangUpdateToPullRequest(t *testing.T) {
-	image := os.Getenv("KESTRELYNX_WORKER_IT_IMAGE")
-	if image == "" {
-		t.Skip("set KESTRELYNX_WORKER_IT_IMAGE to a digest-pinned work image to run this test")
-	}
-	sock := os.Getenv("KESTRELYNX_DOCKER_SOCK")
-	if sock == "" {
-		sock = "/var/run/docker.sock"
-	}
-	home, _ := os.UserHomeDir()
-	trivyBin := os.Getenv("KESTRELYNX_TRIVY_BIN")
-	if trivyBin == "" {
-		trivyBin = filepath.Join(home, ".local", "bin", "trivy")
-	}
-	cache := os.Getenv("KESTRELYNX_TRIVY_CACHE")
-	if cache == "" {
-		cache = filepath.Join(home, ".cache", "trivy")
-	}
-	var idb [16]byte
-	if _, err := rand.Read(idb[:]); err != nil {
-		t.Fatal(err)
-	}
-	instance := hex.EncodeToString(idb[:])
-	wc, err := docker.NewWork(sock, docker.WorkConfig{
-		Image:          image,
-		Entrypoint:     []string{"/usr/local/libexec/kestrelynx-worker", "run", "/work/job.json"},
-		AllowedEnvKeys: []string{"PATH", "HOME"},
-		Env:            []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/worker"},
-		InstanceID:     instance,
-		Limits: docker.TransferLimits{
-			MaxInputBytes: 8 << 20, MaxInputTarBytes: 16 << 20, MaxInputFiles: 16, MaxInputPathBytes: 256,
-			LogMaxBytes: 8 << 20, MaxStdoutBytes: 8 << 20,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	t.Cleanup(func() {
-		if _, err := wc.CleanupStale(ctx); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-		out, err := exec.Command("docker", "ps", "-a", "-q", "--filter", "label=io.kestrelynx.work.instance="+instance).Output()
-		if err == nil && strings.TrimSpace(string(out)) != "" {
-			t.Errorf("work containers left behind: %s", out)
-		}
-	})
-	if err := wc.EnsureImage(ctx); err != nil {
-		t.Fatalf("EnsureImage: %v", err)
-	}
-	tr := scanner.Trivy{BinPath: trivyBin, Severity: []string{"HIGH", "CRITICAL"}, CacheDir: cache, SkipDBUpdate: true}
-	prepared, err := tr.CurrentConditions(ctx)
-	if err != nil {
-		t.Fatalf("trivy conditions: %v", err)
-	}
-	env := ImageEnv{Platform: inventory.Platform{OS: "linux", Architecture: "amd64"}, OSFamily: "debian", OSName: "12.5"}
+	e := itSetup(t)
+	ctx, env := e.ctx, e.image
 	nodeOrigin := FindingOrigin{Entity: "img", Workload: "compose/app/web", PkgPath: "app/node_modules/minimist/package.json"}
 	pyOrigin := FindingOrigin{Entity: "img", Workload: "compose/app/web", PkgPath: "usr/local/lib/python3.12/site-packages/urllib3-1.26.4.dist-info/METADATA", Target: "Python"}
 	minimist := func() *findingGroup {
@@ -123,10 +63,9 @@ func TestIntegrationLangUpdateToPullRequest(t *testing.T) {
 			plan := testPlan()
 			plan.LanguageItems = []LanguageItem{it}
 
-			up, err := NewLangUpdater(LangUpdateConfig{
-				Work: wc, Scanner: tr, PyPI: &PyPIClient{}, Npm: &NpmClient{}, GitHub: prReader{h.gh},
-				Prepared: prepared, Images: map[string]ImageEnv{"img": env}, MaxJobs: 2, JobIDPrefix: "itpr",
-			})
+			up, err := NewLangUpdater(e.config(LangUpdateConfig{
+				GitHub: prReader{h.gh}, Images: map[string]ImageEnv{"img": env}, MaxJobs: 2, JobIDPrefix: "itpr",
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -36,6 +36,7 @@ func newEnv(t *testing.T) *env {
 		WorkDir: filepath.Join(root, "work"),
 		TmpDir:  filepath.Join(root, "tmp"),
 		HomeDir: filepath.Join(root, "home"),
+		BinDir:  e.bin,
 		Path:    e.bin + ":/usr/bin:/bin",
 		Stdout:  &e.stdout,
 	}
@@ -74,7 +75,7 @@ func (e *env) npmJob() *worker.Job {
 	e.t.Helper()
 	files := map[string]string{"package.json": `{"name":"x"}`, "package-lock.json": `{"v":1}`}
 	job := &worker.Job{
-		Protocol: worker.ProtocolVersion, Manager: worker.ManagerNpm,
+		Protocol: worker.ProtocolVersion, Manager: worker.ManagerNpm, Runtime: testRuntime("node24"), Tool: testTool(worker.ManagerNpm, "11.19.0"),
 		Outputs:         []string{"package.json", "package-lock.json"},
 		DeadlineSeconds: 30,
 	}
@@ -327,7 +328,7 @@ func TestEnvPerManager(t *testing.T) {
 		return false
 	}
 	pnpm := c.childEnv(worker.ManagerPnpm)
-	for _, kv := range []string{"pnpm_config_pm_on_fail=warn", "pnpm_config_store_dir=/tmp/kestrelynx-cache/pnpm-store",
+	for _, kv := range []string{"pnpm_config_store_dir=/tmp/kestrelynx-cache/pnpm-store",
 		"pnpm_config_cache_dir=/tmp/kestrelynx-cache/pnpm-cache", "pnpm_config_registry=https://registry.npmjs.org/"} {
 		if !has(pnpm, kv) {
 			t.Errorf("pnpm env lacks %s", kv)
@@ -825,7 +826,7 @@ func (e *env) pnpmJob(settings string) *worker.Job {
 	e.t.Helper()
 	files := map[string]string{"package.json": `{"name":"x"}`, "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"}
 	job := &worker.Job{
-		Protocol: worker.ProtocolVersion, Manager: worker.ManagerPnpm,
+		Protocol: worker.ProtocolVersion, Manager: worker.ManagerPnpm, Runtime: testRuntime("node24"), Tool: testTool(worker.ManagerPnpm, "11.28.2"),
 		Outputs:         []string{"package.json", "pnpm-lock.yaml"},
 		DeadlineSeconds: 30,
 	}
@@ -912,4 +913,25 @@ echo "lockfileVersion: '9.0'" > pnpm-lock.yaml`)
 			t.Fatalf("run: %v, %+v", err, res)
 		}
 	})
+}
+
+// testRuntime gives a job the row of the runtime table with that id.
+func testRuntime(id string) worker.Runtime {
+	spec, ok := worker.LookupRuntime(id)
+	if !ok {
+		panic("no runtime " + id)
+	}
+	return spec.JobRuntime()
+}
+
+// testTool describes a tool the way a job carries it; the tests that run fake
+// programs never read the archive.
+func testTool(m worker.Manager, version string) *worker.Tool {
+	t := &worker.Tool{Name: m, Version: version, Format: worker.FormatNpmTgz, RunWithNode: true, Size: 1000,
+		SHA256: strings.Repeat("a", 64), SHA512: strings.Repeat("b", 128), Entry: "bin/" + string(m) + ".cjs"}
+	if m == worker.ManagerUv {
+		t.Format, t.RunWithNode, t.Entry = worker.FormatWheel, false, "uv-"+version+".data/scripts/uv"
+	}
+	t.Path = worker.ToolPath(*t)
+	return t
 }

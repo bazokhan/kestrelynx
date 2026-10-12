@@ -128,6 +128,12 @@ func (j *Job) Validate() error {
 	if !j.Manager.Known() {
 		return fmt.Errorf("unknown manager %q", j.Manager)
 	}
+	if err := j.validateRuntime(); err != nil {
+		return err
+	}
+	if err := j.validateTool(); err != nil {
+		return err
+	}
 	if err := j.validateInputs(); err != nil {
 		return err
 	}
@@ -167,6 +173,107 @@ func (j *Job) Validate() error {
 	}
 	if j.StepTimeoutSeconds < 0 || j.StepTimeoutSeconds > j.DeadlineSeconds {
 		return fmt.Errorf("step_timeout_seconds %d is outside 0..%d", j.StepTimeoutSeconds, j.DeadlineSeconds)
+	}
+	return nil
+}
+
+// digestRe is an image digest.
+var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+var sha512Re = regexp.MustCompile(`^[0-9a-f]{128}$`)
+
+// ToolPath is the path, relative to /work, at which the archive of a tool is
+// placed. It follows from the tool alone.
+func ToolPath(t Tool) string {
+	ext := ".tgz"
+	if t.Format == FormatWheel {
+		ext = ".whl"
+	}
+	return ToolsDirName + "/" + string(t.Name) + "-" + t.Version + ext
+}
+
+// validateRuntime checks the runtime of the job against the table: it is a
+// runtime with an image, of the kind the manager needs, and the versions have
+// the form of versions.
+func (j *Job) validateRuntime() error {
+	spec, ok := LookupRuntime(j.Runtime.ID)
+	if !ok || !spec.HasImage() {
+		return fmt.Errorf("unknown runtime %q", j.Runtime.ID)
+	}
+	if spec.Kind != KindFor(j.Manager) {
+		return fmt.Errorf("runtime %q is not one %s runs in", j.Runtime.ID, j.Manager)
+	}
+	if !ValidSemver(j.Runtime.Version) || !strings.HasPrefix(j.Runtime.Version, spec.Series+".") {
+		return fmt.Errorf("runtime version %q is not a version of %s", j.Runtime.Version, j.Runtime.ID)
+	}
+	if spec.Kind == KindPython {
+		if j.Manager == ManagerPip && !ValidPythonVersion(j.Runtime.Pip) {
+			return fmt.Errorf("a pip job needs the version of pip")
+		}
+		if j.Runtime.Pip != "" && !ValidPythonVersion(j.Runtime.Pip) {
+			return fmt.Errorf("invalid pip version %q", j.Runtime.Pip)
+		}
+	} else if j.Runtime.Pip != "" {
+		return fmt.Errorf("a %s runtime has no pip", spec.Kind)
+	}
+	return nil
+}
+
+// validateTool requires the tool a manager needs, and none for pip, with every
+// field in its form.
+func (j *Job) validateTool() error {
+	t := j.Tool
+	if j.Manager == ManagerPip {
+		if t != nil {
+			return fmt.Errorf("pip runs from the Python image and takes no tool")
+		}
+		return nil
+	}
+	if t == nil {
+		return fmt.Errorf("%s needs a tool", j.Manager)
+	}
+	if t.Name != j.Manager {
+		return fmt.Errorf("tool %q is not the tool of %s", t.Name, j.Manager)
+	}
+	if !ValidSemver(t.Version) {
+		return fmt.Errorf("invalid tool version %q", t.Version)
+	}
+	switch {
+	case t.Format == FormatNpmTgz && t.Name != ManagerUv && t.RunWithNode:
+	case t.Format == FormatWheel && t.Name == ManagerUv && !t.RunWithNode:
+	default:
+		return fmt.Errorf("tool format %q (run with node: %v) does not fit %s", t.Format, t.RunWithNode, t.Name)
+	}
+	if t.Path != ToolPath(*t) {
+		return fmt.Errorf("tool path %q is not %q", t.Path, ToolPath(*t))
+	}
+	if t.Size <= 0 || t.Size > MaxToolArchiveBytes {
+		return fmt.Errorf("tool size %d is outside 1..%d", t.Size, MaxToolArchiveBytes)
+	}
+	if !ValidSHA256(t.SHA256) || !sha512Re.MatchString(t.SHA512) {
+		return fmt.Errorf("tool has no valid sha256 and sha512")
+	}
+	if err := ValidEntry(t.Entry); err != nil {
+		return fmt.Errorf("tool entry: %w", err)
+	}
+	return nil
+}
+
+// ValidEntry checks a path inside an archive: relative, clean, free of "..",
+// backslashes and control characters, and not too long.
+func ValidEntry(p string) error {
+	if p == "" || len(p) > 256 || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\") {
+		return fmt.Errorf("%q is empty, too long, absolute or has a backslash", p)
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%q has a control character", p)
+		}
+	}
+	for _, e := range strings.Split(p, "/") {
+		if e == "" || e == "." || e == ".." {
+			return fmt.Errorf("%q has an invalid element", p)
+		}
 	}
 	return nil
 }

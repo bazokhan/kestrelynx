@@ -51,3 +51,42 @@ func TestPlan_LanguagePRCandidate(t *testing.T) {
 		t.Error("file content in the webhook")
 	}
 }
+
+// A runtime past the end of its support is told in the reader's language, with
+// the runtime's name and the date; the webhook carries them as values.
+func TestPlan_LanguageRuntimeEndOfLife(t *testing.T) {
+	r, changed, _ := planCycleFixture()
+	p := languageFixture()
+	li := &p.LanguageItems[0]
+	li.Category, li.Reason = remediation.CategoryManual, remediation.ReasonRuntimeEndOfLife
+	li.Detail = "Node.js 22 reached the end of its support on 2027-04-30; upgrade the runtime before updating"
+	li.RuntimeEOL = &remediation.RuntimeEOLInfo{ID: "node22", Name: "Node.js 22", EOL: "2027-04-30"}
+	info := &PlanInfo{Plan: &p, Changed: true}
+
+	for lang, want := range map[Language]string{
+		LanguageEN: "Node.js 22 reached the end of its support on 2027-04-30; upgrade the runtime before updating",
+		LanguageJA: "Node.js 22 は 2027-04-30 にサポート終了。実行環境を上げてから更新してください",
+	} {
+		got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, lang))
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: the line is missing:\n%s", lang, got)
+		}
+	}
+
+	rem := webhookJSON(t, BuildWebhookPayloadWithPlan(r, &changed, info))["remediation"].(map[string]any)
+	first := rem["language_items"].([]any)[0].(map[string]any)
+	eol, _ := first["runtime_eol"].(map[string]any)
+	if eol["id"] != "node22" || eol["name"] != "Node.js 22" || eol["eol"] != "2027-04-30" || first["reason"] != "runtime_eol" {
+		t.Errorf("webhook item = %v", first)
+	}
+	if _, ok := rem["language_items"].([]any)[1].(map[string]any)["runtime_eol"]; ok {
+		t.Error("an item without the reason carries runtime_eol")
+	}
+
+	// Without the structured value the line falls back to the reason code.
+	li.RuntimeEOL = nil
+	got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, LanguageEN))
+	if !strings.Contains(got, "runtime_eol") {
+		t.Errorf("fallback line missing:\n%s", got)
+	}
+}

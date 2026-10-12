@@ -159,6 +159,7 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 
 	b.WriteString("\n## " + t.HeadVerification + "\n\n")
 	b.WriteString(t.LVerification)
+	writeEnvironment(t, &b, in.Record)
 	if up := it.Update; up != nil {
 		b.WriteString(t.LOps)
 		if len(up.Steps) == 0 {
@@ -312,4 +313,27 @@ func writeSourceVulns(t *prText, b *strings.Builder, title string, vs []SourceVu
 	if total > shown {
 		fmt.Fprintf(b, t.LineMore, total-shown)
 	}
+}
+
+// writeEnvironment lists the runtime and the package manager the update ran
+// with, or says there is no record of them.
+func writeEnvironment(t *prText, b *strings.Builder, rec *LangRecord) {
+	if rec == nil || (rec.Runtime == nil && rec.Tool == nil) {
+		b.WriteString(t.LEnvNone + "\n")
+		return
+	}
+	if r := rec.Runtime; r != nil {
+		fmt.Fprintf(b, t.LEnvRuntime, mdCode(r.ID), mdCode(r.Version), mdCode(r.Image))
+		if r.Pip != "" {
+			fmt.Fprintf(b, t.LEnvPip, mdCode(r.Pip))
+		}
+	}
+	if tl := rec.Tool; tl != nil {
+		source := t.LEnvToolDefault
+		if tl.Source != toolSourceDefault {
+			source = fmt.Sprintf(t.LEnvToolSource, mdCode(tl.Source))
+		}
+		fmt.Fprintf(b, t.LEnvTool, mdCode(tl.Name), mdCode(tl.Version), source, mdCode(tl.SHA256))
+	}
+	b.WriteString("\n")
 }

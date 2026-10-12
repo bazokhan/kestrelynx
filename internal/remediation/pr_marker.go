@@ -193,6 +193,12 @@ func (l LangRecord) wellFormed() error {
 			return errors.New("a remaining package has no ecosystem, name or reason")
 		}
 	}
+	if r := l.Runtime; r != nil && (r.ID == "" || r.Version == "") {
+		return errors.New("the runtime record has no id or version")
+	}
+	if t := l.Tool; t != nil && (t.Name == "" || t.Version == "" || t.SHA256 == "") {
+		return errors.New("the tool record has no name, version or hash")
+	}
 	for _, e := range l.ManifestEdits {
 		if !github.ValidPath(e.File, false) || e.Section == "" || e.Name == "" || e.From == "" || e.To == "" {
 			return errors.New("a manifest edit is malformed")

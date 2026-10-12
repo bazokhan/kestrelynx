@@ -31,7 +31,7 @@ func testLimits() TransferLimits {
 }
 
 func testRes() Resources {
-	return Resources{MemoryBytes: 64 << 20, NanoCPUs: 1e9, PidsLimit: 32, NofileLimit: 128, ShmSizeBytes: 1 << 20, TmpSizeBytes: 1 << 20, HomeSizeBytes: 1 << 20}
+	return Resources{MemoryBytes: 64 << 20, NanoCPUs: 1e9, PidsLimit: 32, NofileLimit: 128, ShmSizeBytes: 1 << 20, TmpSizeBytes: 1 << 20, HomeSizeBytes: 1 << 20, ToolsSizeBytes: 1 << 20}
 }
 
 // fakeDocker is a minimal Engine API stand-in that records every request and
@@ -144,8 +144,11 @@ func (f *fakeDocker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	case r.Method == "GET" && p == "/containers/json":
 		json.NewEncoder(w).Encode(f.listResp)
+	case r.Method == "GET" && p == "/version":
+		json.NewEncoder(w).Encode(map[string]any{"ApiVersion": "1.52", "MinAPIVersion": "1.44"})
 	case r.Method == "GET" && strings.HasPrefix(p, "/images/") && strings.HasSuffix(p, "/json"):
-		json.NewEncoder(w).Encode(map[string]any{"Id": "sha256:index", "RepoDigests": []string{testImage}})
+		json.NewEncoder(w).Encode(map[string]any{"Id": "sha256:index", "RepoDigests": []string{testImage}, "Os": "linux", "Architecture": "amd64",
+			"Config": map[string]any{"Env": []string{"WORK_VERSION=1.2.3"}}})
 	default:
 		f.t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
 		w.WriteHeader(500)
@@ -158,7 +161,7 @@ func newFake(t *testing.T) (*fakeDocker, *WorkClient) {
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	c, err := newWorkClient(srv.URL, srv.Client(), WorkConfig{
-		Image: testImage, Entrypoint: []string{"/usr/local/bin/worker"}, Env: []string{"HOME=/home/worker"}, AllowedEnvKeys: []string{"HOME"},
+		Image: testImage, Platform: "linux/amd64", Entrypoint: []string{"/usr/local/bin/worker"}, Env: []string{"HOME=/home/worker"}, AllowedEnvKeys: []string{"HOME"},
 		InstanceID: testInstance, Limits: testLimits(),
 		OpTimeout: 2 * time.Second, TransferTimeout: 2 * time.Second, CleanupTimeout: 2 * time.Second,
 	})
@@ -185,6 +188,7 @@ func spec() JobSpec {
 }
 
 var allowedRequests = []*regexp.Regexp{
+	regexp.MustCompile(`^GET /version$`),
 	regexp.MustCompile(`^GET /images/.+/json$`),
 	regexp.MustCompile(`^POST /images/create$`),
 	regexp.MustCompile(`^POST /containers/create$`),
@@ -271,9 +275,12 @@ func TestCreateBodyIsFixed(t *testing.T) {
 	  "WorkingDir": "/work",
 	  "Env": ["HOME=/home/worker"],
 	  "Labels": {"io.kestrelynx.work":"1","io.kestrelynx.work.instance":"` + testInstance + `","io.kestrelynx.work.job":"job1","io.kestrelynx.work.image":"` + testDigest + `"},
+	  "Healthcheck": {"Test": ["NONE"]},
 	  "HostConfig": {
 	    "ReadonlyRootfs": false,
-	    "Tmpfs": {"/tmp":"rw,nosuid,nodev,size=1048576,mode=1777","/home/worker":"rw,nosuid,nodev,size=1048576,uid=10001,gid=10001,mode=0700"},
+	    "Tmpfs": {"/tmp":"rw,nosuid,nodev,size=1048576,mode=1777","/home/worker":"rw,nosuid,nodev,size=1048576,uid=10001,gid=10001,mode=0700",
+	      "/opt/kestrelynx-tools":"rw,nosuid,nodev,size=1048576,exec,uid=10001,gid=10001,mode=0755",
+	      "/var/tmp":"rw,nosuid,nodev,size=1048576,mode=0755","/run/lock":"rw,nosuid,nodev,size=1048576,mode=0755"},
 	    "CapDrop": ["ALL"],
 	    "SecurityOpt": ["no-new-privileges"],
 	    "Privileged": false,
@@ -594,7 +601,9 @@ func TestPullStreamErrorIsFailure(t *testing.T) {
 				w.WriteHeader(404)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]any{"RepoDigests": []string{testImage}})
+			json.NewEncoder(w).Encode(map[string]any{"RepoDigests": []string{testImage}, "Os": "linux", "Architecture": "amd64"})
+		case r.Method == "GET" && r.URL.Path == "/version":
+			json.NewEncoder(w).Encode(map[string]any{"ApiVersion": "1.52"})
 		case r.Method == "POST" && r.URL.Path == "/images/create":
 			if r.URL.Query().Get("fromImage") != "registry.example/kestrelynx-worker" || r.URL.Query().Get("tag") != testDigest {
 				t.Errorf("pull query = %q", r.URL.RawQuery)
@@ -605,7 +614,7 @@ func TestPullStreamErrorIsFailure(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c, _ := newWorkClient(srv.URL, srv.Client(), WorkConfig{Image: testImage, Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()})
+	c, _ := newWorkClient(srv.URL, srv.Client(), WorkConfig{Image: testImage, Platform: "linux/amd64", Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()})
 	err := c.EnsureImage(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err = %v", err)
@@ -614,17 +623,22 @@ func TestPullStreamErrorIsFailure(t *testing.T) {
 
 func TestEnsureImageRejectsOtherDigest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"Id": testDigest, "RepoDigests": []string{"registry.example/kestrelynx-worker@sha256:" + strings.Repeat("b", 64)}})
+		if r.URL.Path == "/version" {
+			json.NewEncoder(w).Encode(map[string]any{"ApiVersion": "1.52"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Id": testDigest, "Os": "linux", "Architecture": "amd64",
+			"RepoDigests": []string{"registry.example/kestrelynx-worker@sha256:" + strings.Repeat("b", 64)}})
 	}))
 	defer srv.Close()
-	c, _ := newWorkClient(srv.URL, srv.Client(), WorkConfig{Image: testImage, Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()})
+	c, _ := newWorkClient(srv.URL, srv.Client(), WorkConfig{Image: testImage, Platform: "linux/amd64", Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()})
 	if err := c.EnsureImage(context.Background()); err == nil {
 		t.Fatal("accepted an image whose repo digests lack the pinned reference")
 	}
 }
 
 func TestNewWorkClientValidation(t *testing.T) {
-	ok := WorkConfig{Image: testImage, Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()}
+	ok := WorkConfig{Image: testImage, Platform: "linux/amd64", Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()}
 	if _, err := newWorkClient("x", nil, ok); err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +733,7 @@ func TestBuildInputTarWholeArchiveLimit(t *testing.T) {
 }
 
 func TestEnvValidation(t *testing.T) {
-	base := WorkConfig{Image: testImage, Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()}
+	base := WorkConfig{Image: testImage, Platform: "linux/amd64", Entrypoint: []string{"/w"}, AllowedEnvKeys: []string{"HOME", "PATH", "npm_config_cache", "LANG"}, InstanceID: testInstance, Limits: testLimits()}
 	for _, env := range [][]string{
 		{"HOME=/home/worker", "PATH=/bin"},
 		{"npm_config_cache=/tmp/c"},
@@ -888,5 +902,22 @@ func TestRunJobRetriesPendingDeleteFirst(t *testing.T) {
 	// One delete from the retry, one from the second job's own cleanup.
 	if len(f.deleted) != 2 {
 		t.Errorf("deleted = %v", f.deleted)
+	}
+}
+
+// tarModes returns the mode of every entry of a tar by name.
+func tarModes(t *testing.T, data []byte) map[string]int64 {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(data))
+	out := map[string]int64{}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return out
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[h.Name] = h.Mode
 	}
 }

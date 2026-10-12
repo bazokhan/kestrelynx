@@ -7,27 +7,30 @@
 // operation set and the validation rules cannot drift apart.
 package worker
 
-// ProtocolVersion is the version of the job and result formats. The main
-// process refuses a work image whose protocol label differs.
-const ProtocolVersion = 2
-
-// ProtocolLabel is the image label that carries ProtocolVersion.
-const ProtocolLabel = "io.kestrelynx.worker.protocol"
-
-// CapabilitiesPath is where the work image keeps its machine-readable table of
-// tool versions, runtimes and supported lockfile formats.
-const CapabilitiesPath = "/usr/local/share/kestrelynx-worker/capabilities.json"
-
-// DefaultImage is the work image reference (repository@sha256:digest) that this
-// build of the main program is released with. It is set at link time and is
-// empty in a build that does not pin a work image.
-var DefaultImage = ""
+// ProtocolVersion is the version of the job and result formats. The program
+// that runs in the container is shipped with the main process that starts it,
+// built from the same source, and checks the version of every job and result.
+const ProtocolVersion = 3
 
 // Paths inside the work container. The program only reads /work.
 const (
 	WorkDir    = "/work"
 	JobFile    = "/work/job.json"
 	SrcDirName = "src"
+	// ToolsDirName is the directory of /work that holds the package manager
+	// archive, and ProgramPath is where the program itself is placed.
+	ToolsDirName = "tools"
+	ProgramPath  = "/work/bin/kestrelynx-worker"
+	// ProgramInputPath is ProgramPath relative to /work, as an input file.
+	ProgramInputPath = "bin/kestrelynx-worker"
+	// ToolsRoot is the tmpfs the archive is unpacked into, and ToolsBinDir the
+	// directory of it that holds the links the children find their programs
+	// by: the interpreter and the package manager.
+	ToolsRoot   = "/opt/kestrelynx-tools"
+	ToolsBinDir = "/opt/kestrelynx-tools/bin"
+	// HomeDir and TmpDir are the tmpfs mounts of the container.
+	HomeDir = "/home/worker"
+	TmpDir  = "/tmp"
 	// ResultName, StepsDir and FinalDir are paths in the result tar.
 	ResultName = "result.json"
 	StepsDir   = "steps"
@@ -94,10 +97,56 @@ const (
 	ChildMaxFileBytes = 256 << 20
 )
 
+// Tool formats.
+const (
+	FormatNpmTgz = "npm-tgz"
+	FormatWheel  = "wheel"
+)
+
+// Limits on the package manager archive the program unpacks.
+const (
+	MaxToolArchiveBytes  = 64 << 20
+	MaxToolUnpackedBytes = 160 << 20
+	MaxToolFiles         = 5000
+)
+
+// Tool is the package manager release a job runs. The main process fetched
+// and checked the archive; it is placed at Path (relative to /work) and the
+// program checks Size, SHA256 and SHA512 again before it unpacks it.
+type Tool struct {
+	// Name is the manager the tool is the release of.
+	Name    Manager `json:"name"`
+	Version string  `json:"version"`
+	// Format is FormatNpmTgz or FormatWheel.
+	Format string `json:"format"`
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+	SHA512 string `json:"sha512"`
+	// Entry is the executable inside the unpacked archive, relative to the
+	// unpacked root (after the leading "package/" of an npm archive is
+	// dropped). RunWithNode says it is a JavaScript file started by node.
+	Entry       string `json:"entry"`
+	RunWithNode bool   `json:"run_with_node,omitempty"`
+}
+
+// Runtime is the runtime a job runs in: an id of the runtime table and the
+// exact versions of the language and, for Python, of its pip. The program
+// checks them against the executables it finds before it runs a step.
+type Runtime struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Pip     string `json:"pip,omitempty"`
+}
+
 // Job is /work/job.json.
 type Job struct {
 	Protocol int     `json:"protocol"`
 	Manager  Manager `json:"manager"`
+	Runtime  Runtime `json:"runtime"`
+	// Tool is the package manager release; pip is the one manager that has
+	// none, because it is the one of the Python image.
+	Tool *Tool `json:"tool,omitempty"`
 	// Inputs are the files under /work/src, by name, with the size and
 	// SHA-256 the main process computed. No other file may be present.
 	Inputs []Input `json:"inputs"`
@@ -155,8 +204,12 @@ type Status string
 const (
 	StatusCompleted     Status = "completed"
 	StatusInputRejected Status = "input_rejected"
-	StatusStepFailed    Status = "step_failed"
-	StatusTimedOut      Status = "timed_out"
+	// StatusEnvironmentRejected: the container is not one the program runs
+	// in (it is writable where it may not be, or the runtime is not the one
+	// the job names).
+	StatusEnvironmentRejected Status = "environment_rejected"
+	StatusStepFailed          Status = "step_failed"
+	StatusTimedOut            Status = "timed_out"
 )
 
 // Reason codes a step can carry besides its exit code.

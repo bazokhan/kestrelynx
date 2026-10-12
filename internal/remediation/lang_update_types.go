@@ -125,6 +125,10 @@ type LanguageUpdate struct {
 	// as a package manager's warning about the declared packageManager.
 	Notes []string        `json:"notes,omitempty"`
 	Diff  *DependencyDiff `json:"diff,omitempty"`
+	// Runtime and Tool are what the update ran in and with. Records from
+	// before they were kept have neither.
+	Runtime *RuntimeRecord `json:"runtime,omitempty"`
+	Tool    *ToolRecord    `json:"tool,omitempty"`
 	// ManifestEdits are the version specifiers of direct dependencies this
 	// program changed in the manifest before the update ran, because the
 	// specifier did not allow a fixed version. Empty when the manifest was

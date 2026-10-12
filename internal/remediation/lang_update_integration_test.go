@@ -1,88 +1,18 @@
 package remediation
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kitsunetrail/kestrelynx/internal/docker"
-	"github.com/kitsunetrail/kestrelynx/internal/inventory"
-	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 )
 
-// These tests run the update stage against a real work image, a real Docker
-// daemon, the real PyPI and a real Trivy with its database cached. They run
-// only when KESTRELYNX_WORKER_IT_IMAGE names the work image by digest
-// ("repository@sha256:..."; the image must be in a registry or in the local
-// image store under that reference). Optional settings:
-//
-//	KESTRELYNX_DOCKER_SOCK  the Docker socket (default /var/run/docker.sock)
-//	KESTRELYNX_TRIVY_BIN    the trivy executable (default ~/.local/bin/trivy)
-//	KESTRELYNX_TRIVY_CACHE  its cache directory (default ~/.cache/trivy)
+// TestIntegrationLangUpdate runs the update stage over the R4 fixtures with
+// the official images the build pins (see itSetup for the settings).
 func TestIntegrationLangUpdate(t *testing.T) {
-	image := os.Getenv("KESTRELYNX_WORKER_IT_IMAGE")
-	if image == "" {
-		t.Skip("set KESTRELYNX_WORKER_IT_IMAGE to a digest-pinned work image to run this test")
-	}
-	sock := os.Getenv("KESTRELYNX_DOCKER_SOCK")
-	if sock == "" {
-		sock = "/var/run/docker.sock"
-	}
-	home, _ := os.UserHomeDir()
-	trivyBin := os.Getenv("KESTRELYNX_TRIVY_BIN")
-	if trivyBin == "" {
-		trivyBin = filepath.Join(home, ".local", "bin", "trivy")
-	}
-	cache := os.Getenv("KESTRELYNX_TRIVY_CACHE")
-	if cache == "" {
-		cache = filepath.Join(home, ".cache", "trivy")
-	}
-
-	var idb [16]byte
-	if _, err := rand.Read(idb[:]); err != nil {
-		t.Fatal(err)
-	}
-	wc, err := docker.NewWork(sock, docker.WorkConfig{
-		Image:          image,
-		Entrypoint:     []string{"/usr/local/libexec/kestrelynx-worker", "run", "/work/job.json"},
-		AllowedEnvKeys: []string{"PATH", "HOME"},
-		Env:            []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/worker"},
-		InstanceID:     hex.EncodeToString(idb[:]),
-		Limits: docker.TransferLimits{
-			MaxInputBytes: 8 << 20, MaxInputTarBytes: 16 << 20, MaxInputFiles: 16, MaxInputPathBytes: 256,
-			LogMaxBytes: 8 << 20, MaxStdoutBytes: 8 << 20,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	t.Cleanup(func() {
-		if _, err := wc.CleanupStale(ctx); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-		out, err := exec.Command("docker", "ps", "-a", "-q", "--filter", "label=io.kestrelynx.work.instance="+hex.EncodeToString(idb[:])).Output()
-		if err == nil && strings.TrimSpace(string(out)) != "" {
-			t.Errorf("work containers left behind: %s", out)
-		}
-	})
-	if err := wc.EnsureImage(ctx); err != nil {
-		t.Fatalf("EnsureImage: %v", err)
-	}
-
-	tr := scanner.Trivy{BinPath: trivyBin, Severity: []string{"HIGH", "CRITICAL"}, CacheDir: cache, SkipDBUpdate: true}
-	prepared, err := tr.CurrentConditions(ctx)
-	if err != nil {
-		t.Fatalf("trivy conditions: %v", err)
-	}
-
-	env := ImageEnv{Platform: inventory.Platform{OS: "linux", Architecture: "amd64"}, OSFamily: "debian", OSName: "12.5"}
+	e := itSetup(t)
+	ctx, env := e.ctx, e.image
 	nodeOrigin := FindingOrigin{Entity: "img", Workload: "compose/p/web", PkgPath: "app/node_modules/minimist/package.json"}
 	pyOrigin := FindingOrigin{Entity: "img", Workload: "compose/p/web", PkgPath: "usr/local/lib/python3.12/site-packages/urllib3-1.26.4.dist-info/METADATA", Target: "Python"}
 	minimist := func() *findingGroup {
@@ -141,10 +71,6 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			func(f map[string]string) { f["pnpm-workspace.yaml"] = backendWorkspace }, "", ""},
 		{"pnpm_workspace_supported_architectures", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			func(f map[string]string) { f["pnpm-workspace.yaml"] = frontendWorkspace }, "", ""},
-		{"pnpm_declared_manager", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
-			func(f map[string]string) {
-				f["package.json"] = strings.Replace(f["package.json"], `"private": true,`, `"private": true, "packageManager": "pnpm@9.0.0",`, 1)
-			}, "configured to use 9.0.0 of pnpm", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -157,11 +83,10 @@ func TestIntegrationLangUpdate(t *testing.T) {
 				t.Fatalf("the fixture is not an update candidate: %s %s", it.Category, it.Detail)
 			}
 			plan := &Plan{LanguageItems: []LanguageItem{it}}
-			up, err := NewLangUpdater(LangUpdateConfig{
-				Work: wc, Scanner: tr, PyPI: &PyPIClient{}, Npm: &NpmClient{}, GitHub: ghFor(files),
-				Prepared: prepared, Images: map[string]ImageEnv{"img": env},
+			up, err := NewLangUpdater(e.config(LangUpdateConfig{
+				GitHub: ghFor(files), Images: map[string]ImageEnv{"img": env},
 				MaxJobs: 4, JobIDPrefix: "it",
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -180,6 +105,16 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			}
 			if !got.UpdateExecuted || !got.PostUpdateCheckExecuted {
 				t.Errorf("executed flags = %v %v", got.UpdateExecuted, got.PostUpdateCheckExecuted)
+			}
+			// What the update ran in and with is on record.
+			wantRuntime := map[DependencyManager]string{ManagerNpm: "node24", ManagerPnpm: "node24", ManagerUv: "python3.13", ManagerPip: "python3.13"}[c.manager]
+			if rt := got.Update.Runtime; rt == nil || rt.ID != wantRuntime || rt.Version == "" || rt.Digest == "" {
+				t.Errorf("runtime record = %+v, want %s", rt, wantRuntime)
+			}
+			if tl := got.Update.Tool; c.manager == ManagerPip && tl != nil {
+				t.Errorf("pip has a tool record: %+v", tl)
+			} else if c.manager != ManagerPip && (tl == nil || tl.Version != itDefaultToolVersions[c.manager] || tl.SHA256 == "") {
+				t.Errorf("tool record = %+v", tl)
 			}
 			if c.wantEdit != "" {
 				edits := got.Update.ManifestEdits
@@ -226,64 +161,19 @@ func TestIntegrationLangUpdate(t *testing.T) {
 
 // TestIntegrationLangUpdateRealisticProjects runs the update stage over
 // lockfiles of mid-size projects (express and axios, vite, fastapi and httpx,
-// requests with hashes), each built with the work image's tools and an old
+// requests with hashes), each built with the same tools and an old
 // release date so that the transitive packages are old, and checks that
 // output that is honest is accepted. The projects are not part of the
 // repository: KESTRELYNX_REALISTIC_DIR names a directory with the
 // subdirectories npm, pnpm, uv and pip, each holding the project's files.
-// KESTRELYNX_WORKER_IT_IMAGE and the settings of TestIntegrationLangUpdate apply.
+// KESTRELYNX_WORKER_IT and the settings of TestIntegrationLangUpdate apply.
 func TestIntegrationLangUpdateRealisticProjects(t *testing.T) {
-	image := os.Getenv("KESTRELYNX_WORKER_IT_IMAGE")
 	dir := os.Getenv("KESTRELYNX_REALISTIC_DIR")
-	if image == "" || dir == "" {
-		t.Skip("set KESTRELYNX_WORKER_IT_IMAGE and KESTRELYNX_REALISTIC_DIR to run this test")
+	if dir == "" {
+		t.Skip("set KESTRELYNX_REALISTIC_DIR to run this test")
 	}
-	sock := os.Getenv("KESTRELYNX_DOCKER_SOCK")
-	if sock == "" {
-		sock = "/var/run/docker.sock"
-	}
-	home, _ := os.UserHomeDir()
-	trivyBin := os.Getenv("KESTRELYNX_TRIVY_BIN")
-	if trivyBin == "" {
-		trivyBin = filepath.Join(home, ".local", "bin", "trivy")
-	}
-	cache := os.Getenv("KESTRELYNX_TRIVY_CACHE")
-	if cache == "" {
-		cache = filepath.Join(home, ".cache", "trivy")
-	}
-	var idb [16]byte
-	if _, err := rand.Read(idb[:]); err != nil {
-		t.Fatal(err)
-	}
-	wc, err := docker.NewWork(sock, docker.WorkConfig{
-		Image:          image,
-		Entrypoint:     []string{"/usr/local/libexec/kestrelynx-worker", "run", "/work/job.json"},
-		AllowedEnvKeys: []string{"PATH", "HOME"},
-		Env:            []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/worker"},
-		InstanceID:     hex.EncodeToString(idb[:]),
-		Limits: docker.TransferLimits{
-			MaxInputBytes: 8 << 20, MaxInputTarBytes: 16 << 20, MaxInputFiles: 16, MaxInputPathBytes: 256,
-			LogMaxBytes: 8 << 20, MaxStdoutBytes: 8 << 20,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	t.Cleanup(func() {
-		if _, err := wc.CleanupStale(ctx); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-	if err := wc.EnsureImage(ctx); err != nil {
-		t.Fatalf("EnsureImage: %v", err)
-	}
-	tr := scanner.Trivy{BinPath: trivyBin, Severity: []string{"HIGH", "CRITICAL"}, CacheDir: cache, SkipDBUpdate: true}
-	prepared, err := tr.CurrentConditions(ctx)
-	if err != nil {
-		t.Fatalf("trivy conditions: %v", err)
-	}
-	env := ImageEnv{Platform: inventory.Platform{OS: "linux", Architecture: "amd64"}, OSFamily: "debian", OSName: "12.5"}
+	e := itSetup(t)
+	ctx, env := e.ctx, e.image
 	node := func(name, ver string, cves ...CVERef) func() *findingGroup {
 		o := FindingOrigin{Entity: "img", Workload: "compose/p/web", PkgPath: "app/node_modules/" + name + "/package.json"}
 		return func() *findingGroup { return group(typeNodePkg, name, ver, o, cves...) }
@@ -341,11 +231,10 @@ func TestIntegrationLangUpdateRealisticProjects(t *testing.T) {
 				t.Fatalf("the project is not an update candidate: %s %s %s", it.Category, it.Reason, it.Detail)
 			}
 			plan := &Plan{LanguageItems: []LanguageItem{it}}
-			up, err := NewLangUpdater(LangUpdateConfig{
-				Work: wc, Scanner: tr, PyPI: &PyPIClient{}, Npm: &NpmClient{}, GitHub: ghFor(files),
-				Prepared: prepared, Images: map[string]ImageEnv{"img": env},
+			up, err := NewLangUpdater(e.config(LangUpdateConfig{
+				GitHub: ghFor(files), Images: map[string]ImageEnv{"img": env},
 				MaxJobs: 4, JobIDPrefix: "it",
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}

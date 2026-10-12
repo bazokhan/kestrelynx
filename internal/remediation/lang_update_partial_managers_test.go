@@ -269,6 +269,7 @@ func (p partialProject) newHarness(t *testing.T, direct string, lockFor func(job
 		Scanner: h.fs, Work: h.work, PyPI: h.pypi, Npm: h.npm, GitHub: h.gh,
 		Prepared: fsConds, Images: map[string]ImageEnv{"img": debianAmd64}, MaxJobs: 5,
 	}
+	h.cfg = withTestTools(h.t, h.cfg)
 	return h
 }
 

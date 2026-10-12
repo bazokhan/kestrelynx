@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -51,6 +52,20 @@ type LangUpdateConfig struct {
 	// JobIDPrefix starts the job ids (letters, digits, '.', '_' and '-');
 	// empty means "lang".
 	JobIDPrefix string
+	// Tools supplies the package manager releases, and DefaultToolVersion the
+	// version of a manager to run in a runtime when the project declares
+	// none. Platform is the platform the jobs run on ("linux/amd64"); empty
+	// means this process's.
+	Tools              ToolProvider
+	DefaultToolVersion func(m DependencyManager, runtimeID string) string
+	Platform           string
+	// Program returns the bytes of the work program for Platform, checked
+	// against the hash this build was released with. It is called whenever a
+	// job is made, so the bytes that are sent are the ones that were checked.
+	Program func() ([]byte, error)
+	// Now is the clock the end of a runtime's support is judged by; nil means
+	// time.Now.
+	Now func() time.Time
 }
 
 // DefaultUpdateJobTimeout is the time one update container gets.
@@ -60,7 +75,7 @@ const DefaultUpdateJobTimeout = 6 * time.Minute
 func DefaultUpdateResources() docker.Resources {
 	return docker.Resources{
 		MemoryBytes: 2 << 30, NanoCPUs: 2_000_000_000, PidsLimit: 512, NofileLimit: 4096,
-		ShmSizeBytes: 64 << 20, TmpSizeBytes: 512 << 20, HomeSizeBytes: 512 << 20,
+		ShmSizeBytes: 64 << 20, TmpSizeBytes: 512 << 20, HomeSizeBytes: 512 << 20, ToolsSizeBytes: 256 << 20,
 	}
 }
 
@@ -103,6 +118,9 @@ func NewLangUpdater(cfg LangUpdateConfig) (*LangUpdater, error) {
 	}
 	if cfg.JobIDPrefix == "" {
 		cfg.JobIDPrefix = "lang"
+	}
+	if cfg.Platform == "" {
+		cfg.Platform = "linux/" + runtime.GOARCH
 	}
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -155,6 +173,8 @@ type updateFailure struct {
 	// others of the set may have, and the result cannot be used as it is. The
 	// update stage runs the item once more without them.
 	retryWithout map[string]updateFailureDetail
+	// runtimeEOL names the runtime of a runtime_eol failure.
+	runtimeEOL *RuntimeEOLInfo
 }
 
 type updateFailureDetail struct {
@@ -187,6 +207,7 @@ func deferItem(it *LanguageItem, reason Reason, detail string) {
 // package's; the update's artifacts are never kept.
 func (f *updateFailure) apply(it *LanguageItem, upd []int) {
 	it.Category, it.Reason, it.Detail = f.category, f.reason, f.detail
+	it.RuntimeEOL = f.runtimeEOL
 	it.Artifacts = nil
 	for _, i := range upd {
 		p := &it.Packages[i]
@@ -285,11 +306,29 @@ type sourceFiles struct {
 	settings []byte
 	lockPath string
 	lockMode string
+	// specFiles are the files the declarations of the runtime and the package
+	// manager are read from (see ToolSpecFileNames), by name, and uvToml the
+	// paths of the uv.toml files the plan found.
+	specFiles map[string][]byte
+	uvToml    []string
 }
 
 // readSources reads the unit's manifest and lockfile again from the commit
 // the plan recorded and requires them to be the blobs it recorded.
 func (u *LangUpdater) readSources(ctx context.Context, it *LanguageItem) (*sourceFiles, *updateFailure) {
+	sf, fail := u.readUnitSources(ctx, it)
+	if fail != nil {
+		return nil, fail
+	}
+	if fail := u.readToolSpecFiles(ctx, it, sf); fail != nil {
+		return nil, fail
+	}
+	return sf, nil
+}
+
+// readUnitSources reads the manifest, the lockfile and the settings file of
+// the unit.
+func (u *LangUpdater) readUnitSources(ctx context.Context, it *LanguageItem) (*sourceFiles, *updateFailure) {
 	src := it.Source
 	if src.CommitSHA == "" {
 		return nil, failedFailure(ReasonUpdateInputInvalid, "the plan recorded no commit")
@@ -553,6 +592,9 @@ type updateRun struct {
 	unreached map[string]updateFailureDetail
 
 	src *sourceFiles
+	// toolSpec is the runtime and package manager release the declarations of
+	// the unit come to (the build's defaults where it declares none).
+	toolSpec ToolSpec
 	// manifest is the manifest the update runs on and must leave as it is:
 	// the original, or the original with the edits in upd.ManifestEdits.
 	manifest []byte

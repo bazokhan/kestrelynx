@@ -2,6 +2,9 @@ package remediation
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -147,11 +150,11 @@ func buildResult(job worker.Job, src map[string][]byte, o fakeOutcome) []byte {
 		return list
 	}
 	steps := job.Steps
-	if res.Status == worker.StatusInputRejected {
+	if res.Status == worker.StatusInputRejected || res.Status == worker.StatusEnvironmentRejected {
 		steps = nil
 	}
 	for _, s := range steps {
-		argv, _ := worker.Argv(job.Manager, s)
+		argv, _ := worker.Argv(job, s)
 		sr := worker.StepResult{ID: s.ID, Op: s.Op, Scratch: s.Scratch, Argv: argv, Stderr: o.stderr[s.ID]}
 		res.Steps = append(res.Steps, sr)
 		last := &res.Steps[len(res.Steps)-1]
@@ -383,4 +386,66 @@ func readTestdata(t *testing.T, dir string, names ...string) map[string]string {
 		out[n] = string(b)
 	}
 	return out
+}
+
+// fakeTools hands out a small archive file for every request and records the
+// requests.
+type fakeTools struct {
+	mu       sync.Mutex
+	dir      string
+	reqs     []ToolRequest
+	err      error
+	released []string
+}
+
+// Release records that the file of an artifact was let go.
+func (f *fakeTools) Release(a ToolArtifact) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.released = append(f.released, a.SHA256)
+}
+
+func (f *fakeTools) Provide(_ context.Context, req ToolRequest) (ToolArtifact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, req)
+	if f.err != nil {
+		return ToolArtifact{}, f.err
+	}
+	content := []byte("archive of " + string(req.Manager) + " " + req.Version)
+	path := filepath.Join(f.dir, string(req.Manager)+"-"+req.Version+".bin")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return ToolArtifact{}, err
+	}
+	h256, h512 := sha256.Sum256(content), sha512.Sum512(content)
+	art := ToolArtifact{Manager: req.Manager, Version: req.Version, Format: "npm-tgz", Path: path, Size: int64(len(content)),
+		SHA256: hex.EncodeToString(h256[:]), SHA512: hex.EncodeToString(h512[:]), Entry: "bin/" + string(req.Manager) + ".cjs", RunWithNode: true}
+	if req.Manager == ManagerUv {
+		art.Format, art.RunWithNode, art.Entry = "wheel", false, "uv-"+req.Version+".data/scripts/uv"
+	}
+	return art, nil
+}
+
+// testDefaultToolVersion are the versions the tests run the managers at.
+func testDefaultToolVersion(m DependencyManager, _ string) string {
+	switch m {
+	case ManagerNpm:
+		return "11.19.0"
+	case ManagerPnpm:
+		return "11.28.2"
+	case ManagerUv:
+		return "0.13.0"
+	}
+	return ""
+}
+
+// withTestTools gives a configuration the package manager provider, the
+// default versions, the platform and the work program a job needs.
+func withTestTools(t testing.TB, cfg LangUpdateConfig) LangUpdateConfig {
+	t.Helper()
+	cfg.Tools = &fakeTools{dir: t.TempDir()}
+	cfg.DefaultToolVersion = testDefaultToolVersion
+	cfg.Platform = "linux/amd64"
+	cfg.Program = func() ([]byte, error) { return []byte("work program"), nil }
+	return cfg
 }
