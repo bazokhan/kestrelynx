@@ -1,0 +1,39 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 修正計画 — Pull Request: 作成 2件 · オープン中 1件 · 延期 1件
+--- section ---
+*🔧 修正計画*
+Pull Request: 作成 2件 · オープン中 1件 · 延期 1件
+--- divider ---
+--- section ---
+*イメージ: ghcr.io/yyac-project/regfis-backend:latest*
+修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml
+Pull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)
+更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0
+⚠️ メジャーバージョンの変更: sharp 0.34.5 → 0.35.5 (0.x のマイナー変更)
+要判断: multer 2.1.1 → 2.3.0 は候補または更新後の版が依存関係の制約を満たさないため除外
+--- divider ---
+--- section ---
+*イメージ: regfis-infra-elasticsearch*
+修正するファイル: YYAC-project/regfis-infra の elasticsearch/Dockerfile
+Pull Request: <https://github.com/YYAC-project/regfis-infra/pull/1|#1> (オープン中)
+更新: ベースイメージ docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23
+--- divider ---
+--- section ---
+*イメージ: nginx:1.25.3*
+修正するファイル: YYAC-project/deploy の deploy/compose.yml
+Pull Request: <https://github.com/ex/deploy/pull/12|#12> (今回作成)
+更新: nginx 1.25.3 → 1.25.4
+--- divider ---
+--- section ---
+*イメージ: api:2.0.1*
+修正するファイル: YYAC-project/deploy の deploy/compose.yml
+更新候補: api 2.0.1 → 2.0.4
+保留: 1回の実行で作れる Pull Request の数の上限に達した
+--- divider ---
+--- section ---
+*イメージ: db:15.1*
+要判断: 候補では一部の所見しか解消しない
+--- divider ---
+--- section ---
+*イメージ: web:latest*
+再pull: 所見4件中3件が解消 (KEV 2件)

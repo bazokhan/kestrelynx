@@ -11,7 +11,7 @@ import (
 // A dependency unit whose update was run and checked is a pr_candidate. The
 // existing outputs take it without change: the webhook counts it and reports
 // the adopted version but not the content of the files it would write, and
-// the Slack section counts it as an update candidate.
+// the Slack message lists it as an update candidate.
 func TestPlan_LanguagePRCandidate(t *testing.T) {
 	r, changed, _ := planCycleFixture()
 	p := languageFixture()
@@ -38,7 +38,7 @@ func TestPlan_LanguagePRCandidate(t *testing.T) {
 		t.Errorf("lodash = %v", lodash)
 	}
 	for _, lang := range []Language{LanguageEN, LanguageJA} {
-		got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, lang))
+		got := slackPlanText(r, info, lang)
 		if strings.Contains(got, secret) || strings.Contains(got, "package-lock.json:") {
 			t.Errorf("%s: file content in the message:\n%s", lang, got)
 		}
@@ -67,7 +67,7 @@ func TestPlan_LanguageRuntimeEndOfLife(t *testing.T) {
 		LanguageEN: "Node.js 22 reached the end of its support on 2027-04-30; upgrade the runtime before updating",
 		LanguageJA: "Node.js 22 は 2027-04-30 にサポート終了。実行環境を上げてから更新してください",
 	} {
-		got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, lang))
+		got := slackPlanText(r, info, lang)
 		if !strings.Contains(got, want) {
 			t.Errorf("%s: the line is missing:\n%s", lang, got)
 		}
@@ -83,10 +83,30 @@ func TestPlan_LanguageRuntimeEndOfLife(t *testing.T) {
 		t.Error("an item without the reason carries runtime_eol")
 	}
 
-	// Without the structured value the line falls back to the reason code.
+	// Without the structured value the line falls back to the reason's sentence.
 	li.RuntimeEOL = nil
-	got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, LanguageEN))
-	if !strings.Contains(got, "runtime_eol") {
+	got := slackPlanText(r, info, LanguageEN)
+	if !strings.Contains(got, "the runtime of the update is past the end of its support") {
 		t.Errorf("fallback line missing:\n%s", got)
+	}
+}
+
+// The names of the deprecation notes an update recorded are not in the
+// webhook: its update object has the fields it had before.
+func TestWebhook_UpdateHasNoDeprecationNotes(t *testing.T) {
+	r, changed, _ := planCycleFixture()
+	p := languageFixture()
+	li := &p.LanguageItems[0]
+	li.Update = &remediation.LanguageUpdate{DeprecatedChanged: 1,
+		DeprecatedNotes: []remediation.DeprecationChange{{Name: "eslint", Version: "9.39.4", Kind: remediation.DeprecationGained}}}
+	raw, err := json.Marshal(BuildWebhookPayloadWithPlan(r, &changed, &PlanInfo{Plan: &p, Changed: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "deprecated_notes") || !strings.Contains(string(raw), `"deprecated_changed":1`) {
+		t.Errorf("webhook update object: %s", raw)
+	}
+	if len(li.Update.DeprecatedNotes) != 1 {
+		t.Error("the plan's own record was changed")
 	}
 }

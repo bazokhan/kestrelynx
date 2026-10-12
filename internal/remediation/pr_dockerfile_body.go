@@ -24,7 +24,7 @@ type dockerfileBodyInput struct {
 // buildDockerfilePRBody renders the body of a base image pull request. It
 // keeps three images apart — the running image, the current base and the
 // candidate base — and says that the comparison is of the two bases and that
-// the image rebuilt from the new Dockerfile was not verified. The text is cut
+// the image rebuilt from the new Dockerfile was not built or scanned. The text is cut
 // like buildPRBody's and ends with the marker.
 func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 	t := textFor(in.Language)
@@ -38,13 +38,7 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 	b.WriteString("\n## " + t.HeadChange + "\n\n")
 	fmt.Fprintf(&b, t.DChange, in.Change.Line, mdCode(in.Change.Old), mdCode(in.Change.New))
 
-	b.WriteString("\n## " + t.HeadWhyCandidate + "\n\n")
-	fmt.Fprintf(&b, t.DWhy, mdCode(in.CandidateTag))
-
-	b.WriteString("\n## " + t.HeadVerification + "\n\n")
-	b.WriteString(t.DIntro1)
-	b.WriteString(t.DIntro2)
-	b.WriteString(t.DIntro3)
+	b.WriteString("\n## " + t.HeadVerification + "\n")
 	if ev := in.Evidence; ev != nil {
 		for _, it := range ev.Items {
 			b.WriteString("\n")
@@ -89,16 +83,6 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 		b.WriteString("\n")
 	}
 	b.WriteString(t.DAttribution)
-
-	b.WriteString("\n## " + t.HeadNotVerified + "\n\n")
-	b.WriteString(t.DNVRebuilt)
-	b.WriteString(t.DNVApp)
-	b.WriteString(t.NVCI)
-	b.WriteString(t.DNVDeploy)
-	b.WriteString(t.NVSeverity)
-
-	b.WriteString("\n---\n\n")
-	fmt.Fprintf(&b, t.Footer, mdCode(in.UpdateKey), mdCode(in.AttemptKey))
 
 	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }

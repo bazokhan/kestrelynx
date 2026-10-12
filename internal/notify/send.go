@@ -48,10 +48,35 @@ type Message struct {
 	Result       *ThreadResult
 
 	// Plan is the read-only fix plan of this cycle: nil when the plan is not
-	// enabled, in which case nothing about it is rendered or sent. Slack
-	// shows a short section in both the full and the diff view; the generic
-	// webhook carries every item.
+	// enabled, in which case nothing about it is rendered or sent. Slack gets
+	// it as a message of its own after the vulnerability message, when it
+	// changed and on the weekly day; the generic webhook carries every item
+	// together with the report.
 	Plan *PlanInfo
+
+	// SkipReport says the vulnerability message (and the thread report) is not
+	// due in this cycle: only the fix plan is sent to Slack. The generic
+	// webhook still gets the report with the plan.
+	SkipReport bool
+
+	// PlanDelivery, when set, receives whether the Slack fix plan message was
+	// delivered, so the caller can record it although something else in the
+	// same send failed.
+	PlanDelivery *PlanDelivery
+}
+
+// PlanDelivery is the out-slot for the delivery of the Slack fix plan message.
+// Both fields are false when none was sent.
+type PlanDelivery struct {
+	Posted bool // every message of the fix plan was posted
+	Failed bool // posting the fix plan failed
+}
+
+// record notes the outcome of posting the fix plan; a nil slot ignores it.
+func (d *PlanDelivery) record(ok bool) {
+	if d != nil {
+		d.Posted, d.Failed = ok, !ok
+	}
 }
 
 // ThreadResult is the out-slot for a thread post: a zero Ref means no thread
@@ -86,20 +111,44 @@ type SlackNotifier struct {
 }
 
 func (n SlackNotifier) Send(ctx context.Context, m Message) error {
-	msgs := buildChannelMessages(m, ChannelFooter{}, messagesFor(n.Language), limitsOrDefault(n.Limits))
+	msg, lim := messagesFor(n.Language), limitsOrDefault(n.Limits)
+	var report []SlackMessage
+	if !m.SkipReport {
+		report = buildChannelMessages(m, ChannelFooter{}, msg, lim)
+	}
+	plan := buildPlanMessages(m, msg, lim)
 	sleep := n.Sleep
 	if sleep == nil {
 		sleep = time.Sleep
 	}
-	for i, sm := range msgs {
-		if i > 0 {
-			sleep(threadPostGap)
+	total := len(report) + len(plan)
+	posted := 0
+	// The vulnerability messages and the plan are sent on their own: a failure
+	// of one stops the rest of that one, not the other.
+	post := func(msgs []SlackMessage, first int) error {
+		for i, sm := range msgs {
+			if posted > 0 {
+				sleep(threadPostGap)
+			}
+			posted++
+			if err := postSlackWebhook(ctx, client(n.Client), n.WebhookURL, sm, sleep); err != nil {
+				return fmt.Errorf("post message %d/%d: %w", first+i+1, total, err)
+			}
 		}
-		if err := postSlackWebhook(ctx, client(n.Client), n.WebhookURL, sm, sleep); err != nil {
-			return fmt.Errorf("post message %d/%d: %w", i+1, len(msgs), err)
-		}
+		return nil
 	}
-	return nil
+	var errs []error
+	if err := post(report, 0); err != nil {
+		errs = append(errs, err)
+	}
+	if len(plan) > 0 {
+		err := post(plan, len(report))
+		if err != nil {
+			errs = append(errs, err)
+		}
+		m.PlanDelivery.record(err == nil)
+	}
+	return errors.Join(errs...)
 }
 
 // postSlackWebhook posts one message, waiting out a 429's Retry-After and

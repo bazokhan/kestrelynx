@@ -166,11 +166,32 @@ type LanguageUpdate struct {
 	// deprecated note, each equal to what the npm registry publishes for that
 	// version.
 	DeprecatedChanged int `json:"deprecated_changed,omitempty"`
+	// DeprecatedNotes names those package versions and what happened to the
+	// note of each.
+	DeprecatedNotes []DeprecationChange `json:"deprecated_notes,omitempty"`
 	// ManifestEdits are the version specifiers of direct dependencies this
 	// program changed in the manifest before the update ran, because the
 	// specifier did not allow a fixed version. Empty when the manifest was
 	// left as it was.
 	ManifestEdits []ManifestEdit `json:"manifest_edits,omitempty"`
+}
+
+// What happened to the deprecation note of a package version.
+const (
+	DeprecationGained  = "gained"
+	DeprecationChanged = "changed"
+	DeprecationLost    = "lost"
+	// DeprecationPresent: the updated version is deprecated; the version that
+	// was there before is another release, so nothing is said about a change.
+	DeprecationPresent = "present"
+)
+
+// DeprecationChange is a package version whose deprecation note the update
+// gained, changed or lost, as the lockfile records it.
+type DeprecationChange struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Kind    string `json:"kind"`
 }
 
 // ManifestEdit is one version specifier changed in a manifest.

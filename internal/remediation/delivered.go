@@ -276,37 +276,69 @@ func DefaultDeliveredPath(storageDir string) string {
 type deliveredRecord struct {
 	Version     int    `json:"version"`
 	Fingerprint string `json:"fingerprint"`
+	// SlackFingerprint identifies what the last Slack fix plan message
+	// showed. A record without it (written before the message was separate)
+	// counts as nothing delivered to Slack.
+	SlackFingerprint string `json:"slack_fingerprint,omitempty"`
+}
+
+// read returns the record; it is empty, with a nil error, when the file does
+// not exist. An unreadable, corrupt or foreign-version file is an error.
+func (s DeliveredStore) read() (deliveredRecord, error) {
+	data, err := os.ReadFile(s.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return deliveredRecord{}, nil
+	}
+	if err != nil {
+		return deliveredRecord{}, fmt.Errorf("read delivered plan %s: %w", s.Path, err)
+	}
+	var rec deliveredRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return deliveredRecord{}, fmt.Errorf("parse delivered plan %s: %w", s.Path, err)
+	}
+	if rec.Version != deliveredVersion {
+		return deliveredRecord{}, fmt.Errorf("%w: %s has version %d, this build reads %d", ErrPlanVersion, s.Path, rec.Version, deliveredVersion)
+	}
+	return rec, nil
 }
 
 // Load returns the delivered fingerprint; it is empty, with a nil error, when
 // the file does not exist. An unreadable, corrupt or foreign-version file is
 // an error.
 func (s DeliveredStore) Load() (string, error) {
-	data, err := os.ReadFile(s.Path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("read delivered plan %s: %w", s.Path, err)
-	}
-	var rec deliveredRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return "", fmt.Errorf("parse delivered plan %s: %w", s.Path, err)
-	}
-	if rec.Version != deliveredVersion {
-		return "", fmt.Errorf("%w: %s has version %d, this build reads %d", ErrPlanVersion, s.Path, rec.Version, deliveredVersion)
-	}
-	return rec.Fingerprint, nil
+	rec, err := s.read()
+	return rec.Fingerprint, err
+}
+
+// LoadSlack returns the fingerprint of the last Slack fix plan message, with
+// the same rules as Load.
+func (s DeliveredStore) LoadSlack() (string, error) {
+	rec, err := s.read()
+	return rec.SlackFingerprint, err
 }
 
 // Save replaces the record atomically. A file already there is replaced even
 // when it cannot be read: it only says what was last delivered, and keeping
 // an unreadable one would announce the same plan every cycle.
 func (s DeliveredStore) Save(fingerprint string) error {
+	return s.save(func(rec *deliveredRecord) { rec.Fingerprint = fingerprint })
+}
+
+// SaveSlack replaces the fingerprint of the last Slack fix plan message and
+// keeps the other.
+func (s DeliveredStore) SaveSlack(fingerprint string) error {
+	return s.save(func(rec *deliveredRecord) { rec.SlackFingerprint = fingerprint })
+}
+
+func (s DeliveredStore) save(set func(*deliveredRecord)) error {
 	if s.Path == "" {
 		return errors.New("save delivered plan: no path")
 	}
-	data, err := json.Marshal(deliveredRecord{Version: deliveredVersion, Fingerprint: fingerprint})
+	// The other fingerprint is kept; an unreadable record is replaced.
+	rec, _ := s.read()
+	rec.Version = deliveredVersion
+	set(&rec)
+	data, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("marshal delivered plan: %w", err)
 	}

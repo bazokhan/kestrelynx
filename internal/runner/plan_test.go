@@ -574,14 +574,14 @@ func TestPlan_IntroducedKEVFromCatalogReachesSlack(t *testing.T) {
 	}
 	for _, lang := range []notify.Language{notify.LanguageEN, notify.LanguageJA} {
 		var text string
-		for _, m := range notify.BuildChannelMessages(h.notif.msg, notify.ChannelFooter{}, lang) {
+		for _, m := range notify.BuildPlanMessages(h.notif.msg, lang) {
 			for _, b := range m.Blocks {
 				text += b.Text + "\n"
 			}
 		}
-		want := "web:1.25.3 to 1.25.4"
+		want := "Update candidate: web 1.25.3 → 1.25.4"
 		if lang == notify.LanguageJA {
-			want = "web:1.25.3 を 1.25.4"
+			want = "更新候補: web 1.25.3 → 1.25.4"
 		}
 		if !strings.Contains(text, want) || !strings.Contains(text, "KEV") {
 			t.Errorf("%s: the KEV warning line is missing in\n%s", lang, text)

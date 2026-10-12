@@ -1,0 +1,51 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 fix plan — Pull requests: 2 created · 1 open · 1 merged · 1 closed without merging · 1 deferred
+--- section ---
+*🔧 Fix plan*
+Pull requests: 2 created · 1 open · 1 merged · 1 closed without merging · 1 deferred
+--- divider ---
+--- section ---
+*Image: ghcr.io/yyac-project/regfis-backend:latest*
+File to change: pnpm-lock.yaml in YYAC-project/regfis-backend
+Pull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)
+Update: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0
+⚠️ Major version change: sharp 0.34.5 → 0.35.5 (0.x minor change)
+Needs a decision: multer 2.1.1 → 2.3.0 left out because the candidate or the updated version does not satisfy the dependency constraints
+--- divider ---
+--- section ---
+*Image: regfis-infra-elasticsearch*
+File to change: elasticsearch/Dockerfile in YYAC-project/regfis-infra
+Pull request: <https://github.com/YYAC-project/regfis-infra/pull/1|#1> (open)
+Update: base image docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23
+--- divider ---
+--- section ---
+*Image: nginx:1.25.3*
+File to change: deploy/compose.yml in YYAC-project/deploy
+Pull request: <https://github.com/ex/deploy/pull/12|#12> (opened now)
+Update: nginx 1.25.3 → 1.25.4
+--- divider ---
+--- section ---
+*Image: cache:7.0.1*
+File to change: deploy/compose.yml in YYAC-project/deploy
+Pull request: <https://github.com/ex/deploy/pull/7|#7> (merged)
+Update: cache 7.0.1 → 7.0.5
+--- divider ---
+--- section ---
+*Image: queue:3.1.0*
+File to change: deploy/compose.yml in YYAC-project/deploy
+Pull request: <https://github.com/ex/deploy/pull/3|#3> (closed without merging)
+Update: queue 3.1.0 → 3.1.2
+--- divider ---
+--- section ---
+*Image: api:2.0.1*
+File to change: deploy/compose.yml in YYAC-project/deploy
+Update candidate: api 2.0.1 → 2.0.4
+Deferred: the limit on pull requests of a run was reached
+--- divider ---
+--- section ---
+*Image: db:15.1*
+Needs a decision: the candidate resolves only some of the findings
+--- divider ---
+--- section ---
+*Image: web:latest*
+Re-pull: resolves 3 of 4 findings (2 KEV)

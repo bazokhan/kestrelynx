@@ -138,16 +138,20 @@ func TestPRStageDockerfileCreate(t *testing.T) {
 		t.Error("the target key does not name the Dockerfile and its FROM")
 	}
 
-	// The body keeps the three images apart and states its limits.
+	// The body names the three images and carries no introduction to them.
 	for _, want := range []string{
 		"Running image: `myapp:1`", "Current base image: `python:3.12.3-slim`", "Candidate base image: `python:3.12.5-slim`",
-		"Layer check: `confirmed`", "comparison is of the current base image with the candidate base image",
-		"was not built or scanned", "not built or scanned, and instructions after the FROM can change",
+		"Layer check: `confirmed`",
 		"resolved 2, remaining 1", "introduced by the candidate base image: 0",
 		"FROM on line 1: `python:3.12.3-slim` to `python:3.12.5-slim`", "`compose/app/svc`",
 	} {
 		if !strings.Contains(pr.Body, want) {
 			t.Errorf("the body lacks %q", want)
+		}
+	}
+	for _, gone := range []string{"Three images are involved", "was not built or scanned"} {
+		if strings.Contains(pr.Body, gone) {
+			t.Errorf("the body still has %q", gone)
 		}
 	}
 	lines := strings.Split(strings.TrimRight(pr.Body, "\n"), "\n")

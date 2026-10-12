@@ -7,21 +7,6 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 )
 
-// dockerfileServices names the services of an item's workloads for a Slack
-// line.
-func dockerfileServices(it remediation.DockerfileItem) string {
-	var names []string
-	seen := map[string]bool{}
-	for _, w := range it.Workloads {
-		n := workloadService(w)
-		if !seen[n] {
-			seen[n] = true
-			names = append(names, escMrkdwn(n))
-		}
-	}
-	return strings.Join(names, ", ")
-}
-
 // dockerfileKEVResolved counts the KEV-listed targets of an item that every
 // running image that has the target resolves.
 func dockerfileKEVResolved(it remediation.DockerfileItem) int {
@@ -74,37 +59,6 @@ func dockerfileUnitOf(it remediation.DockerfileItem, units []remediation.PRUnit)
 		}
 	}
 	return nil
-}
-
-// dockerfileLines are the Slack lines of the Dockerfile items: the ones that
-// need a person, the adopted updates and the advice to rebuild. An adopted
-// update with a pull request is spoken for by the pull request line.
-func dockerfileLines(plan remediation.Plan, msg messages) (warn, adopted, advice []string) {
-	for _, it := range plan.DockerfileItems {
-		services, base := dockerfileServices(it), escMrkdwn(it.BaseRef)
-		switch {
-		case it.Category == remediation.CategoryManual && it.Reason == remediation.ReasonIntroducedKEV && it.Candidate != nil:
-			warn = append(warn, fmt.Sprintf(msg.PlanDockerfileKEVLine, services, base, escMrkdwn(it.Candidate.Tag)))
-		case it.Category == remediation.CategoryPRCandidate && it.Candidate != nil:
-			if u := dockerfileUnitOf(it, plan.PullRequests); u != nil && u.Number > 0 {
-				continue
-			}
-			tag := escMrkdwn(it.Candidate.Tag)
-			var line string
-			if it.Counts.Resolved < it.Counts.Targets {
-				line = fmt.Sprintf(msg.PlanDockerfilePartialLine, services, base, tag, it.Counts.Resolved, it.Counts.Targets)
-			} else {
-				line = fmt.Sprintf(msg.PlanDockerfileLine, services, base, tag, it.Counts.Resolved)
-			}
-			if k := dockerfileKEVResolved(it); k > 0 {
-				line += fmt.Sprintf(msg.PlanKEVSuffix, k)
-			}
-			adopted = append(adopted, line)
-		case it.Category == remediation.CategoryNotComparable && it.Reason == remediation.ReasonFloatingBaseUnconfirmed:
-			advice = append(advice, fmt.Sprintf(msg.PlanDockerfileRebuildLine, services, base))
-		}
-	}
-	return warn, adopted, advice
 }
 
 // --- generic webhook ---

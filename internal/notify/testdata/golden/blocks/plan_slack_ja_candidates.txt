@@ -1,0 +1,59 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 修正計画 — 提案: 更新候補 3件 · 再pull 1件 · 再ビルド 2件 · 要判断 3件 · 比較不能 1件 · 失敗 1件 · 保留 2件
+--- section ---
+*🔧 修正計画*
+提案: 更新候補 3件 · 再pull 1件 · 再ビルド 2件 · 要判断 3件 · 比較不能 1件 · 失敗 1件 · 保留 2件
+--- divider ---
+--- section ---
+*イメージ: web:latest*
+再pull: 所見4件中3件が解消 (KEV 2件)
+修正するファイル: ex/app の docker/Dockerfile
+再ビルド: 稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る
+--- divider ---
+--- section ---
+*イメージ: api:2.0.1*
+更新候補: api 2.0.1 → 2.0.4 (所見1件が解消)
+--- divider ---
+--- section ---
+*イメージ: db:15.1*
+要判断: 候補では一部の所見しか解消しない
+--- divider ---
+--- section ---
+*イメージ: cache:7.0.1*
+比較不能: レジストリへのログインが必要である
+--- divider ---
+--- section ---
+*イメージ: q:1.2.3*
+保留: 1回の実行でスキャンできる候補数の上限に達した
+--- divider ---
+--- section ---
+*イメージ: t:1.2.3*
+失敗: レジストリがエラーを返した
+--- divider ---
+--- section ---
+*サービス: app*
+修正するファイル: ex/app の docker/Dockerfile
+更新候補: ベースイメージ python 3.12.3-slim → 3.12.5-slim (所見40件中12件が解消、KEV 1件)
+--- divider ---
+--- section ---
+*サービス: worker*
+修正するファイル: ex/app の docker/Dockerfile
+更新候補: ベースイメージ node 20.1.0-slim → 20.1.4-slim
+要判断: 候補でKEV掲載の脆弱性が新たに入る
+修正するファイル: ex/app の requirements.txt
+再ビルド: urllib3 1.26.5: 再ビルドで 1.26.18 以上が入る見込み
+--- divider ---
+--- section ---
+*サービス: api*
+修正するファイル: ex/app の backend/package-lock.json
+更新候補: express 4.18.2 → 4.19.2、lodash 4.17.20 → 4.17.21、qs 6.11.0 → 6.11.3 (KEV 1件)
+--- divider ---
+--- section ---
+*サービス: old*
+修正するファイル: ex/app の package-lock.json
+要判断: lockfile の形式に対応していない
+--- divider ---
+--- section ---
+*サービス: more*
+修正するファイル: ex/app の .
+保留: レジストリのレート制限に掛かった

@@ -32,13 +32,7 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 - `svc/package.json`、`dependencies`、`minimist`: `^0.2.0` から `^1.2.8` へ — **メジャーバージョンの変更**
 - `svc/package.json`、`devDependencies`、`lodash`: `^4.17.0` から `^4.17.21` へ
 
-## これらの版を選んだ理由
-
-各パッケージの目標は、稼働中のイメージで見つかったすべての脆弱性について、脆弱性データが修正済みとして挙げている最も低い版です。更新後の版として示すのは、更新後のファイルに含まれる、そのパッケージの版のうち最も低いものです。
-
 ## 確認したこと
-
-更新は、digest で固定した公式イメージから作った使い捨てのコンテナで、固定の操作だけを認証情報なしで実行しました。その結果は信頼できないものとして扱い、KestreLynx 自身が確認しています。
 
 - 実行環境: `node24` `24.21.0` (公式イメージ `node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc`)
 - パッケージマネージャー: `pnpm` `11.28.2` (プロジェクトが指定する範囲を満たす、このビルドの既定の版)、アーカイブの sha256 `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd`
@@ -60,7 +54,10 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 
 更新で追加または変更した版はすべて npm レジストリに照会し、lockfile が指す配布物と照合しました。
 
-- 非推奨の注記: 2 件のパッケージの版で注記が追加・変更・削除され、いずれも npm レジストリが公開するその版の値と一致
+- `eslint@9.39.4` に非推奨の注記が付きました。npm で作者が非推奨にしたためで、今回の更新とは関係ありません
+- `glob@7.2.3` の非推奨の注記が変わりました。npm で作者が変更したためで、今回の更新とは関係ありません
+- `tar@6.2.1` は npm で非推奨になっています。更新後の版の注記で、npm の値と一致しています
+- `rimraf@3.0.2` の非推奨の注記が外れました。npm で作者が解除したためで、今回の更新とは関係ありません
 
 **更新に伴って依存先が新しい版に寄ったエントリ (1)**
 
@@ -88,19 +85,8 @@ KestreLynx は、`example/app` の `svc/pnpm-lock.yaml` にある 2 件のパッ
 
 - なし
 
-両方のスキャンで Trivy `0.71.2` を使用しました。重大度の範囲 (`CRITICAL`、`HIGH`) と設定は、両方のスキャンで同じです。リポジトリ自身の Trivy 設定、ignore ファイル、VEX ドキュメントは読んでいません。このスキャンが示すのは、対象の脆弱性が lockfile で検出されなくなったことです。イメージではなく、ソースファイルの確認です。
+両方のスキャンで Trivy `0.71.2` を使用しました。重大度の範囲 (`CRITICAL`、`HIGH`) と設定は、両方のスキャンで同じです。リポジトリ自身の Trivy 設定、ignore ファイル、VEX ドキュメントは読んでいません。
 
-## 確認していないこと
-
-- このファイルから作ったイメージで脆弱性が解消しているか: イメージはビルドもスキャンもしておらず、ビルドが実際にインストールするものは lockfile と異なることがあります
-- アプリケーションが更新後のパッケージで動作するか、およびそのテスト: 互換性の確認もテストも実施していません
-- 更新後のファイルの依存関係が各版についてレジストリの宣言と完全に一致するか、およびインストーラーがその形式を受け付けるか: どちらも可能な範囲でしか確認していないため、マージ前に lockfile からインストールする CI ジョブ (例: `pnpm install --frozen-lockfile`) を実行してください
-- 継続的インテグレーション (このプルリクエストを開くと、リポジトリの CI が起動することがあります)
-- マージ後のデプロイ: マージで変わるのはファイルだけで、稼働中のコンテナはイメージをビルドし直して再作成するまで古いイメージのままです
-- 上記の範囲外の重大度の脆弱性
-
----
-
-KestreLynx が作成しました。更新キー `uk3`、試行キー `ak3`。
+- マージ前に CI で lockfile からのインストール (例: `pnpm install --frozen-lockfile`) を実行してください
 
 <!-- kestrelynx:{"v":1,"repo_id":7,"base_branch":"main","path":"compose.yml","locations":["services.web.image"],"current_ref":"nginx:1.25.3","candidate_tag":"1.25.4","candidate_digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111","base_sha":"1111111111111111111111111111111111111111","head_sha":"2222222222222222222222222222222222222222","input_blob_sha":"3333333333333333333333333333333333333333","changes":[{"path":"compose.yml","mode":"100644","blob_sha":"4444444444444444444444444444444444444444"}],"target_key":"d596a66a37dc307e942721c34ab9e199f77f040025dd35c89eca19f67f63a6ca","update_key":"e513bca69279da9566db0a06ac85a0a173b88d9bf1a0a76acc455a31016fe979","attempt_key":"e17763c925cde9702bea370d076aec40d211b1d0658f6a78f56fbf450df9d39d","fix_targets":[{"location":"services.web.image","vuln_id":"CVE-1","package":{"ecosystem":"debian","class":"os","name":"libc"}}]} -->

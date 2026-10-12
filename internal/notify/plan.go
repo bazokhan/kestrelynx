@@ -23,33 +23,22 @@ const (
 	PlanNotBuilt PlanUnavailable = "planner_not_built"
 )
 
-// PlanInfo is the fix plan section of a Message. Plan is nil exactly when
+// PlanInfo is the fix plan of a Message. Plan is nil exactly when
 // Unavailable is set. NotSaved marks a plan that was built but could not be
 // written to its file.
 type PlanInfo struct {
 	Plan        *remediation.Plan
 	Unavailable PlanUnavailable
 	NotSaved    bool
-	// Changed says the plan differs from the last one delivered. It decides
-	// whether Slack mentions a plan with no items at all (a plan that became
-	// empty), which is otherwise left out.
+	// Changed says the plan differs from the last one delivered to the
+	// generic webhook.
 	Changed bool
+	// SlackChanged says what the Slack fix plan message shows differs from the
+	// last one delivered (see SlackFingerprint). The message is sent when it
+	// is set, and on the weekly day (Weekly) whatever it says.
+	SlackChanged bool
+	Weekly       bool
 }
-
-// visible reports whether the Slack message has a fix plan section: always
-// for an unavailable or unsaved plan, otherwise when there is something to
-// show or the plan just became empty.
-func (p *PlanInfo) visible() bool {
-	if p == nil {
-		return false
-	}
-	return p.Plan == nil || p.NotSaved || len(p.Plan.Items) > 0 || len(p.Plan.LanguageItems) > 0 || len(p.Plan.DockerfileItems) > 0 ||
-		len(p.Plan.PullRequests) > 0 || len(p.Plan.PRProblems) > 0 || len(shownOperations(*p.Plan)) > 0 || p.Changed
-}
-
-// slackTopItems is how many pull-again and update-candidate items the Slack
-// section lists by name; the webhook carries every item.
-const slackTopItems = 3
 
 // maxWebhookVerdicts caps each per-vulnerability verdict list of one item in
 // the webhook payload; a list past the cap is marked truncated.
@@ -59,22 +48,6 @@ const maxWebhookVerdicts = 50
 var planSlackOrder = []remediation.Category{
 	remediation.CategoryPullAgain,
 	remediation.CategoryPRCandidate,
-	remediation.CategoryManual,
-	remediation.CategoryNotComparable,
-	remediation.CategoryDeferred,
-	remediation.CategoryNoCandidate,
-	remediation.CategoryExcluded,
-	remediation.CategoryFailed,
-}
-
-// planCountOrder is the order the Slack counts line names the categories in:
-// the image categories, with the language categories after the update
-// candidates they sit beside.
-var planCountOrder = []remediation.Category{
-	remediation.CategoryPullAgain,
-	remediation.CategoryPRCandidate,
-	remediation.CategoryDependencyUpdateCandidate,
-	remediation.CategoryRebuildExpected,
 	remediation.CategoryManual,
 	remediation.CategoryNotComparable,
 	remediation.CategoryDeferred,
@@ -94,36 +67,6 @@ var planLanguageOrder = []remediation.Category{
 	remediation.CategoryFailed,
 }
 
-// planSegment is the counts-line wording of category c.
-func planSegment(c remediation.Category, n int, msg messages) string {
-	var f string
-	switch c {
-	case remediation.CategoryPullAgain:
-		f = msg.PlanSegPullAgain
-	case remediation.CategoryPRCandidate:
-		f = msg.PlanSegUpdate
-	case remediation.CategoryDependencyUpdateCandidate:
-		f = msg.PlanSegDepUpdate
-	case remediation.CategoryRebuildExpected:
-		f = msg.PlanSegRebuild
-	case remediation.CategoryManual:
-		f = msg.PlanSegManual
-	case remediation.CategoryNotComparable:
-		f = msg.PlanSegNotComparable
-	case remediation.CategoryDeferred:
-		f = msg.PlanSegDeferred
-	case remediation.CategoryNoCandidate:
-		f = msg.PlanSegNoCandidate
-	case remediation.CategoryExcluded:
-		f = msg.PlanSegExcluded
-	case remediation.CategoryFailed:
-		f = msg.PlanSegFailed
-	default:
-		return ""
-	}
-	return fmt.Sprintf(f, n)
-}
-
 // kevTargets counts the targets of an item that are KEV-listed.
 func kevTargets(it remediation.Item) int {
 	n := 0
@@ -133,190 +76,6 @@ func kevTargets(it remediation.Item) int {
 		}
 	}
 	return n
-}
-
-// planLines are the lines of the Slack fix plan section.
-func planLines(p *PlanInfo, webhook bool, msg messages) []string {
-	heading := msg.PlanHeading
-	if p.Plan != nil && (len(p.Plan.PullRequests) > 0 || len(p.Plan.PRProblems) > 0 || len(shownOperations(*p.Plan)) > 0) {
-		heading = msg.PlanHeadingPR
-	}
-	lines := []string{trimNL(heading)}
-	if p.Plan == nil {
-		if p.Unavailable == PlanDatabasesNotPrepared {
-			lines = append(lines, trimNL(msg.PlanUnavailableDB))
-		} else {
-			lines = append(lines, trimNL(msg.PlanUnavailableOther))
-		}
-		return lines
-	}
-	plan := *p.Plan
-	var segs []string
-	for _, c := range planCountOrder {
-		if n := plan.CountAll(c); n > 0 {
-			segs = append(segs, planSegment(c, n, msg))
-		}
-	}
-	if len(segs) == 0 && len(shownOperations(plan)) > 0 {
-		// Only pull request results to report: no "nothing to propose".
-	} else if len(segs) == 0 {
-		lines = append(lines, trimNL(msg.PlanNothing))
-	} else {
-		lines = append(lines, strings.Join(segs, " · "))
-	}
-	prLines, prCounts := pullRequestLines(plan, msg)
-	if prCounts != "" {
-		lines = append(lines, prCounts)
-	}
-	for _, l := range prLines {
-		lines = append(lines, trimNL(l))
-	}
-	// Items that need a person's attention come first, then the adopted
-	// ones; only the first slackTopItems are listed.
-	var warn, adopted []string
-	for _, it := range plan.Items {
-		ref := escMrkdwn(it.Current.Ref)
-		if hasPullRequest(plan, it) {
-			// The pull request line speaks for the item.
-			continue
-		}
-		switch {
-		case it.Category == remediation.CategoryManual && it.Reason == remediation.ReasonIntroducedKEV:
-			if it.Kind == remediation.TagPinned && it.Candidate != nil {
-				warn = append(warn, fmt.Sprintf(msg.PlanIntroducedKEVUpdateLine, ref, escMrkdwn(it.Candidate.Tag)))
-			} else {
-				warn = append(warn, fmt.Sprintf(msg.PlanIntroducedKEVPullLine, ref))
-			}
-		case it.Category == remediation.CategoryPullAgain:
-			if n, ok := partialOf(it); ok {
-				adopted = append(adopted, fmt.Sprintf(msg.PlanPullAgainPartialLine, ref, resolvedCount(it), n, remainderClause(it, msg))+kevSuffix(it, msg))
-			} else {
-				adopted = append(adopted, fmt.Sprintf(msg.PlanPullAgainLine, ref, resolvedCount(it))+kevSuffix(it, msg))
-			}
-		case it.Category == remediation.CategoryPRCandidate && it.Candidate != nil:
-			tag := escMrkdwn(it.Candidate.Tag)
-			if n, ok := partialOf(it); ok {
-				adopted = append(adopted, fmt.Sprintf(msg.PlanUpdatePartialLine, ref, tag, resolvedCount(it), n, remainderClause(it, msg))+kevSuffix(it, msg))
-			} else {
-				adopted = append(adopted, fmt.Sprintf(msg.PlanUpdateLine, ref, tag, resolvedCount(it))+kevSuffix(it, msg))
-			}
-		}
-	}
-	dfWarn, dfAdopted, dfAdvice := dockerfileLines(plan, msg)
-	warn = append(warn, dfWarn...)
-	adopted = append(adopted, dfAdopted...)
-	depWarn, depAdopted := languageUpdateLines(plan, msg)
-	warn = append(warn, depWarn...)
-	adopted = append(adopted, depAdopted...)
-	for _, li := range plan.LanguageItems {
-		if line := dependencyLine(li, msg); line != "" {
-			adopted = append(adopted, line)
-		}
-	}
-	adopted = append(adopted, dfAdvice...)
-	all := append(warn, adopted...)
-	total, shown := len(all), len(all)
-	if shown > slackTopItems {
-		shown = slackTopItems
-	}
-	for _, l := range all[:shown] {
-		lines = append(lines, trimNL(l))
-	}
-	if total > shown {
-		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, total-shown)))
-	}
-	if problem := pullRequestProblemLine(plan, msg); problem != "" {
-		lines = append(lines, problem)
-	}
-	lines = append(lines, operationLines(plan, msg)...)
-	if p.NotSaved {
-		lines = append(lines, trimNL(msg.PlanNotSaved))
-	}
-	if webhook {
-		lines = append(lines, trimNL(msg.DetailsInWebhook))
-	}
-	return lines
-}
-
-// maxOperationError is how many characters of an error text the Slack line
-// keeps.
-const maxOperationError = 80
-
-// shownOperations are the events the Slack section reports: the results of
-// operations and their later settlements. An intent alone says nothing yet.
-func shownOperations(plan remediation.Plan) []remediation.OperationEvent {
-	var out []remediation.OperationEvent
-	for _, ev := range plan.PROperations {
-		if ev.Phase == remediation.PhaseResult || ev.Phase == remediation.PhaseSettled {
-			out = append(out, ev)
-		}
-	}
-	return out
-}
-
-// operationLines lists the first slackTopItems operation results, with the
-// count of the rest.
-func operationLines(plan remediation.Plan, msg messages) []string {
-	evs := shownOperations(plan)
-	if len(evs) == 0 {
-		return nil
-	}
-	lines := []string{trimNL(msg.PlanOpsLabel)}
-	shown := len(evs)
-	if shown > slackTopItems {
-		shown = slackTopItems
-	}
-	for _, ev := range evs[:shown] {
-		kind := map[remediation.OperationKind]string{
-			remediation.OpCreateBlob: msg.PlanOpBlob, remediation.OpCreateTree: msg.PlanOpTree,
-			remediation.OpCreateCommit: msg.PlanOpCommit, remediation.OpCreateRef: msg.PlanOpRef,
-			remediation.OpCreatePull: msg.PlanOpPull, remediation.OpCreateComment: msg.PlanOpComment,
-			remediation.OpClosePull: msg.PlanOpClose,
-		}[ev.Kind]
-		if kind == "" {
-			kind = escMrkdwn(string(ev.Kind))
-		}
-		target := escMrkdwn(ev.Repo)
-		switch {
-		case ev.Number > 0:
-			target = fmt.Sprintf("%s#%d", target, ev.Number)
-		case ev.Kind == remediation.OpCreateRef && ev.Ref != "":
-			target = fmt.Sprintf(msg.PlanOpTargetRef, target, escMrkdwn(ev.Ref))
-		}
-		result := map[remediation.OperationResult]string{
-			remediation.ResultOK: msg.PlanOpResultOK, remediation.ResultFailed: msg.PlanOpResultFailed,
-			remediation.ResultUnknown: msg.PlanOpResultUnknown,
-		}[ev.Result]
-		if result == "" {
-			result = escMrkdwn(string(ev.Result))
-		}
-		clause := ""
-		if e := strings.Join(strings.Fields(ev.Error), " "); e != "" {
-			if r := []rune(e); len(r) > maxOperationError {
-				e = string(r[:maxOperationError]) + "…"
-			}
-			clause = fmt.Sprintf(msg.PlanOpErrorClause, escMrkdwn(e))
-		}
-		lines = append(lines, trimNL(fmt.Sprintf(msg.PlanOpLine, kind, target, result, clause)))
-	}
-	if len(evs) > shown {
-		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, len(evs)-shown)))
-	}
-	return lines
-}
-
-// hasPullRequest reports whether a pull request of the stage exists (or
-// existed) for the update the item proposes.
-func hasPullRequest(plan remediation.Plan, it remediation.Item) bool {
-	if it.Category != remediation.CategoryPRCandidate || it.Candidate == nil {
-		return false
-	}
-	for _, u := range plan.PullRequests {
-		if u.Number > 0 && u.Current == it.Current.Ref && u.CandidateTag == it.Candidate.Tag {
-			return true
-		}
-	}
-	return false
 }
 
 // splitImageRef splits a reference into the image and its tag for display;
@@ -330,83 +89,6 @@ func splitImageRef(ref string) (image, tag string) {
 		return ref[:colon], ref[colon+1:]
 	}
 	return ref, ""
-}
-
-// pullRequestLines returns the Slack lines of the pull request stage — the
-// first slackTopItems units that have a pull request, created ones first —
-// and the counts line, or nothing without any unit.
-func pullRequestLines(plan remediation.Plan, msg messages) (lines []string, counts string) {
-	if len(plan.PullRequests) == 0 {
-		return nil, ""
-	}
-	n := map[remediation.PRUnitStatus]int{}
-	for _, u := range plan.PullRequests {
-		n[u.Status]++
-	}
-	var segs []string
-	for _, c := range []struct {
-		format string
-		n      int
-	}{
-		{msg.PlanPRSegCreated, n[remediation.PRStatusCreated]},
-		{msg.PlanPRSegOpen, n[remediation.PRStatusOpen]},
-		{msg.PlanPRSegMerged, n[remediation.PRStatusMerged]},
-		{msg.PlanPRSegClosed, n[remediation.PRStatusSuppressed]},
-		{msg.PlanPRSegManual, n[remediation.PRStatusManual]},
-		{msg.PlanPRSegDeferred, n[remediation.PRStatusDeferred]},
-		{msg.PlanPRSegBlocked, n[remediation.PRStatusFailed] + n[remediation.PRStatusWriteBlocked]},
-	} {
-		if c.n > 0 {
-			segs = append(segs, fmt.Sprintf(c.format, c.n))
-		}
-	}
-	if len(segs) > 0 {
-		counts = fmt.Sprintf(msg.PlanPRCounts, strings.Join(segs, " · "))
-	}
-	var listed []string
-	for _, status := range []remediation.PRUnitStatus{
-		remediation.PRStatusCreated, remediation.PRStatusOpen, remediation.PRStatusMerged, remediation.PRStatusSuppressed,
-	} {
-		format := map[remediation.PRUnitStatus]string{
-			remediation.PRStatusCreated:    msg.PlanPRCreatedLine,
-			remediation.PRStatusOpen:       msg.PlanPROpenLine,
-			remediation.PRStatusMerged:     msg.PlanPRMergedLine,
-			remediation.PRStatusSuppressed: msg.PlanPRClosedLine,
-		}[status]
-		langFormat := map[remediation.PRUnitStatus]string{
-			remediation.PRStatusCreated:    msg.PlanPRLangCreatedLine,
-			remediation.PRStatusOpen:       msg.PlanPRLangOpenLine,
-			remediation.PRStatusMerged:     msg.PlanPRLangMergedLine,
-			remediation.PRStatusSuppressed: msg.PlanPRLangClosedLine,
-		}[status]
-		for _, u := range plan.PullRequests {
-			if u.Status != status || u.Number <= 0 {
-				continue
-			}
-			if u.Kind == "language" {
-				listed = append(listed, languagePRLine(langFormat, u, msg))
-				continue
-			}
-			image, old := splitImageRef(u.Current)
-			line := fmt.Sprintf(format,
-				mrkdwnLink(u.URL, fmt.Sprintf("#%d", u.Number)),
-				escMrkdwn(image), escMrkdwn(old), escMrkdwn(u.CandidateTag), escMrkdwn(u.Path))
-			if u.Kind == "dockerfile" {
-				// The scope of the claim stays with the pull request.
-				line += msg.PlanDockerfilePRNote
-			}
-			listed = append(listed, line)
-		}
-	}
-	shown := len(listed)
-	if shown > slackTopItems {
-		shown = slackTopItems
-	}
-	lines = append(lines, listed[:shown]...)
-	if len(listed) > shown {
-		lines = append(lines, strings.TrimSpace(fmt.Sprintf(msg.MoreCount, len(listed)-shown)))
-	}
-	return lines, counts
 }
 
 // pullRequestProblemLine is the single line that names the conditions that
@@ -436,83 +118,12 @@ func pullRequestProblemLine(plan remediation.Plan, msg messages) string {
 	return fmt.Sprintf(msg.PlanPRProblemLine, strings.Join(reasons, msg.PlanPRProblemJoin))
 }
 
-// dependencyLine is the Slack line of a dependency unit that has update
-// candidates (update not run yet) or expects a rebuild to take the fix, or ""
-// for any other unit. It names the first such package and counts the others.
-func dependencyLine(li remediation.LanguageItem, msg messages) string {
-	action, format := remediation.ActionUpdate, msg.PlanDepLine
-	switch li.Category {
-	case remediation.CategoryDependencyUpdateCandidate:
-	case remediation.CategoryRebuildExpected:
-		action, format = remediation.ActionRebuildExpected, msg.PlanRebuildLine
-	default:
-		return ""
-	}
-	var lead *remediation.LanguagePackage
-	n, kev := 0, 0
-	for i := range li.Packages {
-		p := &li.Packages[i]
-		if p.Action != action {
-			continue
-		}
-		n++
-		kev += p.KEVCount()
-		if lead == nil {
-			lead = p
-		}
-	}
-	if lead == nil {
-		return ""
-	}
-	more := ""
-	if n > 1 {
-		more = fmt.Sprintf(msg.PlanDepMore, n-1)
-	}
-	var services []string
-	for _, w := range li.Workloads {
-		services = append(services, escMrkdwn(workloadService(w)))
-	}
-	line := fmt.Sprintf(format, strings.Join(services, ", "), escMrkdwn(li.Manager.LockfileName()),
-		escMrkdwn(lead.Name), escMrkdwn(lead.Installed), escMrkdwn(lead.SelectionLowerBound), more)
-	if kev > 0 {
-		line += fmt.Sprintf(msg.PlanKEVSuffix, kev)
-	}
-	return line
-}
-
 // workloadService is the service part of a compose/<project>/<service> key.
 func workloadService(key string) string {
 	if i := strings.LastIndex(key, "/"); i >= 0 {
 		return key[i+1:]
 	}
 	return key
-}
-
-// kevSuffix is the plan line's count of resolved KEV-listed findings.
-func kevSuffix(it remediation.Item, msg messages) string {
-	if k := resolvedKEVTargets(it); k > 0 {
-		return fmt.Sprintf(msg.PlanKEVSuffix, k)
-	}
-	return ""
-}
-
-// remainderClause says how many targeted findings the candidate leaves: the
-// ones observed still present, and — only when there are any — the ones the
-// comparison scan of the running image did not show.
-func remainderClause(it remediation.Item, msg messages) string {
-	var parts []string
-	if d := it.Decision; d != nil {
-		if d.Remaining > 0 {
-			parts = append(parts, fmt.Sprintf(msg.PlanRemainClause, d.Remaining))
-		}
-		if d.Undetected > 0 {
-			parts = append(parts, fmt.Sprintf(msg.PlanUndetectedClause, d.Undetected))
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(msg.PlanClauseWrap, strings.Join(parts, msg.PlanClauseJoin))
 }
 
 // resolvedKEVTargets counts the KEV-listed targets the candidate resolves.
@@ -551,17 +162,6 @@ func resolvedCount(it remediation.Item) int {
 		return it.Decision.Resolved
 	}
 	return 0
-}
-
-// planSection emits the fix plan section as a group of its own and reports
-// whether there was one to emit.
-func (v *chView) planSection() bool {
-	if !v.plan.visible() {
-		return false
-	}
-	v.l.group()
-	v.l.section(v.rd.lim, planLines(v.plan, v.r.GenericWebhookConfigured, v.msg), false)
-	return true
 }
 
 // --- generic webhook ---
@@ -964,6 +564,13 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 		UpdateExecuted: li.UpdateExecuted, PostUpdateCheckExecuted: li.PostUpdateCheckExecuted,
 		PackageCount: len(li.Packages),
 		Update:       li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,
+	}
+	if li.Update != nil {
+		// The webhook keeps the fields it has always had: the names of the
+		// deprecation notes are for the pull request body.
+		update := *li.Update
+		update.DeprecatedNotes = nil
+		out.Update = &update
 	}
 	u := languageUnitOf(li, units)
 	if u != nil {

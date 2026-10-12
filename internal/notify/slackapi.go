@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,6 +78,9 @@ func (n SlackAPINotifier) Send(ctx context.Context, m Message) error {
 	if m.Diff != nil && !m.LastReport.ValidFor(n.Channel) {
 		postThread = true
 	}
+	if m.SkipReport {
+		postThread = false
+	}
 	lim := limitsOrDefault(n.Limits)
 	msg := messagesFor(n.Language)
 	var thread []SlackMessage
@@ -91,10 +95,18 @@ func (n SlackAPINotifier) Send(ctx context.Context, m Message) error {
 	case m.LastReport.ValidFor(n.Channel):
 		footer = ChannelFooter{Kind: FooterLastReport, Permalink: m.LastReport.Permalink}
 	}
-	channel := buildChannelMessages(m, footer, msg, lim)
+	var channel []SlackMessage
+	if !m.SkipReport {
+		channel = buildChannelMessages(m, footer, msg, lim)
+	}
+	// The fix plan follows the vulnerability message in the channel, as a
+	// top-level message of its own.
+	plan := buildPlanMessages(m, msg, lim)
 
 	// The first channel message is the thread's parent; the rest are plain
-	// top-level messages.
+	// top-level messages. The vulnerability message with its thread and the
+	// fix plan are delivered on their own: a failure of one does not keep the
+	// other from being sent or recorded.
 	ts := ""
 	posted := 0
 	pace := func() {
@@ -103,33 +115,53 @@ func (n SlackAPINotifier) Send(ctx context.Context, m Message) error {
 		}
 		posted++
 	}
+	var errs []error
+	reportOK := true
 	for i, cm := range channel {
 		pace()
 		got, err := n.postMessage(ctx, cm, "")
 		if err != nil {
-			return fmt.Errorf("post summary %d/%d: %w", i+1, len(channel), err)
+			errs = append(errs, fmt.Errorf("post summary %d/%d: %w", i+1, len(channel), err))
+			reportOK = false
+			break
 		}
 		if i == 0 {
 			ts = got
 		}
 	}
-	if len(thread) == 0 {
-		return nil
+	if len(plan) > 0 {
+		var planErr error
+		for i, pm := range plan {
+			pace()
+			if _, err := n.postMessage(ctx, pm, ""); err != nil {
+				planErr = fmt.Errorf("post fix plan %d/%d: %w", i+1, len(plan), err)
+				break
+			}
+		}
+		if planErr != nil {
+			errs = append(errs, planErr)
+		}
+		m.PlanDelivery.record(planErr == nil)
+	}
+	if !reportOK || len(thread) == 0 {
+		return errors.Join(errs...)
 	}
 	for i, reply := range thread {
 		pace()
 		if _, err := n.postMessage(ctx, reply, ts); err != nil {
-			return fmt.Errorf("post thread reply %d/%d: %w", i+1, len(thread), err)
+			errs = append(errs, fmt.Errorf("post thread reply %d/%d: %w", i+1, len(thread), err))
+			return errors.Join(errs...)
 		}
 	}
 	link, err := n.permalink(ctx, ts)
 	if err != nil {
-		return fmt.Errorf("get permalink: %w", err)
+		errs = append(errs, fmt.Errorf("get permalink: %w", err))
+		return errors.Join(errs...)
 	}
 	if m.Result != nil {
 		m.Result.Ref = state.ReportRef{Channel: n.Channel, TS: ts, Permalink: link}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // limitsOrDefault resolves the zero RenderLimits to the defaults.

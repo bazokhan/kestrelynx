@@ -126,6 +126,7 @@ func languageBodyFixture(lang BodyLanguage, marker string, full bool) languageBo
 	rec.Runtime = &RuntimeRecord{ID: "node24", Version: "24.21.0", Image: "node@sha256:" + strings.Repeat("c", 64), Support: "lts", EOL: "2028-04-30"}
 	rec.Tool = &ToolRecord{Name: "pnpm", Version: "11.28.2", Source: toolSourceDefaultInRange, SHA256: strings.Repeat("d", 64)}
 	rec.DeprecatedChanged = 2
+	rec.DeprecatedNotes = []DeprecationChange{{Name: "eslint", Version: "9.39.4", Kind: DeprecationGained}, {Name: "glob", Version: "7.2.3", Kind: DeprecationChanged}, {Name: "tar", Version: "6.2.1", Kind: DeprecationPresent}, {Name: "rimraf", Version: "3.0.2", Kind: DeprecationLost}}
 	rec.Followed = []FollowedEntry{{Entry: "browserslist@4.28.2", Moves: []FollowMove{{Name: "caniuse-lite", From: "1.0.30001792", To: "1.0.30001806"}}}}
 	item.Update = &LanguageUpdate{
 		Steps: []UpdateStep{{Op: "pnpm update lodash", ExitCode: 0}, {Op: "pnpm install --lockfile-only", Scratch: true, ExitCode: 0}},

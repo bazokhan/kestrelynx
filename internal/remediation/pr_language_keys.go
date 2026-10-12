@@ -64,17 +64,21 @@ type LangRecord struct {
 	// DeprecatedChanged is how many lockfile entries gained, lost or changed a
 	// deprecated note in the update. It is not part of the update key.
 	DeprecatedChanged int `json:"deprecated_changed,omitempty"`
+	// DeprecatedNotes names those package versions and what happened to the
+	// note of each. It is not part of the update key.
+	DeprecatedNotes []DeprecationChange `json:"deprecated_notes,omitempty"`
 	// Followed are the entries whose dependencies moved to new versions along
 	// with the update. They are not part of the update key.
 	Followed []FollowedEntry `json:"followed,omitempty"`
 }
 
-// deprecatedChanged is the count of the record, 0 for none.
-func (l *LangRecord) deprecatedChanged() int {
+// deprecatedNotes are the package versions of the record whose deprecation
+// note changed, none for no record.
+func (l *LangRecord) deprecatedNotes() []DeprecationChange {
 	if l == nil {
-		return 0
+		return nil
 	}
-	return l.DeprecatedChanged
+	return l.DeprecatedNotes
 }
 
 // sortedLangEntries returns a sorted copy of entries with sorted positions.

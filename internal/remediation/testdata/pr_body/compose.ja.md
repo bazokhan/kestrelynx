@@ -12,10 +12,6 @@ KestreLynx は、`example/app` の `compose.yml` にある 2 件の Compose サ�
 - `services.web.image`: `nginx:1.25.3` から `nginx:1.25.4` へ
 - `services.worker.image`: `nginx:1.25.3` から `nginx:1.25.4` へ
 
-## この候補を選んだ理由
-
-`1.25.4` は、完全なタグ一覧のうち、稼働中のタグのメジャーバージョン、マイナーバージョン、接頭辞、接尾辞を保つ最新のパッチリリースです。
-
 ## 確認したこと
 
 - 稼働中: `nginx:1.25.3`、config digest `sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`、プラットフォーム `linux/amd64`
@@ -39,16 +35,5 @@ KestreLynx は、`example/app` の `compose.yml` にある 2 件の Compose サ�
 - なし
 
 両方のイメージを Trivy `0.71.2` でスキャンしました。脆弱性データベースの作成時刻は 2026-10-09T01:02:03Z です。重大度の範囲は `CRITICAL`、`HIGH` です。対象範囲は `os packages` です。
-
-## 確認していないこと
-
-- アプリケーションが新しいイメージで動作するか
-- 継続的インテグレーション (このプルリクエストを開くと、リポジトリの CI が起動することがあります)
-- マージ後のデプロイ: マージで変わるのはファイルだけで、稼働中のコンテナは再作成するまで古いイメージのままです
-- 上記の範囲外の重大度の脆弱性
-
----
-
-KestreLynx が作成しました。更新キー `uk1`、試行キー `ak1`。
 
 <!-- kestrelynx:{"v":1,"repo_id":7,"base_branch":"main","path":"compose.yml","locations":["services.web.image"],"current_ref":"nginx:1.25.3","candidate_tag":"1.25.4","candidate_digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111","base_sha":"1111111111111111111111111111111111111111","head_sha":"2222222222222222222222222222222222222222","input_blob_sha":"3333333333333333333333333333333333333333","changes":[{"path":"compose.yml","mode":"100644","blob_sha":"4444444444444444444444444444444444444444"}],"target_key":"d596a66a37dc307e942721c34ab9e199f77f040025dd35c89eca19f67f63a6ca","update_key":"e513bca69279da9566db0a06ac85a0a173b88d9bf1a0a76acc455a31016fe979","attempt_key":"e17763c925cde9702bea370d076aec40d211b1d0658f6a78f56fbf450df9d39d","fix_targets":[{"location":"services.web.image","vuln_id":"CVE-1","package":{"ecosystem":"debian","class":"os","name":"libc"}}]} -->

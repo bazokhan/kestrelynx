@@ -139,9 +139,6 @@ func buildPRBody(in prBodyInput) (string, error) {
 		fmt.Fprintf(&b, t.CChange, mdCode(c.Location), mdCode(c.Old), mdCode(c.New))
 	}
 
-	b.WriteString("\n## " + t.HeadWhyCandidate + "\n\n")
-	fmt.Fprintf(&b, t.CWhy, mdCode(in.CandidateTag))
-
 	b.WriteString("\n## " + t.HeadVerification + "\n")
 	if ev := in.Evidence; ev != nil {
 		for _, it := range ev.Items {
@@ -178,15 +175,6 @@ func buildPRBody(in prBodyInput) (string, error) {
 		}
 		b.WriteString("\n")
 	}
-
-	b.WriteString("\n## " + t.HeadNotVerified + "\n\n")
-	b.WriteString(t.NVApp)
-	b.WriteString(t.NVCI)
-	b.WriteString(t.CNVDeploy)
-	b.WriteString(t.NVSeverity)
-
-	b.WriteString("\n---\n\n")
-	fmt.Fprintf(&b, t.Footer, mdCode(in.UpdateKey), mdCode(in.AttemptKey))
 
 	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }

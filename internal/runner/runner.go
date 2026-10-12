@@ -411,11 +411,17 @@ func (r Runner) bootTime() (time.Time, error) {
 // anything to say.
 func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOutcome) error {
 	log := r.log()
-	if !report.HasIssues() && !r.NotifyOnClean && !plan.mustSend() {
+	// The vulnerability message and the fix plan message are due on their own
+	// terms; the generic webhook gets both together whenever either is sent.
+	reportDue := report.HasIssues() || r.NotifyOnClean
+	m := plan.message(notify.Message{Report: report, SkipReport: !reportDue})
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() {
 		log.Info("no issues found; skipping notification")
 		return nil
 	}
-	if err := r.Notifier.Send(ctx, plan.message(notify.Message{Report: report})); err != nil {
+	m.PlanDelivery = &notify.PlanDelivery{}
+	if err := r.Notifier.Send(ctx, m); err != nil {
+		r.markSlackPlanDelivered(plan, m.PlanDelivery)
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)
@@ -451,18 +457,17 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 	// so a quiet cycle must not skip the notification just because nothing
 	// newly changed.
 	holding := holdingUnconfirmed(prev, report)
-	send := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding || plan.mustSend()
-	if !send {
-		log.Info("no issues and no changes; skipping notification")
-		return r.saveState(next)
-	}
+	// The vulnerability message and the fix plan message are due on their own
+	// terms; the generic webhook gets both together whenever either is sent.
+	reportDue := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding
 
 	res := &notify.ThreadResult{}
-	m := notify.Message{
+	m := plan.message(notify.Message{
 		Report:     report,
 		Diff:       &diff,
 		FullReport: fullToday,
 		Holding:    holding,
+		SkipReport: !reportDue,
 		// The thread mirrors the channel: post the full state when something
 		// changed (or on the weekly digest day); on quiet days the summary
 		// links to the previous thread instead.
@@ -471,8 +476,14 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 		EOLFirstSeen: next.EOLFirstSeen,
 		LastReport:   prev.LastFullReport,
 		Result:       res,
+	})
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() {
+		log.Info("no issues and no changes; skipping notification")
+		return r.saveState(next)
 	}
-	if err := r.Notifier.Send(ctx, plan.message(m)); err != nil {
+	m.PlanDelivery = &notify.PlanDelivery{}
+	if err := r.Notifier.Send(ctx, m); err != nil {
+		r.markSlackPlanDelivered(plan, m.PlanDelivery)
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)

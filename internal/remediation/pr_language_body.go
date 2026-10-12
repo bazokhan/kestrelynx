@@ -47,10 +47,9 @@ func installCheck(m DependencyManager) string {
 }
 
 // buildLanguagePRBody renders the body of a language package pull request. It
-// says what was run and checked, and states plainly what was not: the image
-// is not rebuilt, compatibility and tests are not checked, and the checks of
-// the installer's view of the files go only as far as they can. The text is
-// cut like buildPRBody's and ends with the marker.
+// says what was run and checked, and ends by asking for a CI run that installs
+// from the changed files. The text is cut like buildPRBody's and ends with the
+// marker.
 func buildLanguagePRBody(in languageBodyInput) (string, error) {
 	t := textFor(in.Language)
 	it := in.Item
@@ -154,11 +153,7 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 		}
 	}
 
-	b.WriteString("\n## " + t.HeadWhyVersions + "\n\n")
-	b.WriteString(t.LWhy)
-
 	b.WriteString("\n## " + t.HeadVerification + "\n\n")
-	b.WriteString(t.LVerification)
 	writeEnvironment(t, &b, in.Record)
 	if up := it.Update; up != nil {
 		b.WriteString(t.LOps)
@@ -183,9 +178,24 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 			writeEntryList(t, &b, t.LTitleRemoved, d.Removed)
 			fmt.Fprintf(&b, t.LLookup, registryName(t, it.Manager))
 		}
-		if n := in.Record.deprecatedChanged(); n > 0 {
+		if notes := in.Record.deprecatedNotes(); len(notes) > 0 {
 			b.WriteString("\n")
-			fmt.Fprintf(&b, t.LDeprecated, n, registryName(t, it.Manager))
+			for i, n := range notes {
+				if i == maxListedEntries {
+					fmt.Fprintf(&b, t.LineMore, len(notes)-maxListedEntries)
+					break
+				}
+				format := t.LDeprecatedChanged
+				switch n.Kind {
+				case DeprecationGained:
+					format = t.LDeprecatedGained
+				case DeprecationLost:
+					format = t.LDeprecatedLost
+				case DeprecationPresent:
+					format = t.LDeprecatedPresent
+				}
+				fmt.Fprintf(&b, format, mdCode(n.Name+"@"+n.Version))
+			}
 		}
 		if f := in.Record.followed(); len(f) > 0 {
 			fmt.Fprintf(&b, "\n**%s (%d)**\n\n", t.LFollowedTitle, len(f))
@@ -224,16 +234,10 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 		fmt.Fprintf(&b, t.LScanTail, codeListIn(t, sc.Conditions.Severities, 10))
 	}
 
-	b.WriteString("\n## " + t.HeadNotVerified + "\n\n")
-	b.WriteString(t.LNVImage)
-	b.WriteString(t.LNVApp)
-	fmt.Fprintf(&b, t.LNVInstall, mdCode(installCheck(it.Manager)))
-	b.WriteString(t.NVCI)
-	b.WriteString(t.LNVDeploy)
-	b.WriteString(t.NVSeverity)
-
-	b.WriteString("\n---\n\n")
-	fmt.Fprintf(&b, t.Footer, mdCode(in.UpdateKey), mdCode(in.AttemptKey))
+	if !strings.HasSuffix(b.String(), "\n\n") {
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, t.LInstallCheck, mdCode(installCheck(it.Manager)))
 
 	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }

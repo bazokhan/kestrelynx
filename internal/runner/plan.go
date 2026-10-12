@@ -35,6 +35,14 @@ type DeliveredStore interface {
 	Save(fingerprint string) error
 }
 
+// SlackDeliveredStore is the part of a DeliveredStore that keeps the
+// fingerprint of the last Slack fix plan message. A store without it sends
+// that message whenever the plan as a whole changed.
+type SlackDeliveredStore interface {
+	LoadSlack() (string, error)
+	SaveSlack(fingerprint string) error
+}
+
 // PRStage runs the pull request stage once (implemented by
 // *remediation.PRStage).
 type PRStage interface {
@@ -159,6 +167,10 @@ type planOutcome struct {
 	// means its content differs from the last delivered plan.
 	fingerprint string
 	changed     bool
+	// slackFingerprint and slackChanged are the same for what the Slack fix
+	// plan message shows (notify.PlanInfo.SlackFingerprint).
+	slackFingerprint string
+	slackChanged     bool
 	// prLastSeq is the highest sequence number among the pull request
 	// operation events the notification carries (0 when there are none).
 	// prPending says the pull request stage has something to deliver whatever
@@ -171,8 +183,11 @@ type planOutcome struct {
 // mustSend says the plan gives a reason to send a notification.
 func (o planOutcome) mustSend() bool { return o.changed || o.prPending }
 
-// message copies the plan into m.
+// message copies the plan into m, with whether it is the weekly day.
 func (o planOutcome) message(m notify.Message) notify.Message {
+	if o.info != nil {
+		o.info.Weekly = m.FullReport
+	}
 	m.Plan = o.info
 	return m
 }
@@ -237,6 +252,20 @@ func (r Runner) finishPlan(info *notify.PlanInfo, planFingerprint string) planOu
 	}
 	out.changed = out.fingerprint != delivered
 	info.Changed = out.changed
+
+	// What the Slack message shows is compared on its own: it is the plan as a
+	// reader sees it, so a change the message does not show does not send it.
+	out.slackFingerprint = info.SlackFingerprint()
+	out.slackChanged = out.changed
+	if store, ok := r.Plan.Delivered.(SlackDeliveredStore); ok {
+		last, err := store.LoadSlack()
+		if err != nil {
+			r.log().Warn("delivered Slack fix plan record unreadable; treating the plan as undelivered", "err", err)
+			last = ""
+		}
+		out.slackChanged = out.slackFingerprint != last
+	}
+	info.SlackChanged = out.slackChanged
 	return out
 }
 
@@ -438,11 +467,34 @@ func (r Runner) markDelivered(o planOutcome) {
 			r.log().Warn("delivered fix plan could not be recorded; the plan may be announced again", "err", err)
 		}
 	}
+	r.saveSlackPlan(o)
 	if o.prLastSeq > 0 && r.Plan.PullRequests != nil && r.Plan.PullRequests.Store != nil {
 		if err := remediation.MarkPROperationsDelivered(r.Plan.PullRequests.Store, o.prLastSeq); err != nil {
 			r.log().Warn("delivered pull request operations could not be recorded; they may be announced again", "err", err)
 		}
 	}
+}
+
+// saveSlackPlan records what the Slack fix plan message showed.
+func (r Runner) saveSlackPlan(o planOutcome) {
+	if r.Plan == nil || !o.slackChanged {
+		return
+	}
+	if store, ok := r.Plan.Delivered.(SlackDeliveredStore); ok {
+		if err := store.SaveSlack(o.slackFingerprint); err != nil {
+			r.log().Warn("delivered Slack fix plan could not be recorded; the plan may be announced again", "err", err)
+		}
+	}
+}
+
+// markSlackPlanDelivered records the Slack fix plan message after a send that
+// failed as a whole, when the plan itself was posted: the next cycle then does
+// not post it again. The rest stays unrecorded and is sent again.
+func (r Runner) markSlackPlanDelivered(o planOutcome, d *notify.PlanDelivery) {
+	if o.info == nil || d == nil || !d.Posted || d.Failed {
+		return
+	}
+	r.saveSlackPlan(o)
 }
 
 // KEVSource lists the CISA KEV catalog (implemented by intel.Source). It is

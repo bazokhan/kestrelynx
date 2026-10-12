@@ -84,3 +84,21 @@ func refLinksSafe(refs []cardRef, msg messages) []string {
 	}
 	return parts
 }
+
+// literalNeedsCode matches a value that Slack would read as formatting: a
+// backtick, a star or a tilde anywhere, or an underscore at the edge of a
+// word.
+var literalNeedsCode = regexp.MustCompile("[`*~]|(^|[^A-Za-z0-9])_|_([^A-Za-z0-9]|$)")
+
+// litMrkdwn shows an external value (an image reference, a path, a package
+// name, a version, a code) as the literal text it is. It is escaped like
+// escMrkdwn; a value with characters that would format the text around it is
+// put in an inline code span, in which a backtick is shown as an apostrophe.
+func litMrkdwn(s string) string {
+	s = strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+	e := escMrkdwn(s)
+	if !literalNeedsCode.MatchString(s) {
+		return e
+	}
+	return "`" + strings.ReplaceAll(e, "`", "'") + "`"
+}

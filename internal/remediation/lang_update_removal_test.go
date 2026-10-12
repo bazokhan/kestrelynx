@@ -1,6 +1,8 @@
 package remediation
 
 import (
+	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -125,8 +127,12 @@ func TestLangUpdateDeprecatedNotesFollowTheRegistry(t *testing.T) {
 				if it.Update.DeprecatedChanged != 1 {
 					t.Errorf("deprecated notes changed = %d", it.Update.DeprecatedChanged)
 				}
+				want := []DeprecationChange{{Name: "mkdirp", Version: "0.5.5", Kind: DeprecationGained}}
+				if !reflect.DeepEqual(it.Update.DeprecatedNotes, want) {
+					t.Errorf("deprecated notes = %+v, want %+v", it.Update.DeprecatedNotes, want)
+				}
 				u := buildLanguageUnit(&it, 0)
-				if u.manual || u.lang.record.DeprecatedChanged != 1 {
+				if u.manual || u.lang.record.DeprecatedChanged != 1 || !reflect.DeepEqual(u.lang.record.DeprecatedNotes, want) {
 					t.Errorf("unit = %+v", u)
 				}
 			})
@@ -160,6 +166,9 @@ func TestLangUpdateDeprecatedNotesFollowTheRegistry(t *testing.T) {
 				wantCategory(t, it, CategoryPRCandidate, ReasonUpdateVerified)
 				if it.Update.DeprecatedChanged != 1 {
 					t.Errorf("deprecated notes changed = %d", it.Update.DeprecatedChanged)
+				}
+				if want := []DeprecationChange{{Name: "mkdirp", Version: "0.5.5", Kind: DeprecationLost}}; !reflect.DeepEqual(it.Update.DeprecatedNotes, want) {
+					t.Errorf("deprecated notes = %+v, want %+v", it.Update.DeprecatedNotes, want)
 				}
 			})
 			t.Run("a note taken away that the registry still has is refused", func(t *testing.T) {
@@ -375,4 +384,61 @@ func TestLangUpdateReadsADeprecatedNoteByItsType(t *testing.T) {
 		it, _ := h.run()
 		wantCategory(t, it, CategoryManual, ReasonDistributionMismatch)
 	})
+}
+
+// The note of an entry is called a change only when the name and version are
+// the same as before; for another version it is only stated, and only when
+// the new version has one.
+func TestDeprecationKind(t *testing.T) {
+	node := func(version, note string) *depNode {
+		return &depNode{name: "eslint", version: version, deprecated: note}
+	}
+	for _, c := range []struct {
+		name     string
+		old, now *depNode
+		want     string
+	}{
+		{"same version gained a note", node("9.0.0", ""), node("9.0.0", "x"), DeprecationGained},
+		{"same version lost its note", node("9.0.0", "x"), node("9.0.0", ""), DeprecationLost},
+		{"same version changed its note", node("9.0.0", "x"), node("9.0.0", "y"), DeprecationChanged},
+		{"deprecated version replaced by a clean one", node("8.0.0", "x"), node("9.0.0", ""), ""},
+		{"clean version replaced by a deprecated one", node("8.0.0", ""), node("9.0.0", "y"), DeprecationPresent},
+		{"deprecated replaced by deprecated", node("8.0.0", "x"), node("9.0.0", "y"), DeprecationPresent},
+		{"new entry, deprecated", nil, node("9.0.0", "y"), DeprecationPresent},
+		{"new entry, clean", nil, node("9.0.0", ""), ""},
+	} {
+		if got := deprecationKind(c.old, c.now); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// A new version of an entry with the same note text as the version before is
+// stated as deprecated, checked against the registry, and not counted among
+// the notes that changed.
+func TestCheckDeprecatedStatesACarriedNote(t *testing.T) {
+	graph := func(version, note string) *depGraph {
+		return &depGraph{nodes: map[string]*depNode{"node_modules/pkg": {name: "pkg", version: version, deprecated: note}}}
+	}
+	run := func(registryNote string) (*updateRun, *updateFailure) {
+		r := &updateRun{upd: &LanguageUpdate{}, npmDocs: map[string]NpmDist{"pkg@2.0.0": {Deprecated: registryNote}}}
+		return r, r.checkDeprecated(context.Background(), graph("1.0.0", "use other"), graph("2.0.0", "use other"))
+	}
+	r, fail := run("use other")
+	if fail != nil {
+		t.Fatalf("failure: %+v", fail)
+	}
+	want := []DeprecationChange{{Name: "pkg", Version: "2.0.0", Kind: DeprecationPresent}}
+	if !reflect.DeepEqual(r.upd.DeprecatedNotes, want) || r.upd.DeprecatedChanged != 0 {
+		t.Errorf("notes = %+v, changed = %d", r.upd.DeprecatedNotes, r.upd.DeprecatedChanged)
+	}
+	// The note is stated only as far as the registry has it.
+	if _, fail := run("another text"); fail == nil {
+		t.Error("a carried note the registry does not have was accepted")
+	}
+	// The same version with the same note is not looked at.
+	same := &updateRun{upd: &LanguageUpdate{}}
+	if fail := same.checkDeprecated(context.Background(), graph("1.0.0", "use other"), graph("1.0.0", "use other")); fail != nil || len(same.upd.DeprecatedNotes) != 0 {
+		t.Errorf("unchanged: %+v %+v", fail, same.upd.DeprecatedNotes)
+	}
 }

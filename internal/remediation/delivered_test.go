@@ -142,3 +142,40 @@ func TestStatusFingerprint(t *testing.T) {
 		t.Error("not deterministic")
 	}
 }
+
+// The fingerprint of the plan and the one of the Slack message live in one
+// record; saving either keeps the other, and an old record has no Slack one.
+func TestDeliveredStoreKeepsBothFingerprints(t *testing.T) {
+	s := DeliveredStore{Path: filepath.Join(t.TempDir(), "delivered.json")}
+	if err := s.Save("plan-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.LoadSlack(); err != nil || got != "" {
+		t.Fatalf("slack fingerprint of a record without one = %q, %v", got, err)
+	}
+	if err := s.SaveSlack("slack-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Load(); got != "plan-1" {
+		t.Errorf("SaveSlack lost the plan fingerprint: %q", got)
+	}
+	if err := s.Save("plan-2"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.LoadSlack(); got != "slack-1" {
+		t.Errorf("Save lost the Slack fingerprint: %q", got)
+	}
+	if got, _ := s.Load(); got != "plan-2" {
+		t.Errorf("plan fingerprint = %q", got)
+	}
+	// A record that cannot be read is replaced.
+	if err := os.WriteFile(s.Path, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSlack("slack-2"); err != nil {
+		t.Fatalf("an unreadable record was not replaced: %v", err)
+	}
+	if got, err := s.LoadSlack(); err != nil || got != "slack-2" {
+		t.Errorf("slack fingerprint = %q, %v", got, err)
+	}
+}

@@ -108,7 +108,7 @@ func TestPlan_DeclaredEndOfLifeRuntimeFromPlanToNotification(t *testing.T) {
 		LanguageEN: "Node.js 20 reached the end of its support on 2026-04-30; upgrade the runtime before updating",
 		LanguageJA: "Node.js 20 は 2026-04-30 にサポート終了。実行環境を上げてから更新してください",
 	} {
-		if got := allBlocksText(BuildChannelMessages(Message{Report: r, Diff: &changed, Plan: info}, ChannelFooter{}, lang)); !strings.Contains(got, want) {
+		if got := slackPlanText(r, info, lang); !strings.Contains(got, want) {
 			t.Errorf("%s: the line is missing:\n%s", lang, got)
 		}
 	}

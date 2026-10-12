@@ -567,7 +567,7 @@ func TestPRStageLanguageResumesABranchWithoutAPull(t *testing.T) {
 	}
 }
 
-func TestLanguageBodyStatesWhatWasNotVerified(t *testing.T) {
+func TestLanguageBodyStatesWhatWasChecked(t *testing.T) {
 	fx := langFixtures()["pnpm"]
 	fx.pkgs[0].Name = "evil`@octocat"
 	fx.pkgs[0].CVEs = []CVERef{{VulnID: "CVE-1`@x", Severity: scanner.SeverityCritical, KEV: true, Priority: PriorityActNow}}
@@ -575,25 +575,21 @@ func TestLanguageBodyStatesWhatWasNotVerified(t *testing.T) {
 	h.run(prLangPlan(h.langItem(fx)))
 	body := h.gh.pulls(testRepo)[0].Body
 	for _, want := range []string{
-		"## Not verified",
-		"the image is not rebuilt or scanned",
-		"compatibility and tests were not run",
-		"agree exactly with what the registry declares",
-		"whether the installer accepts the format",
-		"`pnpm install --frozen-lockfile`",
-		"Continuous integration",
-		"Deployment after merge",
-		"Vulnerabilities of severities outside the range above",
+		"Before merging, run a CI job that installs from the lockfile (for example `pnpm install --frozen-lockfile`)",
 		"Scan of the dependency files before and after",
 		"Resolved 1, remaining 0, introduced 0",
 		"in the CISA KEV catalog",
 		"priority `act_now`",
-		"Opened by KestreLynx. Update key",
 		"`svc/pnpm-lock.yaml`",
 		"the npm registry",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %q", want)
+		}
+	}
+	for _, gone := range []string{"## Not verified", "## Why these versions", "Opened by KestreLynx", "treated as untrusted", "not of an image"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("body still has %q", gone)
 		}
 	}
 	// An external name can neither close its code span nor start a mention.

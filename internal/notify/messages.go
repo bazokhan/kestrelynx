@@ -29,6 +29,9 @@ const (
 // and any field taking two or more verbs uses positional (%[1]s-style)
 // verbs so a translation can reorder them freely.
 type messages struct {
+	// Lang is the language of the dictionary.
+	Lang Language
+
 	// --- header / role line ---
 	HeaderNamed                string // "🛡️ *KestreLynx* [%[1]s] — scan results for %[2]s\n" (environment name, generated-at)
 	HeaderDefault              string // "🛡️ *KestreLynx* — scan results for %s\n" (generated-at)
@@ -334,101 +337,80 @@ type messages struct {
 	ShortEOLPackage      string // "⛔ EOL packages"
 
 	// --- fix plan ---
-	// The plan only proposes candidates: nothing is pulled, changed or
-	// created, and the heading says so.
-	PlanHeading                 string // "\n*🔧 Fix plan* (candidates only — nothing is changed automatically)\n"
-	PlanSegPullAgain            string // "%d re-pull" (count of images a fresh pull would fix)
-	PlanSegUpdate               string // "%d update candidate(s)" (count of newer tags that would fix)
-	PlanSegManual               string // "%d manual"
-	PlanSegNotComparable        string // "%d not comparable"
-	PlanSegDeferred             string // "%d deferred"
-	PlanSegNoCandidate          string // "%d no candidate"
-	PlanSegExcluded             string // "%d excluded"
-	PlanSegFailed               string // "%d failed"
-	PlanNothing                 string // "No updates to propose."
-	PlanPullAgainLine           string // "• Re-pulling %[1]s resolves %[2]d finding(s)" (image reference, count)
-	PlanUpdateLine              string // "• Updating %[1]s to %[2]s resolves %[3]d finding(s)" (image reference, candidate tag, count)
-	PlanPullAgainPartialLine    string // "• Re-pulling %[1]s resolves %[2]d of %[3]d findings%[4]s" (image reference, resolved, targeted, remainder clause)
-	PlanUpdatePartialLine       string // "• Updating %[1]s to %[2]s resolves %[3]d of %[4]d findings%[5]s" (image reference, candidate tag, resolved, targeted, remainder clause)
-	PlanRemainClause            string // "%d remain" (findings still present on the candidate)
-	PlanUndetectedClause        string // "%d not detected on the running image" (targeted findings the comparison scan of the running image did not show)
-	PlanClauseJoin              string // ", " (between the remainder clauses)
-	PlanClauseWrap              string // " (%s)" (around the joined clauses)
-	PlanIntroducedKEVPullLine   string // "• Re-pulling %[1]s introduces a KEV-listed vulnerability — manual review" (image reference)
-	PlanIntroducedKEVUpdateLine string // "• Updating %[1]s to %[2]s introduces a KEV-listed vulnerability — manual review" (image reference, candidate tag)
-	PlanKEVSuffix               string // " (%d KEV)" (appended to a plan line; counts the resolved KEV-listed findings)
-	PlanNotSaved                string // "_The fix plan could not be saved._"
-	PlanUnavailableDB           string // "_Fix plan unavailable this cycle: the scan databases could not be prepared._"
-	PlanUnavailableOther        string // "_Fix plan unavailable this cycle._"
-	PlanSegDepUpdate            string // "%d dependency update candidate(s)" (dependency units with a target version in their files)
-	PlanSegRebuild              string // "%d rebuild expected" (dependency units whose version ranges allow the fix)
-	PlanDepLine                 string // "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet" (service names, lockfile, package, installed, target, the "and more" clause)
-	PlanDepMore                 string // " and %d more" (other packages of the same unit)
-	PlanRebuildLine             string // "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s" (service names, requirements file, package, installed, lowest fixed version, the "and more" clause)
+	// The fix plan is a message of its own: a heading, one summary line and,
+	// per image, the files that are changed or proposed to change.
+	PlanHeading          string // "*🔧 Fix plan*"
+	PlanNothing          string // "No updates to propose."
+	PlanNotSaved         string // "_The fix plan could not be saved._"
+	PlanUnavailableDB    string // "_Fix plan unavailable this cycle: the scan databases could not be prepared._"
+	PlanUnavailableOther string // "_Fix plan unavailable this cycle._"
+	PlanFallback         string // "KestreLynx %[1]s fix plan — %[2]s" (generated-at time, summary)
+	PlanFallbackCont     string // "KestreLynx %[1]s fix plan (%[2]d/%[3]d)"
 
-	// Base image updates of Dockerfiles. The counts are those of the
-	// comparison of the current base image with the candidate base image on
-	// the findings the running image has in the base's layers; the image
-	// rebuilt from the new Dockerfile is not checked, and none of these lines
-	// is a statement about it.
-	PlanDockerfileLine        string // "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves all %[4]d base findings (final image not yet verified)" (service names, base image, candidate tag, count)
-	PlanDockerfilePartialLine string // "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves %[4]d of %[5]d base findings (final image not yet verified)" (service names, base image, candidate tag, resolved, targeted)
-	PlanDockerfileKEVLine     string // "• %[1]s (Dockerfile): updating the base %[2]s to %[3]s introduces a KEV-listed vulnerability — manual review" (service names, base image, candidate tag)
-	PlanDockerfilePRNote      string // " — base image comparison; final image not yet verified" (appended to the line of a base image pull request)
-	PlanDockerfileRebuildLine string // "• %[1]s (Dockerfile): %[2]s — which base the running image was built from could not be confirmed; rebuilding with `docker compose build --pull` picks up the current base" (service names, base image)
+	// Summary lines: the pull requests by status, or without any, the
+	// proposals by kind.
+	PlanPRCounts         string // "Pull requests: %s" (the joined segments)
+	PlanPRSegCreated     string // "%d created" (opened in this cycle)
+	PlanPRSegOpen        string // "%d open"
+	PlanPRSegMerged      string // "%d merged"
+	PlanPRSegClosed      string // "%d closed without merging"
+	PlanPRSegManual      string // "%d need a decision"
+	PlanPRSegDeferred    string // "%d deferred"
+	PlanPRSegBlocked     string // "%d blocked or failed"
+	PlanCounts           string // "Proposals: %s" (the joined segments)
+	PlanSegCandidate     string // "%d update candidate(s)"
+	PlanSegRepull        string // "%d re-pull"
+	PlanSegRebuild       string // "%d rebuild"
+	PlanSegDecide        string // "%d need a decision"
+	PlanSegNotComparable string // "%d not comparable"
+	PlanSegFailed        string // "%d failed"
+	PlanSegDeferred      string // "%d deferred"
 
-	// Pull requests of the fix plan (only with pull requests enabled). A
-	// line names the pull request link, the image, the old and new tag and
-	// the Compose file; none of them says a finding is resolved.
-	PlanHeadingPR     string // "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n"
-	PlanPRCounts      string // "Pull requests: %s" (the joined segments)
-	PlanPRSegCreated  string // "%d created" (opened in this cycle)
-	PlanPRSegOpen     string // "%d open"
-	PlanPRSegMerged   string // "%d merged"
-	PlanPRSegClosed   string // "%d closed without merging"
-	PlanPRSegManual   string // "%d manual"
-	PlanPRSegDeferred string // "%d deferred"
-	PlanPRSegBlocked  string // "%d blocked or failed"
-	PlanPRCreatedLine string // "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet" (link, image, old tag, new tag, Compose file)
-	PlanPROpenLine    string // "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s"
-	PlanPRMergedLine  string // "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed"
-	PlanPRClosedLine  string // "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again"
-	// Pull requests that update a lockfile (language packages). A line names
-	// the link, the services, the lockfile and the first package's change; a
-	// scan of the lockfile is all that was checked, never the rebuilt image.
-	PlanPRLangCreatedLine   string // "• Opened %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not merged yet" (link, services, lockfile, first package change, the "and more" clause)
-	PlanPRLangOpenLine      string // "• Open %[1]s: %[2]s (%[3]s) %[4]s%[5]s"
-	PlanPRLangMergedLine    string // "• Merged %[1]s: %[2]s (%[3]s) %[4]s%[5]s — deployment not confirmed"
-	PlanPRLangClosedLine    string // "• Closed without merging %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not proposed again"
-	PlanPRLangNote          string // " — lockfile scan only; the image is not rebuilt or scanned" (appended to the line of a lockfile pull request)
-	PlanPRLangMajorNote     string // " — ⚠ includes a major version change" (appended when a package or a manifest edit changes the major version)
-	PlanDepNotOpenedLine    string // "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s" (services, lockfile, first package change, the "and more" clause, the status and reason)
-	PlanDepManualLine       string // "• %[1]s (%[2]s): dependency update needs a person — %[3]s" (services, lockfile, reason)
-	PlanDepFailedLine       string // "• %[1]s (%[2]s): dependency update failed — %[3]s"
-	PlanDepRuntimeEOLLine   string // "• %[1]s (%[2]s): %[3]s reached the end of its support on %[4]s; upgrade the runtime before updating" (services, lockfile, runtime name, date)
-	PlanDepPnpm12Line       string // "• %[1]s (%[2]s): the project runs pnpm 12, which cannot update this lockfile yet; update it by hand" (services, lockfile)
-	PlanDepDeferredLine     string // "• %[1]s (%[2]s): dependency update deferred — %[3]s"
-	PlanDepLeftOutLine      string // "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s" (services, lockfile, first package change, the "and more" clause, the reason)
+	// Labels of the lines of an item.
+	PlanLblService       string // "Service"
+	PlanLblFile          string // "File to change"
+	PlanLblPR            string // "Pull request"
+	PlanLblUpdate        string // "Update"
+	PlanLblCandidate     string // "Update candidate"
+	PlanLblRepull        string // "Re-pull"
+	PlanLblRebuild       string // "Rebuild"
+	PlanLblDecide        string // "Needs a decision"
+	PlanLblNotComparable string // "Not comparable"
+	PlanLblFailed        string // "Failed"
+	PlanLblDeferred      string // "Deferred"
+	PlanLblMajor         string // "⚠️ Major version change"
+
+	// Values.
+	PlanFileValue         string // "%[2]s in %[1]s" (repository, path)
+	PlanPRValue           string // "%[1]s (%[2]s)" (link, status)
+	PlanPRStatusCreated   string // "opened now"
+	PlanPRStatusOpen      string // "open"
+	PlanPRStatusMerged    string // "merged"
+	PlanPRStatusClosed    string // "closed without merging"
+	PlanChange            string // "%[1]s %[2]s → %[3]s" (name, old version, new version)
+	PlanBaseImageValue    string // "base image %[1]s %[2]s → %[3]s" (image, old tag, new tag)
+	PlanListSep           string // ", " (between the items of a value)
+	PlanMore              string // " and %d more" (after a cut list)
+	PlanMajorZero         string // "%s (0.x minor change)" (a package change)
+	PlanMajorEdit         string // "%[1]s specifier %[2]s → %[3]s (%[4]s)" (package, old, new, file)
+	PlanResolves          string // "resolves %d finding(s)"
+	PlanResolvesPartial   string // "resolves %[1]d of %[2]d findings" (resolved, targeted)
+	PlanKEVClause         string // "%d KEV"
+	PlanUndetectedClause  string // "%d not detected on the running image"
+	PlanClauseJoin        string // ", " (between the clauses)
+	PlanClauseWrap        string // " (%s)" (around the joined clauses)
+	PlanLeftOut           string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
+	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s" (name, installed, lowest fixed version, the "and more" clause)
+	PlanDockerfileRebuild string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
+	PlanRuntimeEOL        string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
+
+	// Conditions that stop pull request writes.
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
 	PlanPRProblemJoin       string // "; " (between the reasons)
 	PlanPRProblemBlocked    string // "a repository, branch or pull request is not in the expected state"
 	PlanPRProblemStorage    string // "the pull request records could not be saved"
 	PlanPRProblemFull       string // "the operation log is full"
 	PlanPRProblemUnverified string // "existing pull requests could not be verified"
-	PlanOpsLabel            string // "Pull request operations:"
-	PlanOpLine              string // "• %[1]s %[2]s: %[3]s%[4]s" (operation, target, result, error clause)
-	PlanOpErrorClause       string // " — %s" (the short error text)
-	PlanOpTargetRef         string // "%[1]s (%[2]s)" (repository, branch)
-	PlanOpResultOK          string // "ok"
-	PlanOpResultFailed      string // "failed"
-	PlanOpResultUnknown     string // "outcome unknown"
-	PlanOpBlob              string // "create blob"
-	PlanOpTree              string // "create tree"
-	PlanOpCommit            string // "create commit"
-	PlanOpRef               string // "create branch"
-	PlanOpPull              string // "open pull request"
-	PlanOpComment           string // "comment"
-	PlanOpClose             string // "close pull request"
 }
 
 // enMessages is the historical English wording, unchanged byte-for-byte from
@@ -437,6 +419,7 @@ type messages struct {
 // without regenerating every affected golden file and checking each one by
 // eye.
 var enMessages = messages{
+	Lang:                       LanguageEN,
 	HeaderNamed:                "🛡️ *KestreLynx* [%[1]s] — scan results for %[2]s\n",
 	HeaderDefault:              "🛡️ *KestreLynx* — scan results for %s\n",
 	RoleEverythingOpen:         "Everything currently open.",
@@ -697,91 +680,78 @@ var enMessages = messages{
 	ShortEOLBase:         "⛔ EOL base",
 	ShortEOLPackage:      "⛔ EOL packages",
 
-	PlanHeading:                 "\n*🔧 Fix plan* (candidates only — nothing is changed automatically)\n",
-	PlanSegPullAgain:            "%d re-pull",
-	PlanSegUpdate:               "%d update candidate(s)",
-	PlanSegManual:               "%d manual",
-	PlanSegNotComparable:        "%d not comparable",
-	PlanSegDeferred:             "%d deferred",
-	PlanSegNoCandidate:          "%d no candidate",
-	PlanSegExcluded:             "%d excluded",
-	PlanSegFailed:               "%d failed",
-	PlanNothing:                 "No updates to propose.",
-	PlanPullAgainLine:           "• Re-pulling %[1]s resolves %[2]d finding(s)",
-	PlanUpdateLine:              "• Updating %[1]s to %[2]s resolves %[3]d finding(s)",
-	PlanPullAgainPartialLine:    "• Re-pulling %[1]s resolves %[2]d of %[3]d findings%[4]s",
-	PlanUpdatePartialLine:       "• Updating %[1]s to %[2]s resolves %[3]d of %[4]d findings%[5]s",
-	PlanRemainClause:            "%d remain",
-	PlanUndetectedClause:        "%d not detected on the running image",
-	PlanClauseJoin:              ", ",
-	PlanClauseWrap:              " (%s)",
-	PlanIntroducedKEVPullLine:   "• Re-pulling %[1]s introduces a KEV-listed vulnerability — manual review",
-	PlanIntroducedKEVUpdateLine: "• Updating %[1]s to %[2]s introduces a KEV-listed vulnerability — manual review",
-	PlanKEVSuffix:               " (%d KEV)",
-	PlanNotSaved:                "_The fix plan could not be saved._",
-	PlanUnavailableDB:           "_Fix plan unavailable this cycle: the scan databases could not be prepared._",
-	PlanUnavailableOther:        "_Fix plan unavailable this cycle._",
-	PlanSegDepUpdate:            "%d dependency update candidate(s)",
-	PlanSegRebuild:              "%d rebuild expected",
-	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — update not run yet",
-	PlanDepMore:                 " and %d more",
-	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — rebuilding is expected to pick up ≥%[5]s",
-	PlanDockerfileLine:          "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves all %[4]d base findings (final image not yet verified)",
-	PlanDockerfilePartialLine:   "• %[1]s (Dockerfile): %[2]s → %[3]s — base image comparison resolves %[4]d of %[5]d base findings (final image not yet verified)",
-	PlanDockerfilePRNote:        " — base image comparison; final image not yet verified",
-	PlanDockerfileKEVLine:       "• %[1]s (Dockerfile): updating the base %[2]s to %[3]s introduces a KEV-listed vulnerability — manual review",
-	PlanDockerfileRebuildLine:   "• %[1]s (Dockerfile): %[2]s — which base the running image was built from could not be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
+	PlanHeading:          "*🔧 Fix plan*",
+	PlanNothing:          "No updates to propose.",
+	PlanNotSaved:         "_The fix plan could not be saved._",
+	PlanUnavailableDB:    "_Fix plan unavailable this cycle: the scan databases could not be prepared._",
+	PlanUnavailableOther: "_Fix plan unavailable this cycle._",
+	PlanFallback:         "KestreLynx %[1]s fix plan — %[2]s",
+	PlanFallbackCont:     "KestreLynx %[1]s fix plan (%[2]d/%[3]d)",
 
-	PlanHeadingPR:           "\n*🔧 Fix plan* (candidates and pull requests — nothing is merged or deployed automatically)\n",
-	PlanPRCounts:            "Pull requests: %s",
-	PlanPRSegCreated:        "%d created",
-	PlanPRSegOpen:           "%d open",
-	PlanPRSegMerged:         "%d merged",
-	PlanPRSegClosed:         "%d closed without merging",
-	PlanPRSegManual:         "%d manual",
-	PlanPRSegDeferred:       "%d deferred",
-	PlanPRSegBlocked:        "%d blocked or failed",
-	PlanPRCreatedLine:       "• Opened %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not merged yet",
-	PlanPROpenLine:          "• Open %[1]s: %[2]s %[3]s → %[4]s in %[5]s",
-	PlanPRMergedLine:        "• Merged %[1]s: %[2]s %[3]s → %[4]s in %[5]s — deployment not confirmed",
-	PlanPRClosedLine:        "• Closed without merging %[1]s: %[2]s %[3]s → %[4]s in %[5]s — not proposed again",
-	PlanPRLangCreatedLine:   "• Opened %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not merged yet",
-	PlanPRLangOpenLine:      "• Open %[1]s: %[2]s (%[3]s) %[4]s%[5]s",
-	PlanPRLangMergedLine:    "• Merged %[1]s: %[2]s (%[3]s) %[4]s%[5]s — deployment not confirmed",
-	PlanPRLangClosedLine:    "• Closed without merging %[1]s: %[2]s (%[3]s) %[4]s%[5]s — not proposed again",
-	PlanPRLangNote:          " — lockfile scan only; the image is not rebuilt or scanned",
-	PlanPRLangMajorNote:     " — ⚠ includes a major version change",
-	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — update checked, pull request not opened: %[5]s",
-	PlanDepManualLine:       "• %[1]s (%[2]s): dependency update needs a person — %[3]s",
-	PlanDepFailedLine:       "• %[1]s (%[2]s): dependency update failed — %[3]s",
-	PlanDepRuntimeEOLLine:   "• %[1]s (%[2]s): %[3]s reached the end of its support on %[4]s; upgrade the runtime before updating",
-	PlanDepPnpm12Line:       "• %[1]s (%[2]s): the project runs pnpm 12, which cannot update this lockfile yet; update it by hand",
-	PlanDepDeferredLine:     "• %[1]s (%[2]s): dependency update deferred — %[3]s",
-	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s",
+	PlanPRCounts:         "Pull requests: %s",
+	PlanPRSegCreated:     "%d created",
+	PlanPRSegOpen:        "%d open",
+	PlanPRSegMerged:      "%d merged",
+	PlanPRSegClosed:      "%d closed without merging",
+	PlanPRSegManual:      "%d need a decision",
+	PlanPRSegDeferred:    "%d deferred",
+	PlanPRSegBlocked:     "%d blocked or failed",
+	PlanCounts:           "Proposals: %s",
+	PlanSegCandidate:     "%d update candidate(s)",
+	PlanSegRepull:        "%d re-pull",
+	PlanSegRebuild:       "%d rebuild",
+	PlanSegDecide:        "%d need a decision",
+	PlanSegNotComparable: "%d not comparable",
+	PlanSegFailed:        "%d failed",
+	PlanSegDeferred:      "%d deferred",
+
+	PlanLblService:       "Service",
+	PlanLblFile:          "File to change",
+	PlanLblPR:            "Pull request",
+	PlanLblUpdate:        "Update",
+	PlanLblCandidate:     "Update candidate",
+	PlanLblRepull:        "Re-pull",
+	PlanLblRebuild:       "Rebuild",
+	PlanLblDecide:        "Needs a decision",
+	PlanLblNotComparable: "Not comparable",
+	PlanLblFailed:        "Failed",
+	PlanLblDeferred:      "Deferred",
+	PlanLblMajor:         "⚠️ Major version change",
+
+	PlanFileValue:         "%[2]s in %[1]s",
+	PlanPRValue:           "%[1]s (%[2]s)",
+	PlanPRStatusCreated:   "opened now",
+	PlanPRStatusOpen:      "open",
+	PlanPRStatusMerged:    "merged",
+	PlanPRStatusClosed:    "closed without merging",
+	PlanChange:            "%[1]s %[2]s → %[3]s",
+	PlanBaseImageValue:    "base image %[1]s %[2]s → %[3]s",
+	PlanListSep:           ", ",
+	PlanMore:              " and %d more",
+	PlanMajorZero:         "%s (0.x minor change)",
+	PlanMajorEdit:         "%[1]s specifier %[2]s → %[3]s (%[4]s)",
+	PlanResolves:          "resolves %d finding(s)",
+	PlanResolvesPartial:   "resolves %[1]d of %[2]d findings",
+	PlanKEVClause:         "%d KEV",
+	PlanUndetectedClause:  "%d not detected on the running image",
+	PlanClauseJoin:        ", ",
+	PlanClauseWrap:        " (%s)",
+	PlanLeftOut:           "%[1]s %[2]s → %[3]s left out because %[4]s",
+	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s",
+	PlanDockerfileRebuild: "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
+	PlanRuntimeEOL:        "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
+
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
 	PlanPRProblemJoin:       "; ",
 	PlanPRProblemBlocked:    "a repository, branch or pull request is not in the expected state",
 	PlanPRProblemStorage:    "the pull request records could not be saved",
 	PlanPRProblemFull:       "the operation log is full",
 	PlanPRProblemUnverified: "existing pull requests could not be verified",
-	PlanOpsLabel:            "Pull request operations:",
-	PlanOpLine:              "• %[1]s %[2]s: %[3]s%[4]s",
-	PlanOpErrorClause:       " — %s",
-	PlanOpTargetRef:         "%[1]s (%[2]s)",
-	PlanOpResultOK:          "ok",
-	PlanOpResultFailed:      "failed",
-	PlanOpResultUnknown:     "outcome unknown",
-	PlanOpBlob:              "create blob",
-	PlanOpTree:              "create tree",
-	PlanOpCommit:            "create commit",
-	PlanOpRef:               "create branch",
-	PlanOpPull:              "open pull request",
-	PlanOpComment:           "comment",
-	PlanOpClose:             "close pull request",
 }
 
 // jaMessages is the Japanese dictionary.
 var jaMessages = messages{
+	Lang:                       LanguageJA,
 	HeaderNamed:                "🛡️ *KestreLynx* [%[1]s] — %[2]sのスキャン結果\n",
 	HeaderDefault:              "🛡️ *KestreLynx* — %sのスキャン結果\n",
 	RoleEverythingOpen:         "未解決の所見の全体",
@@ -1043,87 +1013,73 @@ var jaMessages = messages{
 	ShortEOLBase:         "⛔ EOLのベースOS",
 	ShortEOLPackage:      "⛔ EOLのパッケージ",
 
-	PlanHeading:                 "\n*🔧 修正計画* (候補の提示のみ — 自動では何も変更しない)\n",
-	PlanSegPullAgain:            "再pull %d件",
-	PlanSegUpdate:               "更新候補 %d件",
-	PlanSegManual:               "要判断 %d件",
-	PlanSegNotComparable:        "比較不能 %d件",
-	PlanSegDeferred:             "延期 %d件",
-	PlanSegNoCandidate:          "候補なし %d件",
-	PlanSegExcluded:             "対象外 %d件",
-	PlanSegFailed:               "失敗 %d件",
-	PlanNothing:                 "提案できる更新はありません。",
-	PlanPullAgainLine:           "• %[1]s を再pullすると %[2]d件の所見が解消",
-	PlanUpdateLine:              "• %[1]s を %[2]s に更新すると %[3]d件の所見が解消",
-	PlanPullAgainPartialLine:    "• %[1]s を再pullすると %[3]d件中 %[2]d件の所見が解消%[4]s",
-	PlanUpdatePartialLine:       "• %[1]s を %[2]s に更新すると %[4]d件中 %[3]d件の所見が解消%[5]s",
-	PlanRemainClause:            "%d件は残る",
-	PlanUndetectedClause:        "%d件は稼働中のイメージで未検出",
-	PlanClauseJoin:              "、",
-	PlanClauseWrap:              "(%s)",
-	PlanIntroducedKEVPullLine:   "• %[1]s を再pullするとKEV掲載の脆弱性が新たに入る — 要確認",
-	PlanIntroducedKEVUpdateLine: "• %[1]s を %[2]s に更新するとKEV掲載の脆弱性が新たに入る — 要確認",
-	PlanKEVSuffix:               " (KEV %d件)",
-	PlanNotSaved:                "_修正計画を保存できなかった_",
-	PlanUnavailableDB:           "_今回は修正計画を作成できない: スキャン用データベースを準備できなかった_",
-	PlanUnavailableOther:        "_今回は修正計画を作成できない_",
-	PlanSegDepUpdate:            "依存更新候補 %d件",
-	PlanSegRebuild:              "再ビルドで解消見込み %d件",
-	PlanDepLine:                 "• %[1]s (%[2]s): %[3]s %[4]s → %[5]s%[6]s — 更新は未実行",
-	PlanDepMore:                 " ほか%d件",
-	PlanRebuildLine:             "• %[1]s (%[2]s): %[3]s %[4]s%[6]s — 再ビルドで %[5]s 以上が入る見込み",
-	PlanDockerfileLine:          "• %[1]s (Dockerfile): %[2]s → %[3]s — ベースイメージの比較で %[4]d件すべてが解消見込み(最終イメージは未検証)",
-	PlanDockerfilePartialLine:   "• %[1]s (Dockerfile): %[2]s → %[3]s — ベースイメージの比較で %[5]d件中 %[4]d件が解消見込み(最終イメージは未検証)",
-	PlanDockerfilePRNote:        " — ベースイメージの比較による。最終イメージは未検証",
-	PlanDockerfileKEVLine:       "• %[1]s (Dockerfile): ベース %[2]s を %[3]s に更新するとKEV掲載の脆弱性が新たに入る — 要確認",
-	PlanDockerfileRebuildLine:   "• %[1]s (Dockerfile): %[2]s — 稼働中のイメージがどのベースから作られたかを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
+	PlanHeading:          "*🔧 修正計画*",
+	PlanNothing:          "提案できる更新はありません。",
+	PlanNotSaved:         "_修正計画を保存できませんでした。_",
+	PlanUnavailableDB:    "_今回は修正計画を作成できませんでした: スキャン用データベースを用意できませんでした。_",
+	PlanUnavailableOther: "_今回は修正計画を作成できませんでした。_",
+	PlanFallback:         "KestreLynx %[1]s 修正計画 — %[2]s",
+	PlanFallbackCont:     "KestreLynx %[1]s 修正計画 (%[2]d/%[3]d)",
 
-	PlanHeadingPR:           "\n*🔧 修正計画* (候補の提示とPull Requestの作成のみ — マージとデプロイは自動では行わない)\n",
-	PlanPRCounts:            "Pull Request: %s",
-	PlanPRSegCreated:        "作成 %d件",
-	PlanPRSegOpen:           "オープン %d件",
-	PlanPRSegMerged:         "マージ済み %d件",
-	PlanPRSegClosed:         "未マージでクローズ %d件",
-	PlanPRSegManual:         "要判断 %d件",
-	PlanPRSegDeferred:       "延期 %d件",
-	PlanPRSegBlocked:        "停止・失敗 %d件",
-	PlanPRCreatedLine:       "• %[1]s を作成: %[2]s %[3]s → %[4]s (%[5]s) — 未マージ",
-	PlanPROpenLine:          "• %[1]s オープン中: %[2]s %[3]s → %[4]s (%[5]s)",
-	PlanPRMergedLine:        "• %[1]s マージ済み: %[2]s %[3]s → %[4]s (%[5]s) — デプロイは未確認",
-	PlanPRClosedLine:        "• %[1]s 未マージでクローズ: %[2]s %[3]s → %[4]s (%[5]s) — 再提案しない",
-	PlanPRLangCreatedLine:   "• %[1]s を作成: %[2]s (%[3]s) %[4]s%[5]s — 未マージ",
-	PlanPRLangOpenLine:      "• %[1]s オープン中: %[2]s (%[3]s) %[4]s%[5]s",
-	PlanPRLangMergedLine:    "• %[1]s マージ済み: %[2]s (%[3]s) %[4]s%[5]s — デプロイは未確認",
-	PlanPRLangClosedLine:    "• %[1]s 未マージでクローズ: %[2]s (%[3]s) %[4]s%[5]s — 再提案しない",
-	PlanPRLangNote:          " — lockfileのスキャンのみ。イメージは再ビルドもスキャンもしていない",
-	PlanPRLangMajorNote:     " — ⚠ メジャーバージョンの変更を含む",
-	PlanDepNotOpenedLine:    "• %[1]s (%[2]s): %[3]s%[4]s — 更新は検査済み。Pull Requestは未作成: %[5]s",
-	PlanDepManualLine:       "• %[1]s (%[2]s): 依存パッケージの更新は要判断 — %[3]s",
-	PlanDepFailedLine:       "• %[1]s (%[2]s): 依存パッケージの更新は失敗 — %[3]s",
-	PlanDepRuntimeEOLLine:   "• %[1]s (%[2]s): %[3]s は %[4]s にサポート終了。実行環境を上げてから更新してください",
-	PlanDepPnpm12Line:       "• %[1]s (%[2]s): pnpm 12 を使うプロジェクトのため、この lockfile はまだ自動更新できません。手動で更新してください",
-	PlanDepDeferredLine:     "• %[1]s (%[2]s): 依存パッケージの更新は延期 — %[3]s",
-	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s は今回の更新から除外。要判断 — %[5]s",
+	PlanPRCounts:         "Pull Request: %s",
+	PlanPRSegCreated:     "作成 %d件",
+	PlanPRSegOpen:        "オープン中 %d件",
+	PlanPRSegMerged:      "マージ済み %d件",
+	PlanPRSegClosed:      "未マージでクローズ %d件",
+	PlanPRSegManual:      "要判断 %d件",
+	PlanPRSegDeferred:    "延期 %d件",
+	PlanPRSegBlocked:     "停止・失敗 %d件",
+	PlanCounts:           "提案: %s",
+	PlanSegCandidate:     "更新候補 %d件",
+	PlanSegRepull:        "再pull %d件",
+	PlanSegRebuild:       "再ビルド %d件",
+	PlanSegDecide:        "要判断 %d件",
+	PlanSegNotComparable: "比較不能 %d件",
+	PlanSegFailed:        "失敗 %d件",
+	PlanSegDeferred:      "保留 %d件",
+
+	PlanLblService:       "サービス",
+	PlanLblFile:          "修正するファイル",
+	PlanLblPR:            "Pull Request",
+	PlanLblUpdate:        "更新",
+	PlanLblCandidate:     "更新候補",
+	PlanLblRepull:        "再pull",
+	PlanLblRebuild:       "再ビルド",
+	PlanLblDecide:        "要判断",
+	PlanLblNotComparable: "比較不能",
+	PlanLblFailed:        "失敗",
+	PlanLblDeferred:      "保留",
+	PlanLblMajor:         "⚠️ メジャーバージョンの変更",
+
+	PlanFileValue:         "%[1]s の %[2]s",
+	PlanPRValue:           "%[1]s (%[2]s)",
+	PlanPRStatusCreated:   "今回作成",
+	PlanPRStatusOpen:      "オープン中",
+	PlanPRStatusMerged:    "マージ済み",
+	PlanPRStatusClosed:    "未マージでクローズ",
+	PlanChange:            "%[1]s %[2]s → %[3]s",
+	PlanBaseImageValue:    "ベースイメージ %[1]s %[2]s → %[3]s",
+	PlanListSep:           "、",
+	PlanMore:              " ほか%d件",
+	PlanMajorZero:         "%s (0.x のマイナー変更)",
+	PlanMajorEdit:         "%[1]s の指定 %[2]s → %[3]s (%[4]s)",
+	PlanResolves:          "所見%d件が解消",
+	PlanResolvesPartial:   "所見%[2]d件中%[1]d件が解消",
+	PlanKEVClause:         "KEV %d件",
+	PlanUndetectedClause:  "稼働中のイメージで未検出 %d件",
+	PlanClauseJoin:        "、",
+	PlanClauseWrap:        " (%s)",
+	PlanLeftOut:           "%[1]s %[2]s → %[3]s は%[4]sため除外",
+	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み%[4]s",
+	PlanDockerfileRebuild: "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
+	PlanRuntimeEOL:        "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
+
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
 	PlanPRProblemJoin:       "、",
 	PlanPRProblemBlocked:    "リポジトリ、ブランチ、Pull Requestのいずれかが想定の状態でない",
 	PlanPRProblemStorage:    "Pull Requestの記録を保存できない",
 	PlanPRProblemFull:       "操作ログが満杯",
 	PlanPRProblemUnverified: "既存のPull Requestを確認できない",
-	PlanOpsLabel:            "Pull Requestの操作:",
-	PlanOpLine:              "• %[1]s %[2]s: %[3]s%[4]s",
-	PlanOpErrorClause:       " — %s",
-	PlanOpTargetRef:         "%[1]s (%[2]s)",
-	PlanOpResultOK:          "成功",
-	PlanOpResultFailed:      "失敗",
-	PlanOpResultUnknown:     "結果不明",
-	PlanOpBlob:              "blob作成",
-	PlanOpTree:              "tree作成",
-	PlanOpCommit:            "commit作成",
-	PlanOpRef:               "ブランチ作成",
-	PlanOpPull:              "Pull Request作成",
-	PlanOpComment:           "コメント",
-	PlanOpClose:             "Pull Requestのクローズ",
 }
 
 // messagesFor resolves a Language to its dictionary, defaulting to English

@@ -108,8 +108,8 @@ func TestPRBodySanitizesExternalStrings(t *testing.T) {
 	if !strings.Contains(body, "`evil'](http://x) @team # head <img src=x>`") {
 		t.Errorf("package name not rendered as inline code:\n%s", body)
 	}
-	for _, want := range []string{"## What", "## Change", "## Why this candidate", "## Verification", "## Not verified", "Opened by KestreLynx",
-		"is not confirmed", "in the CISA KEV catalog", "Deployment after merge"} {
+	for _, want := range []string{"## What", "## Change", "## Verification",
+		"is not confirmed", "in the CISA KEV catalog"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %q", want)
 		}

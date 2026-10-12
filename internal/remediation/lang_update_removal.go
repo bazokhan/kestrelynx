@@ -192,6 +192,12 @@ func (r *updateRun) checkTriggerReturned(before, after *depGraph, oldLock, newLo
 func (r *updateRun) checkDeprecated(ctx context.Context, before, after *depGraph) *updateFailure {
 	type release struct{ name, version, note string }
 	changed := map[release]bool{}
+	// carried are releases that arrive with the note they are known to have: a
+	// new version of an entry whose old version had the same text. They are
+	// checked against the registry like the others, and stated in the pull
+	// request, but are not counted among the notes that changed.
+	carried := map[release]bool{}
+	kinds := map[[2]string]string{}
 	keys := make([]string, 0, len(after.nodes))
 	for k := range after.nodes {
 		keys = append(keys, k)
@@ -200,23 +206,37 @@ func (r *updateRun) checkDeprecated(ctx context.Context, before, after *depGraph
 	for _, k := range keys {
 		n := after.nodes[k]
 		was := ""
-		if old := before.nodes[k]; old != nil {
+		old := before.nodes[k]
+		if old != nil {
 			was = old.deprecated
 		}
-		if n.deprecated == was {
+		sameRelease := old != nil && old.name == n.name && old.version == n.version
+		if n.deprecated == was && (sameRelease || n.deprecated == "") {
 			continue
 		}
 		if n.problem != "" {
 			return manualFailure(ReasonDistributionMismatch, "%s %s: %s records a deprecation note and is not a package the registry publishes", n.name, n.version, k)
 		}
-		changed[release{n.name, n.version, n.deprecated}] = true
+		if n.deprecated == was {
+			carried[release{n.name, n.version, n.deprecated}] = true
+		} else {
+			changed[release{n.name, n.version, n.deprecated}] = true
+		}
+		if _, ok := kinds[[2]string{n.name, n.version}]; !ok {
+			kinds[[2]string{n.name, n.version}] = deprecationKind(before.nodes[k], n)
+		}
 	}
 	// A deprecation note that went away with its entry is not looked at. A
 	// version whose note changed in one entry and not in another is looked up
 	// once.
-	list := make([]release, 0, len(changed))
+	list := make([]release, 0, len(changed)+len(carried))
 	for c := range changed {
 		list = append(list, c)
+	}
+	for c := range carried {
+		if !changed[c] {
+			list = append(list, c)
+		}
 	}
 	sort.Slice(list, func(i, j int) bool {
 		a, b := list[i], list[j]
@@ -229,6 +249,8 @@ func (r *updateRun) checkDeprecated(ctx context.Context, before, after *depGraph
 		return a.note < b.note
 	})
 	versions := map[[2]string]bool{}
+	seen := map[[2]string]bool{}
+	var notes []DeprecationChange
 	for _, c := range list {
 		d, err := r.npmRelease(ctx, c.name, c.version)
 		if err != nil {
@@ -242,8 +264,38 @@ func (r *updateRun) checkDeprecated(ctx context.Context, before, after *depGraph
 			}
 			return f
 		}
-		versions[[2]string{c.name, c.version}] = true
+		key := [2]string{c.name, c.version}
+		if kind := kinds[key]; !seen[key] && kind != "" {
+			notes = append(notes, DeprecationChange{Name: c.name, Version: c.version, Kind: kind})
+		}
+		seen[key] = true
+		if changed[c] {
+			versions[key] = true
+		}
 	}
 	r.upd.DeprecatedChanged = len(versions)
+	r.upd.DeprecatedNotes = notes
 	return nil
+}
+
+// deprecationKind says what the note of an entry of the updated file is, as
+// far as it is known: a change of the note of the very same name and version
+// (the registry has the new value, which is checked) is a change of the note
+// itself; for an entry whose version differs from the one before, or a new
+// entry, the old and new notes belong to different releases, so only the
+// note the new version has is stated. "" is nothing to state.
+func deprecationKind(old, n *depNode) string {
+	if old != nil && old.name == n.name && old.version == n.version {
+		switch {
+		case old.deprecated == "":
+			return DeprecationGained
+		case n.deprecated == "":
+			return DeprecationLost
+		}
+		return DeprecationChanged
+	}
+	if n.deprecated != "" {
+		return DeprecationPresent
+	}
+	return ""
 }
