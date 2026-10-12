@@ -209,11 +209,32 @@ func languageViewOfTied(it LanguageItem, rec *PRRecord) *PRLanguage {
 	for _, p := range updatedPackages(&it) {
 		to := p.SelectionLowerBound
 		if rec.Lang != nil {
+			// A package the pull request leaves out is shown as left out, with the
+			// reason the record holds.
+			if x, left := leftOutIn(rec.Lang, p); left {
+				v.Remaining = append(v.Remaining, PRLanguageRemaining{
+					Name: p.Name, Ecosystem: p.Ecosystem, Relation: string(p.Relation), From: p.Installed,
+					Target: p.SelectionLowerBound, Reason: x.Reason,
+				})
+				continue
+			}
+			adopted := false
 			for _, e := range rec.Lang.Packages {
 				if e.Ecosystem == p.Ecosystem && e.Name == p.matchName() {
-					to = e.Adopted
+					to, adopted = e.Adopted, true
 					break
 				}
+			}
+			if !adopted {
+				// The record neither updates the package nor lists it as left out,
+				// so the pull request does not move it; it is shown as not
+				// updated and not as an update to its target.
+				v.Remaining = append(v.Remaining, PRLanguageRemaining{
+					Name: p.Name, Ecosystem: p.Ecosystem, Relation: string(p.Relation), From: p.Installed,
+					Target: p.SelectionLowerBound, Reason: ReasonTargetNotUpdated,
+					Detail: "the record of the pull request does not update this package",
+				})
+				continue
 			}
 		}
 		v.Packages = append(v.Packages, PRLanguagePackage{
@@ -222,6 +243,16 @@ func languageViewOfTied(it LanguageItem, rec *PRRecord) *PRLanguage {
 		})
 	}
 	return v
+}
+
+// leftOutIn finds the entry of a record that says the update leaves p out.
+func leftOutIn(l *LangRecord, p LanguagePackage) (LangRemaining, bool) {
+	for _, x := range l.Remaining {
+		if x.Ecosystem == p.Ecosystem && x.Name == p.matchName() {
+			return x, true
+		}
+	}
+	return LangRemaining{}, false
 }
 
 // addInputFingerprint writes the fingerprint of this cycle's inputs into the
@@ -243,6 +274,9 @@ func languageViewOfTied(it LanguageItem, rec *PRRecord) *PRLanguage {
 // computed, the same target key, repository ID and manager, the record gets
 // this cycle's fingerprint and the InputVerified mark. From the next cycle it
 // stands for the update. MarkerOnly and Recovered keep their meaning.
+//
+// The packages the unit leaves out are written with the fingerprint, since
+// the record then stands for the inputs those packages belong to.
 func (r *prRun) addInputFingerprint(c *unitCtx, rec *PRRecord) {
 	u := c.u
 	if u.lang == nil || u.lang.record == nil || u.lang.record.InputFingerprint == "" || rec.Lang == nil {
@@ -260,6 +294,10 @@ func (r *prRun) addInputFingerprint(c *unitCtx, rec *PRRecord) {
 	}
 	lang := *rec.Lang // not shared with the attempt it came from
 	lang.InputFingerprint = fp
+	// The update key does not name the packages left out, so a key that
+	// matches does not say they are the same. The fingerprint stands for this
+	// cycle's inputs, and the packages left out of them go with it.
+	lang.Remaining = append([]LangRemaining(nil), u.lang.record.Remaining...)
 	rec.Lang = &lang
 	if untrusted {
 		rec.InputVerified = true

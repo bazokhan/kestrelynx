@@ -19,6 +19,15 @@ type LangKeyEntry struct {
 	Adopted   string   `json:"adopted"`
 }
 
+// LangRemaining is one package a language update leaves out: its place in the
+// record is the package's ecosystem and matching name, and Reason says why it
+// was left out.
+type LangRemaining struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Reason    Reason `json:"reason"`
+}
+
 // LangEdit is one version specifier of a manifest a language update changes.
 type LangEdit struct {
 	File    string `json:"file"`
@@ -39,6 +48,10 @@ type LangRecord struct {
 	Manager       string         `json:"manager"`
 	Packages      []LangKeyEntry `json:"packages"`
 	ManifestEdits []LangEdit     `json:"manifest_edits,omitempty"`
+	// Remaining are the packages the update was planned for and left out
+	// because they did not reach their target while the others did. They are
+	// not part of the update key: the key names what the update changes.
+	Remaining []LangRemaining `json:"remaining,omitempty"`
 	// InputFingerprint names the inputs the update was made from (see
 	// LanguageInputFingerprint); it is not part of the update key. A record
 	// without one was made before it existed.

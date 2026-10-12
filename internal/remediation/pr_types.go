@@ -494,6 +494,22 @@ type PRLanguage struct {
 	Root          string              `json:"root"`
 	Packages      []PRLanguagePackage `json:"packages"`
 	ManifestEdits []LangEdit          `json:"manifest_edits,omitempty"`
+	// Remaining are the packages the update was planned for and left out, with
+	// why. The pull request does not change them.
+	Remaining []PRLanguageRemaining `json:"remaining,omitempty"`
+}
+
+// PRLanguageRemaining is one package a language update leaves out.
+type PRLanguageRemaining struct {
+	Name      string `json:"name"`
+	Ecosystem string `json:"ecosystem"`
+	Relation  string `json:"relation,omitempty"`
+	// From is the version the image runs and Target the version the update was
+	// meant to take the package to.
+	From   string `json:"from"`
+	Target string `json:"target"`
+	Reason Reason `json:"reason"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // PRLanguagePackage is one package a language update moves.

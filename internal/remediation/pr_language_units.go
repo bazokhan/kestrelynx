@@ -150,6 +150,16 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 	if len(rec.Packages) == 0 {
 		return manual(ReasonArtifactsUnusable, "the item has no package the update changed")
 	}
+	for _, p := range it.Packages {
+		if !p.LeftOut {
+			continue
+		}
+		rec.Remaining = append(rec.Remaining, LangRemaining{Ecosystem: p.Ecosystem, Name: p.matchName(), Reason: p.Reason})
+		ld.view.Remaining = append(ld.view.Remaining, PRLanguageRemaining{
+			Name: p.Name, Ecosystem: p.Ecosystem, Relation: string(p.Relation), From: p.Installed,
+			Target: p.SelectionLowerBound, Reason: p.Reason, Detail: p.Detail,
+		})
+	}
 	if it.Update != nil {
 		for _, e := range it.Update.ManifestEdits {
 			rec.ManifestEdits = append(rec.ManifestEdits, LangEdit{File: e.File, Section: e.Section, Name: e.Name, From: e.From, To: e.To, Major: e.MajorChange})
@@ -157,6 +167,20 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 	}
 	rec.Packages = sortedLangEntries(rec.Packages)
 	rec.ManifestEdits = sortedLangEdits(rec.ManifestEdits)
+	sort.Slice(rec.Remaining, func(i, j int) bool {
+		a, b := rec.Remaining[i], rec.Remaining[j]
+		if a.Ecosystem != b.Ecosystem {
+			return a.Ecosystem < b.Ecosystem
+		}
+		return a.Name < b.Name
+	})
+	sort.Slice(ld.view.Remaining, func(i, j int) bool {
+		a, b := ld.view.Remaining[i], ld.view.Remaining[j]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.From < b.From
+	})
 	ld.record = &rec
 	sortFixTargets(ld.fixTargets)
 	ld.fixTargets = dedupeFixTargets(ld.fixTargets)

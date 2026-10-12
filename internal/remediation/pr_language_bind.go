@@ -31,7 +31,10 @@ func LanguageInputFingerprint(it LanguageItem) string {
 	sort.Strings(absent)
 	pkgs := []pkg{}
 	for _, p := range it.Packages {
-		if p.Action == ActionUpdate {
+		// A package left out of the update was part of what the update was
+		// made from, so it stays in the fingerprint: the unit has the same one
+		// before and after the update stage.
+		if p.Action == ActionUpdate || p.LeftOut {
 			pkgs = append(pkgs, pkg{p.Ecosystem, p.matchName(), p.Installed, p.SelectionLowerBound})
 		}
 	}

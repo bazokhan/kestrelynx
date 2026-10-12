@@ -188,6 +188,11 @@ func (l LangRecord) wellFormed() error {
 			return errors.New("a package has no ecosystem, name or version")
 		}
 	}
+	for _, x := range l.Remaining {
+		if x.Ecosystem == "" || x.Name == "" || x.Reason == "" {
+			return errors.New("a remaining package has no ecosystem, name or reason")
+		}
+	}
 	for _, e := range l.ManifestEdits {
 		if !github.ValidPath(e.File, false) || e.Section == "" || e.Name == "" || e.From == "" || e.To == "" {
 			return errors.New("a manifest edit is malformed")

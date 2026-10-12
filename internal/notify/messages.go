@@ -406,6 +406,7 @@ type messages struct {
 	PlanDepManualLine       string // "• %[1]s (%[2]s): dependency update needs a person — %[3]s" (services, lockfile, reason)
 	PlanDepFailedLine       string // "• %[1]s (%[2]s): dependency update failed — %[3]s"
 	PlanDepDeferredLine     string // "• %[1]s (%[2]s): dependency update deferred — %[3]s"
+	PlanDepLeftOutLine      string // "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s" (services, lockfile, first package change, the "and more" clause, the reason)
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
 	PlanPRProblemJoin       string // "; " (between the reasons)
 	PlanPRProblemBlocked    string // "a repository, branch or pull request is not in the expected state"
@@ -752,6 +753,7 @@ var enMessages = messages{
 	PlanDepManualLine:       "• %[1]s (%[2]s): dependency update needs a person — %[3]s",
 	PlanDepFailedLine:       "• %[1]s (%[2]s): dependency update failed — %[3]s",
 	PlanDepDeferredLine:     "• %[1]s (%[2]s): dependency update deferred — %[3]s",
+	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s left out of the update, needs a person — %[5]s",
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
 	PlanPRProblemJoin:       "; ",
 	PlanPRProblemBlocked:    "a repository, branch or pull request is not in the expected state",
@@ -1095,6 +1097,7 @@ var jaMessages = messages{
 	PlanDepManualLine:       "• %[1]s (%[2]s): 依存パッケージの更新は要判断 — %[3]s",
 	PlanDepFailedLine:       "• %[1]s (%[2]s): 依存パッケージの更新は失敗 — %[3]s",
 	PlanDepDeferredLine:     "• %[1]s (%[2]s): 依存パッケージの更新は延期 — %[3]s",
+	PlanDepLeftOutLine:      "• %[1]s (%[2]s): %[3]s%[4]s は今回の更新から除外。要判断 — %[5]s",
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
 	PlanPRProblemJoin:       "、",
 	PlanPRProblemBlocked:    "リポジトリ、ブランチ、Pull Requestのいずれかが想定の状態でない",

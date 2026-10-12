@@ -936,6 +936,9 @@ type languagePackagePayload struct {
 	Action              string `json:"action,omitempty"`
 	Reason              string `json:"reason,omitempty"`
 	Detail              string `json:"detail,omitempty"`
+	// LeftOut marks a package that was planned for an update and left out of
+	// the update.
+	LeftOut bool `json:"left_out,omitempty"`
 
 	OccurrenceCount      int                            `json:"occurrence_count"`
 	Occurrences          []remediation.SourceOccurrence `json:"occurrences,omitempty"`
@@ -959,7 +962,8 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 		PackageCount: len(li.Packages),
 		Update:       li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,
 	}
-	if u := languageUnitOf(li, units); u != nil {
+	u := languageUnitOf(li, units)
+	if u != nil {
 		out.PullRequest = &languagePRPayload{
 			Status: string(u.Status), Reason: string(u.Reason), Detail: u.Detail, Number: u.Number, URL: u.URL, State: string(u.State),
 			TargetKey: u.TargetKey, UpdateKey: u.UpdateKey, AttemptKey: u.AttemptKey,
@@ -969,14 +973,30 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 	if len(pkgs) > maxWebhookPackages {
 		pkgs, out.PackagesTruncated = pkgs[:maxWebhookPackages], true
 	}
+	var leftOut []remediation.PRLanguageRemaining
+	if u != nil && u.Language != nil {
+		leftOut = u.Language.Remaining
+	}
 	for _, p := range pkgs {
 		pp := languagePackagePayload{
 			Name: p.Name, Normalized: p.Normalized, Ecosystem: p.Ecosystem, Installed: p.Installed,
 			SelectionLowerBound: p.SelectionLowerBound, AdoptedVersion: p.AdoptedVersion,
-			Relation: string(p.Relation), Action: string(p.Action), Reason: string(p.Reason), Detail: p.Detail,
+			Relation: string(p.Relation), Action: string(p.Action), Reason: string(p.Reason), Detail: p.Detail, LeftOut: p.LeftOut,
 			OccurrenceCount: len(p.Occurrences), Occurrences: p.Occurrences,
 			CVECount: len(p.CVEs), KEVCount: p.KEVCount(), CVEs: p.CVEs,
 			OriginCount: len(p.Origins), Origins: p.Origins,
+		}
+		// An item tied to a pull request made in an earlier cycle was not
+		// updated again and holds no left-out marks; the pull request's view
+		// says which packages it leaves out.
+		for _, x := range leftOut {
+			if x.Name == p.Name && x.Ecosystem == p.Ecosystem {
+				pp.LeftOut, pp.Action, pp.Reason = true, string(remediation.ActionManual), string(x.Reason)
+				if x.Detail != "" {
+					pp.Detail = x.Detail
+				}
+				break
+			}
 		}
 		if len(pp.Origins) > maxWebhookOrigins {
 			pp.Origins, pp.OriginsTruncated = pp.Origins[:maxWebhookOrigins], true

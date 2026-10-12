@@ -150,6 +150,11 @@ type updateFailure struct {
 	// pkgs holds the reasons that belong to one package (by matching name);
 	// the other packages of the set get ReasonUpdateSetNotApplied.
 	pkgs map[string]updateFailureDetail
+	// retryWithout, when set, says the update can be made again without these
+	// packages (by matching name): they did not reach their target while the
+	// others of the set may have, and the result cannot be used as it is. The
+	// update stage runs the item once more without them.
+	retryWithout map[string]updateFailureDetail
 }
 
 type updateFailureDetail struct {
@@ -424,20 +429,103 @@ func (u *LangUpdater) jobID(n int, role string) string {
 }
 
 // updateItem runs the update of one item and records the outcome on it.
+//
+// When part of the set does not reach its target, the item is proposed
+// without those packages instead of failing as a whole: the result of the run
+// is used as it is when it left them where they were, and the update is run
+// once more without them when it moved them or the result cannot be used. A
+// run that has left packages out is not left out again, so an item takes at
+// most two runs, and both count as the one job the item is.
 func (u *LangUpdater) updateItem(ctx context.Context, it *LanguageItem, n int) {
 	set, fail := newUpdateSet(it)
 	if fail != nil {
 		fail.apply(it, set.idx)
 		return
 	}
-	res := &updateRun{u: u, it: it, n: n, set: set, upd: &LanguageUpdate{}}
-	if fail = res.run(ctx); fail != nil {
+	res := &updateRun{u: u, it: it, n: n, set: set, full: set, upd: &LanguageUpdate{}}
+	fail = res.run(ctx)
+	if fail != nil && len(fail.retryWithout) > 0 {
+		first := res
+		res, fail = u.runWithout(ctx, it, n, set, fail.retryWithout)
+		if fail != nil && fail.category == CategoryDeferred {
+			// The second run did not finish in time: the item stays as it was
+			// planned, and what the first run found stays on record with the note
+			// of the second.
+			first.upd.Notes = uniqueSorted(append(first.upd.Notes, res.upd.Notes...))
+			res = first
+		}
+	}
+	if fail != nil {
 		it.Update = res.upd
 		it.SourceCheck = res.check
 		fail.apply(it, set.idx)
+		res.keepLeftOutReasons(fail)
 		return
 	}
 	res.succeed()
+}
+
+// runWithout runs the update of the item again with the packages in without
+// (by matching name) left out of the set.
+func (u *LangUpdater) runWithout(ctx context.Context, it *LanguageItem, n int, set updateSet, without map[string]updateFailureDetail) (*updateRun, *updateFailure) {
+	names := make([]string, 0, len(without))
+	for name := range without {
+		names = append(names, set.display[name])
+	}
+	sort.Strings(names)
+	res := &updateRun{
+		u: u, it: it, n: n, set: set.without(without), full: set, upd: &LanguageUpdate{},
+		attempt: 1, noPartial: true, leftOut: without,
+	}
+	res.upd.Notes = append(res.upd.Notes, "the first run did not take "+strings.Join(names, ", ")+" to the target, so the update was run again without it")
+	fail := res.run(ctx)
+	if fail != nil {
+		// A failure of the second run keeps why the packages were left out in
+		// its detail, whatever its category.
+		var why []string
+		for _, n := range names {
+			for m, d := range without {
+				if set.display[m] == n {
+					why = append(why, clip(d.detail, 200))
+				}
+			}
+		}
+		fail.detail = "after leaving out " + strings.Join(names, ", ") + ", which did not reach the target (" + strings.Join(why, "; ") + "), the update was run again and: " + fail.detail
+		// A result of the work container that contradicts itself is a problem of
+		// the result, as a refused diff is; it is not tried again as a failed
+		// run is.
+		if fail.category == CategoryFailed && resultProblemReasons[fail.reason] {
+			fail.category = CategoryManual
+		}
+	}
+	return res, fail
+}
+
+// resultProblemReasons are the reasons of a failed run that say the output of
+// the work container itself cannot be used (its result block does not decode
+// or contradicts its files), not that the run could not be made.
+var resultProblemReasons = map[Reason]bool{ReasonUpdateResultInvalid: true}
+
+// without returns the set with the packages of the given matching names taken
+// out.
+func (s updateSet) without(drop map[string]updateFailureDetail) updateSet {
+	out := updateSet{target: map[string]string{}, byName: map[string][]int{}, display: map[string]string{}, direct: map[string]bool{}, targets: map[string]bool{}}
+	for _, n := range s.names {
+		if _, gone := drop[n]; gone {
+			continue
+		}
+		out.names = append(out.names, n)
+		out.target[n] = s.target[n]
+		out.byName[n] = s.byName[n]
+		out.display[n] = s.display[n]
+		out.targets[n] = true
+		if s.direct[n] {
+			out.direct[n] = true
+		}
+		out.idx = append(out.idx, s.byName[n]...)
+	}
+	sort.Ints(out.idx)
+	return out
 }
 
 // updateRun is the state of one item's update.
@@ -446,7 +534,23 @@ type updateRun struct {
 	it  *LanguageItem
 	n   int
 	set updateSet
-	upd *LanguageUpdate
+	// full is the set the item was planned with. set is the same, or the
+	// same without the packages in leftOut.
+	full updateSet
+	upd  *LanguageUpdate
+	// attempt is 0 for the first run of the item and 1 for the run made
+	// without the packages that did not reach their target; noPartial says the
+	// run may not leave packages out (it is that second run, or the manager
+	// has no lockfile to judge the packages by).
+	attempt   int
+	noPartial bool
+	// leftOut are the packages of the item that were left out of the update,
+	// by matching name, with why.
+	leftOut map[string]updateFailureDetail
+	// unreached are the packages of the set (by matching name) that the
+	// updated file holds below their target, found while checking the
+	// versions of the result.
+	unreached map[string]updateFailureDetail
 
 	src *sourceFiles
 	// manifest is the manifest the update runs on and must leave as it is:
@@ -477,6 +581,9 @@ func (r *updateRun) succeed() {
 	it := r.it
 	it.Category, it.Reason = CategoryPRCandidate, ReasonUpdateVerified
 	it.Detail = fmt.Sprintf("%d packages were updated in %s, the result was inspected and the dependency files scanned before and after show the targets gone", len(r.set.idx), it.Manager.LockfileName())
+	if len(r.leftOut) > 0 {
+		it.Detail += fmt.Sprintf("; %d package(s) did not reach their target and are left out of the update", len(r.leftOut))
+	}
 	it.UpdateExecuted, it.PostUpdateCheckExecuted = true, true
 	it.Update = r.upd
 	it.SourceCheck = r.check
@@ -484,6 +591,14 @@ func (r *updateRun) succeed() {
 		p := &it.Packages[i]
 		p.AdoptedVersion = r.adopted[p.matchName()]
 		p.Reason, p.Detail = ReasonUpdateVerified, ""
+	}
+	for _, i := range r.full.idx {
+		p := &it.Packages[i]
+		if d, ok := r.leftOut[p.matchName()]; ok {
+			p.AdoptedVersion = ""
+			manualPackage(p, d.reason, d.detail)
+			p.LeftOut = true
+		}
 	}
 	it.Artifacts = []ArtifactFile{{
 		Path: r.src.lockPath, SHA256: sha256Hex(r.newLock), Size: int64(len(r.newLock)),
@@ -494,6 +609,21 @@ func (r *updateRun) succeed() {
 			Path: r.src.manifestPath, SHA256: sha256Hex(r.manifest), Size: int64(len(r.manifest)),
 			Mode: r.src.manifestMode, Content: r.manifest,
 		})
+	}
+}
+
+// keepLeftOutReasons gives the packages that were left out of a run that then
+// failed their own reason, which is why they were left out, in place of the
+// failure's. The packages stay as the plan had them when the run was deferred.
+func (r *updateRun) keepLeftOutReasons(f *updateFailure) {
+	if f.category == CategoryDeferred {
+		return
+	}
+	for _, i := range r.full.idx {
+		p := &r.it.Packages[i]
+		if d, ok := r.leftOut[p.matchName()]; ok {
+			manualPackage(p, d.reason, d.detail)
+		}
 	}
 }
 

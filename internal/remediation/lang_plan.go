@@ -253,6 +253,13 @@ type LanguagePackage struct {
 	Action  PackageAction   `json:"action"`
 	Reason  Reason          `json:"reason,omitempty"`
 	Detail  string          `json:"detail,omitempty"`
+	// LeftOut marks a package that was planned for an update and then left
+	// out of it: the update did not take it to its target while it took the
+	// other packages of the unit, so the unit's result is proposed without it.
+	// Its action is manual and its reason says why it was left out. It still
+	// counts among the inputs the update was made from, so the fingerprint of
+	// the unit does not change when some of its packages are left out.
+	LeftOut bool `json:"left_out,omitempty"`
 }
 
 // KEVCount is how many of the package's vulnerabilities are KEV-listed.

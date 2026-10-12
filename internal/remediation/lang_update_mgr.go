@@ -24,6 +24,11 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 	}
 	r.src = src
 	r.manifest = src.manifest
+	// Only a lockfile tells where each package ended up; a pip update pins its
+	// packages exactly and has nothing to leave out.
+	if r.it.Manager == ManagerPip {
+		r.noPartial = true
+	}
 	// The sizes the planning below works over are checked first: the
 	// packages named, and the manifest read.
 	if len(r.set.names) > worker.MaxPackages {
@@ -53,6 +58,9 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 
 // exec runs one job of the update and notes whether its update step ran.
 func (r *updateRun) exec(ctx context.Context, m worker.Manager, inputs map[string][]byte, steps []worker.Step, role string) (*jobOutput, *updateFailure) {
+	if r.attempt > 0 {
+		role = fmt.Sprintf("%s-again%d", role, r.attempt)
+	}
 	out, fail := r.u.execute(ctx, r.u.newJob(m, inputs, steps), inputs, r.u.jobID(r.n, role), r.upd)
 	if out != nil {
 		for _, s := range out.result.Steps {
@@ -722,6 +730,11 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 	if fail := r.checkVersions(lf); fail != nil {
 		return fail
 	}
+	if len(r.unreached) > 0 {
+		if fail := r.leaveOut(lf); fail != nil {
+			return fail
+		}
+	}
 	if m == ManagerPip {
 		return nil
 	}
@@ -753,7 +766,14 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 		return &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
 	}
 	if reason != "" {
-		return manualFailure(reason, "%s", detail)
+		f := manualFailure(reason, "%s", detail)
+		if reason == ReasonUnexplainedDiff && len(r.leftOut) > 0 && !r.noPartial {
+			// The result was taken as it was with the packages left out, and
+			// something around them moved; the update is made again without them
+			// so that nothing is touched on their account.
+			f.retryWithout = r.leftOut
+		}
+		return f
 	}
 	// Every occurrence of an updated package is compared with the registry,
 	// whether or not the update changed it: an entry left alone can carry the
@@ -798,6 +818,7 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 	sc := it.Manager.scheme()
 	r.adopted = map[string]string{}
 	r.afterVersions = map[string][]string{}
+	r.unreached = map[string]updateFailureDetail{}
 	for _, n := range r.set.names {
 		target := r.set.target[n]
 		lp := lf.lookup(n)
@@ -823,7 +844,12 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 				return pkgFailure(n, ReasonTargetNotUpdated, "%s at %s has the version %q, which is not a version", n, o.Path, o.Version)
 			}
 			if ov.compare(tv) < 0 {
-				return pkgFailure(n, ReasonTargetNotUpdated, "%s is at %s at %s in the updated file, below the target %s", n, o.Version, o.Path, target)
+				detail := fmt.Sprintf("%s is at %s at %s in the updated file, below the target %s", n, o.Version, o.Path, target)
+				if !r.mayLeaveOut() {
+					return pkgFailure(n, ReasonTargetNotUpdated, "%s", detail)
+				}
+				r.unreached[n] = updateFailureDetail{ReasonTargetNotUpdated, detail}
+				break
 			}
 			if !seenVersions[o.Version] {
 				seenVersions[o.Version] = true
@@ -835,6 +861,10 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 			if low == nil || ov.compare(low) < 0 {
 				low, lowStr = ov, o.Version
 			}
+		}
+		if _, short := r.unreached[n]; short {
+			delete(r.afterVersions, n)
+			continue
 		}
 		r.adopted[n] = lowStr
 		for _, i := range r.set.byName[n] {
@@ -848,7 +878,85 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 			}
 		}
 	}
+	if len(r.unreached) == len(r.set.names) {
+		// Nothing reached its target: there is no part of the set to propose.
+		n := r.set.names[0]
+		return pkgFailure(n, ReasonTargetNotUpdated, "%s", r.unreached[n].detail)
+	}
 	return nil
+}
+
+// mayLeaveOut reports whether this run may leave packages that did not reach
+// their target out of its result.
+func (r *updateRun) mayLeaveOut() bool { return !r.noPartial }
+
+// leaveOut settles a result in which some packages of the set did not reach
+// their target and others did (r.unreached). The result is used as it is, with
+// the packages left out of the set from here on, when it left them where they
+// were and the manifest was not edited on their account; then the checks that
+// follow judge the result against the packages that did reach their target
+// only. Otherwise the failure asks for the update to be run again without
+// them, since a result that moved a package to another version that is still
+// short of its target cannot be explained by the packages being updated.
+func (r *updateRun) leaveOut(lf *lockfile) *updateFailure {
+	var names []string
+	for n := range r.unreached {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	again := func(format string, args ...any) *updateFailure {
+		f := manualFailure(ReasonTargetNotUpdated, format, args...)
+		f.retryWithout = r.unreached
+		return f
+	}
+	var orig *lockfile
+	var err error
+	switch r.it.Manager {
+	case ManagerNpm:
+		orig, err = parseNpm(r.src.manifest, r.src.lock)
+	case ManagerPnpm:
+		orig, err = parsePnpm(r.src.manifest, r.src.lock)
+	case ManagerUv:
+		orig, err = parseUv(r.src.manifest, r.src.lock)
+	default:
+		err = errors.New("no lockfile")
+	}
+	if err != nil {
+		return again("the original file cannot be compared with the result: %v", err)
+	}
+	edited := r.editedNames()
+	for _, n := range names {
+		was, now := orig.lookup(n), lf.lookup(n)
+		switch {
+		case was == nil || now == nil || !sameVersions(was.occs, now.occs):
+			return again("%s", r.unreached[n].detail)
+		case edited[n]:
+			return again("the manifest was edited for %s, which did not reach its target", n)
+		}
+	}
+	r.leftOut = r.unreached
+	r.set = r.set.without(r.unreached)
+	return nil
+}
+
+// sameVersions reports whether two lists of occurrences hold the same
+// versions.
+func sameVersions(a, b []SourceOccurrence) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := make([]string, len(a)), make([]string, len(b))
+	for i := range a {
+		x[i], y[i] = a[i].Version, b[i].Version
+	}
+	sort.Strings(x)
+	sort.Strings(y)
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // meetsFix reports whether version v is fixed for a vulnerability reported

@@ -87,6 +87,38 @@ func languageFromUpdateStage(li remediation.LanguageItem) bool {
 	return false
 }
 
+// leftOutLine is the Slack line of the packages a verified update leaves out
+// because they did not reach their target, or "" without any. The pull
+// request unit's view has them when there is one (an item tied to a pull request
+// made in an earlier cycle is not updated again and holds no left-out marks of
+// its own), else the item's packages do.
+func leftOutLine(li remediation.LanguageItem, u *remediation.PRUnit, msg messages) string {
+	type left struct{ name, from, target, reason string }
+	var list []left
+	if u != nil && u.Language != nil {
+		for _, x := range u.Language.Remaining {
+			list = append(list, left{x.Name, x.From, x.Target, string(x.Reason)})
+		}
+	}
+	if len(list) == 0 {
+		for _, p := range li.Packages {
+			if p.LeftOut {
+				list = append(list, left{p.Name, p.Installed, p.SelectionLowerBound, string(p.Reason)})
+			}
+		}
+	}
+	if len(list) == 0 {
+		return ""
+	}
+	first := list[0]
+	more := ""
+	if n := len(list) - 1; n > 0 {
+		more = fmt.Sprintf(msg.PlanDepMore, n)
+	}
+	return fmt.Sprintf(msg.PlanDepLeftOutLine, languageServices(li.Workloads), escMrkdwn(li.Manager.LockfileName()),
+		fmt.Sprintf("%s %s → %s", escMrkdwn(first.name), escMrkdwn(first.from), escMrkdwn(first.target)), more, escMrkdwn(first.reason))
+}
+
 // languageUpdateLines are the Slack lines about the update stage's outcome:
 // the ones that need a person (manual, failed, a verified update whose pull
 // request could not be opened) and the deferred ones. A verified update with a
@@ -99,6 +131,9 @@ func languageUpdateLines(plan remediation.Plan, msg messages) (warn, adopted []s
 		switch li.Category {
 		case remediation.CategoryPRCandidate:
 			u := languageUnitOf(li, plan.PullRequests)
+			if line := leftOutLine(li, u, msg); line != "" {
+				warn = append(warn, line)
+			}
 			if u != nil && u.Number > 0 {
 				continue
 			}
