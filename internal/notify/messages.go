@@ -399,6 +399,8 @@ type messages struct {
 	PlanUndetectedClause  string // "%d not detected on the running image"
 	PlanClauseJoin        string // ", " (between the clauses)
 	PlanClauseWrap        string // " (%s)" (around the joined clauses)
+	PlanPackageReason     string // "%[1]s %[2]s → %[3]s: %[4]s%[5]s" (name, installed, target, reason, the lockfile note)
+	PlanLockfileUnchanged string // " (the lockfile did not change)"
 	PlanLeftOut           string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
 	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s" (name, installed, lowest fixed version, the "and more" clause)
 	PlanDockerfileRebuild string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
@@ -736,6 +738,8 @@ var enMessages = messages{
 	PlanUndetectedClause:  "%d not detected on the running image",
 	PlanClauseJoin:        ", ",
 	PlanClauseWrap:        " (%s)",
+	PlanPackageReason:     "%[1]s %[2]s → %[3]s: %[4]s%[5]s",
+	PlanLockfileUnchanged: " (the lockfile did not change)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s left out because %[4]s",
 	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s",
 	PlanDockerfileRebuild: "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
@@ -1069,6 +1073,8 @@ var jaMessages = messages{
 	PlanUndetectedClause:  "稼働中のイメージで未検出 %d件",
 	PlanClauseJoin:        "、",
 	PlanClauseWrap:        " (%s)",
+	PlanPackageReason:     "%[1]s %[2]s → %[3]s は%[4]s%[5]s",
+	PlanLockfileUnchanged: " (lockfile は変わらず)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s は%[4]sため除外",
 	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み%[4]s",
 	PlanDockerfileRebuild: "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",

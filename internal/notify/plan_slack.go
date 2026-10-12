@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -679,9 +680,54 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 			why = fmt.Sprintf(b.msg.PlanRuntimeEOL, litMrkdwn(x.Name), litMrkdwn(x.EOL))
 		}
 		e.line(tag, file)
-		e.line(tag, kv(label, why))
+		if pkgs := packagesOfReason(li); len(pkgs) > 0 && li.RuntimeEOL == nil {
+			b.packageReasonLines(&e, tag, label, li, pkgs)
+		} else {
+			e.line(tag, kv(label, why))
+		}
 	}
 	return e
+}
+
+// packagesOfReason are the packages of an item whose own reason is the item's
+// reason: the item is manual because of them.
+func packagesOfReason(li remediation.LanguageItem) []remediation.LanguagePackage {
+	if li.Reason == "" {
+		return nil
+	}
+	var out []remediation.LanguagePackage
+	for _, p := range li.Packages {
+		if p.Action == remediation.ActionManual && p.Reason == li.Reason {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// lockfileLeftAlone matches the detail of an update that changed nothing.
+var lockfileLeftAlone = regexp.MustCompile(`^the (?:update|rewrite) left .+ unchanged$`)
+
+// packageReasonLines names the packages an item is manual for, with the
+// reason, as the lines of the packages left out of an update are. The lockfile
+// is said not to have changed only when the detail says the update left it
+// unchanged.
+func (b *planBuilder) packageReasonLines(e *planEntry, tag planTag, label string, li remediation.LanguageItem, pkgs []remediation.LanguagePackage) {
+	for _, p := range pkgs {
+		unchanged := lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail)
+		b.detail = append(b.detail, strings.Join([]string{"package", p.Name, p.Installed, p.SelectionLowerBound, string(p.Reason), fmt.Sprint(unchanged)}, "\x00"))
+	}
+	for i, p := range pkgs {
+		if i == planLeftOuts {
+			e.line(tag, kv(label, strings.TrimSpace(fmt.Sprintf(b.msg.PlanMore, len(pkgs)-planLeftOuts))))
+			break
+		}
+		note := ""
+		if lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail) {
+			note = b.msg.PlanLockfileUnchanged
+		}
+		e.line(tag, kv(label, fmt.Sprintf(b.msg.PlanPackageReason,
+			litMrkdwn(p.Name), litMrkdwn(p.Installed), litMrkdwn(p.SelectionLowerBound), b.reason(p.Reason), note)))
+	}
 }
 
 // --- the message ---

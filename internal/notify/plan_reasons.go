@@ -191,7 +191,7 @@ var planReasonTexts = map[string]struct{ en, ja string }{
 	"manifest_changed":                  {"the update changed the manifest", "更新で manifest が変更された"},
 	"output_files_invalid":              {"the files the update produced are invalid or cannot be read", "更新が出力したファイルが不正、または読み取れない"},
 	"lockfile_format_changed":           {"the update changed the format of the lockfile", "更新で lockfile の形式が変わった"},
-	"target_not_updated":                {"the package is not at the target version in the updated file", "更新後のファイルでパッケージが目標の版になっていない"},
+	"target_not_updated":                {"the package is not at the target version in the updated file", "更新しても目標の版に上がらなかった"},
 	"target_removed":                    {"the package is gone from the updated file or no longer reached by the project", "更新後のファイルからパッケージがなくなった、またはプロジェクトから到達できなくなった"},
 	"fix_condition_not_met":             {"the updated version does not meet the condition that fixes the vulnerability", "更新後の版が脆弱性の修正条件を満たさない"},
 	"unexplained_dependency_diff":       {"the update changed dependencies it cannot explain", "更新で説明のつかない依存の変更があった"},

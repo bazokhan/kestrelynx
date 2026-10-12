@@ -553,7 +553,7 @@ func TestPlanReasonTextOfAnUnknownCodeIsTheCode(t *testing.T) {
 	if got := planReasonText(LanguageEN, "<!channel>"); got != "&lt;!channel&gt;" {
 		t.Errorf("an unknown code is not escaped: %q", got)
 	}
-	if got := planReasonText(LanguageJA, "target_not_updated"); got != "更新後のファイルでパッケージが目標の版になっていない" {
+	if got := planReasonText(LanguageJA, "target_not_updated"); got != "更新しても目標の版に上がらなかった" {
 		t.Errorf("got %q", got)
 	}
 	if got := planReasonText(LanguageEN, "target_not_updated"); got != "the package is not at the target version in the updated file" {
@@ -931,5 +931,65 @@ func TestPlanReasonTextOfAnUnknownCodeIsLiteral(t *testing.T) {
 				t.Errorf("odd backticks in %q", b.Text)
 			}
 		}
+	}
+}
+
+// An item that is manual as a whole for a reason its packages have names those
+// packages, like the lines of the packages left out.
+func TestPlanMessage_ItemReasonNamesItsPackages(t *testing.T) {
+	item := func(detail string, extra int) *PlanInfo {
+		li := languageUpdated("deps:ex/app@main:.#npm")
+		li.Category, li.Reason, li.Detail = remediation.CategoryManual, remediation.ReasonTargetNotUpdated, detail
+		li.Packages = []remediation.LanguagePackage{{Name: "multer", Ecosystem: "node-pkg", Installed: "2.1.1", SelectionLowerBound: "2.3.0",
+			Action: remediation.ActionManual, Reason: remediation.ReasonTargetNotUpdated}}
+		for i := 0; i < extra; i++ {
+			li.Packages = append(li.Packages, remediation.LanguagePackage{Name: string(rune('a' + i)), Installed: "1.0.0", SelectionLowerBound: "1.1.0",
+				Action: remediation.ActionManual, Reason: remediation.ReasonTargetNotUpdated})
+		}
+		li.Packages = append(li.Packages, remediation.LanguagePackage{Name: "other", Installed: "1", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource})
+		return languagePlanOf(li)
+	}
+	r := planReport()
+	for lang, want := range map[Language]string{
+		LanguageJA: "要判断: multer 2.1.1 → 2.3.0 は更新しても目標の版に上がらなかった (lockfile は変わらず)",
+		LanguageEN: "Needs a decision: multer 2.1.1 → 2.3.0: the package is not at the target version in the updated file (the lockfile did not change)",
+	} {
+		got := slackPlanText(r, item("the update left pnpm-lock.yaml unchanged", 0), lang)
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: missing %q in\n%s", lang, want, got)
+		}
+		if strings.Contains(got, "other 1") {
+			t.Errorf("%s: a package with another reason is listed:\n%s", lang, got)
+		}
+		// Without the detail nothing is said about the lockfile.
+		got = slackPlanText(r, item("", 0), lang)
+		if strings.Contains(got, "lockfile は変わらず") || strings.Contains(got, "did not change") || !strings.Contains(got, "multer 2.1.1 → 2.3.0") {
+			t.Errorf("%s: without the detail:\n%s", lang, got)
+		}
+	}
+	// More than three packages are cut like the left-out ones.
+	got := slackPlanText(r, item("", 4), LanguageEN)
+	if n := strings.Count(got, "Needs a decision: "); n != 4 || !strings.Contains(got, "Needs a decision: and 2 more") {
+		t.Errorf("%d lines in\n%s", n, got)
+	}
+	// Every package, and what is known of the lockfile, is in the fingerprint.
+	a, b := item("", 4), item("", 4)
+	b.Plan.LanguageItems[0].Packages[4].SelectionLowerBound = "9.9.9"
+	c := item("the update left x unchanged", 4)
+	if a.SlackFingerprint() == b.SlackFingerprint() || a.SlackFingerprint() == c.SlackFingerprint() {
+		t.Error("a cut package or the lockfile note is not in the fingerprint")
+	}
+}
+
+func TestPlanMessage_ItemReasonGolden(t *testing.T) {
+	for _, lang := range []Language{LanguageEN, LanguageJA} {
+		li := languageUpdated("deps:ex/app@main:.#npm")
+		li.Category, li.Reason, li.Detail = remediation.CategoryManual, remediation.ReasonTargetNotUpdated, "the update left package-lock.json unchanged"
+		li.Packages = []remediation.LanguagePackage{{Name: "multer", Ecosystem: "node-pkg", Installed: "2.1.1", SelectionLowerBound: "2.3.0",
+			Action: remediation.ActionManual, Reason: remediation.ReasonTargetNotUpdated}}
+		info := languagePlanOf(li)
+		info.SlackChanged = true
+		msgs := buildPlanMessages(Message{Report: planReport(), Plan: info}, messagesFor(lang), defaultRenderLimits)
+		checkBlockGolden(t, "plan_slack_"+string(lang)+"_item_reason", "txt", dumpMessages(msgs))
 	}
 }

@@ -1,0 +1,10 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 fix plan — Proposals: 1 need a decision
+--- section ---
+*🔧 Fix plan*
+Proposals: 1 need a decision
+--- divider ---
+--- section ---
+*Service: api, web*
+File to change: package-lock.json in ex/app
+Needs a decision: multer 2.1.1 → 2.3.0: the package is not at the target version in the updated file (the lockfile did not change)
