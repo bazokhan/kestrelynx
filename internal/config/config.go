@@ -193,9 +193,6 @@ type RemediationWorkerConfig struct {
 	// from instead of the build's own, which are checked against the hashes
 	// the build embeds. It is meant for developing the program.
 	ProgramDir string
-	// LegacyImage is the value of the removed key worker.image, kept only to
-	// say that it is set. While it is, language package updates are off.
-	LegacyImage string
 }
 
 // RemediationToolVersions holds the settings of the package manager cache.
@@ -411,9 +408,6 @@ type rawConfig struct {
 		} `yaml:"registries"`
 		StorageDir string `yaml:"storage_dir"`
 		Worker     struct {
-			// Image is the removed key; it is read so that its presence can
-			// be reported.
-			Image        string `yaml:"image"`
 			Registry     string `yaml:"registry"`
 			ProgramDir   string `yaml:"program_dir"`
 			ToolVersions struct {
@@ -534,7 +528,7 @@ func Parse(data []byte) (Config, error) {
 
 	rw := raw.Remediation.Worker
 	wk := RemediationWorkerConfig{
-		Registry: rw.Registry, ProgramDir: rw.ProgramDir, LegacyImage: rw.Image,
+		Registry: rw.Registry, ProgramDir: rw.ProgramDir,
 		ToolVersions: RemediationToolVersions{
 			MinReleaseAge: durationOr(rw.ToolVersions.MinReleaseAge, defaultToolMinReleaseAge),
 			CacheMaxSize:  defaultToolCacheMaxSize,

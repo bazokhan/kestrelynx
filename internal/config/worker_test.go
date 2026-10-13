@@ -15,8 +15,8 @@ func TestParse_WorkerDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := c.Remediation
-	if r.Worker.Registry != "" || r.Worker.LegacyImage != "" || r.Worker.ProgramDir != "" {
-		t.Errorf("Worker = %+v, want no registry, legacy image or program dir", r.Worker)
+	if r.Worker.Registry != "" || r.Worker.ProgramDir != "" {
+		t.Errorf("Worker = %+v, want no registry or program dir", r.Worker)
 	}
 	if r.Worker.ToolVersions.MinReleaseAge != 72*time.Hour || r.Worker.ToolVersions.CacheMaxSize != 1<<30 {
 		t.Errorf("ToolVersions = %+v, want 72h and 1GiB", r.Worker.ToolVersions)
@@ -53,18 +53,6 @@ remediation:
 	}
 	if r.Limits.DependencyJobsPerCycle != 7 || r.Limits.JobTimeout != 90*time.Second {
 		t.Errorf("limits = %+v", r.Limits)
-	}
-}
-
-// The removed worker.image key still parses, so that the program can say it
-// has no effect and keep language package updates off.
-func TestParse_LegacyWorkerImageIsRecorded(t *testing.T) {
-	c, err := Parse([]byte(minimal + "\nremediation:\n  worker:\n    image: ghcr.io/example/worker@sha256:" + strings.Repeat("a", 64) + "\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(c.Remediation.Worker.LegacyImage, "ghcr.io/example/worker@") {
-		t.Errorf("LegacyImage = %q", c.Remediation.Worker.LegacyImage)
 	}
 }
 

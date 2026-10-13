@@ -83,17 +83,6 @@ func TestBuildLanguageConfigWithoutAProgram(t *testing.T) {
 	}
 }
 
-func TestBuildLanguageConfigLegacyImageKeyTurnsUpdatesOff(t *testing.T) {
-	cfg := workTestConfig(t)
-	withProgramDir(t, &cfg, "program")
-	withToolSupply(t, okToolSupply)
-	cfg.Remediation.Worker.LegacyImage = "ghcr.io/example/worker@sha256:" + strings.Repeat("a", 64)
-	lc := buildLanguageConfig(cfg, quietLog())
-	if lc.Unavailable == nil || lc.Unavailable.Reason != remediation.ReasonWorkImageNotConfigured || !strings.Contains(lc.Unavailable.Detail, "remediation.worker.image") || lc.NewUpdater != nil {
-		t.Errorf("config = %+v", lc)
-	}
-}
-
 func TestBuildLanguageConfigWithoutAToolProvider(t *testing.T) {
 	cfg := workTestConfig(t)
 	withProgramDir(t, &cfg, "program")

@@ -167,18 +167,13 @@ var errNoProgramHash = errors.New("this build carries no work program")
 // buildLanguageConfig assembles the dependency update stage. The work clients
 // exist only here, so with pull requests off nothing in the process can start a
 // work container. A problem that stops every update (the program is missing or
-// altered, the clients cannot be set up, the removed worker.image key is still
-// set) is returned as the reason the cycle's update candidates are deferred
-// with; nothing is run in this process instead.
+// altered, the clients cannot be set up) is returned as the reason the cycle's
+// update candidates are deferred with; nothing is run in this process instead.
 func buildLanguageConfig(cfg config.Config, log *slog.Logger) *runner.LanguageUpdateConfig {
 	rc := cfg.Remediation
 	unavailable := func(reason remediation.Reason, detail string, err error) *runner.LanguageUpdateConfig {
 		log.Warn("language package updates are disabled", "reason", reason, "detail", detail, "err", err)
 		return &runner.LanguageUpdateConfig{Unavailable: &runner.LanguageUnavailable{Reason: reason, Detail: detail}}
-	}
-	if rc.Worker.LegacyImage != "" {
-		return unavailable(remediation.ReasonWorkImageNotConfigured,
-			"remediation.worker.image was removed: the update containers now use the official Node.js and Python images pinned by this build; remove the key (use remediation.worker.registry for a mirror)", nil)
 	}
 	goarch := runtime.GOARCH
 	program, err := programLoader(rc.Worker.ProgramDir, goarch)
