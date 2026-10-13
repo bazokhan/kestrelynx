@@ -12,9 +12,9 @@ hide:
 Docker · Kubernetes · Trivy · CISA KEV · EPSS
 { .kl-eyebrow }
 
-# Docker・Kubernetes向けコンテナイメージの脆弱性通知
+# コンテナイメージの脆弱性スキャン・通知・修正
 
-KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンします。前回からの新規検出、修正版の提供開始、優先度の上昇、解消を、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度とともにSlackやWebhookへ通知します。
+KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンするOSSです。前回からの変化と、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度をSlackやWebhookへ通知します。Docker・Compose向けには、[修正計画と修正PR（実験的）](documentation/remediation.md)を備え、同じ条件での再スキャン結果の比較とGitHubへのPR作成を通じて修正を支援します（既定で無効）。
 
 [セットアップ](documentation/getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/kitsunetrail/kestrelynx){ .md-button }

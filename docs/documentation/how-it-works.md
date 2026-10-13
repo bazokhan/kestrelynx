@@ -1,6 +1,6 @@
 # How KestreLynx works
 
-KestreLynx uses Trivy scan results for running images to report changes since the previous scan and findings that remain unresolved.
+KestreLynx uses Trivy scan results for running images to report changes since the previous scan and findings that remain unresolved. For Docker and Compose, [remediation plans and pull requests (experimental)](remediation.md) support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default. Users handle merging, rebuilding, and deployment.
 
 - The Slack channel shows changes since the previous scan in the default `diff` mode.
 - Slack Bot threads show the current state, and the generic webhook provides all findings and changes.

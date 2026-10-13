@@ -12,14 +12,17 @@ hide:
 Docker · Kubernetes · Trivy · CISA KEV · EPSS
 { .kl-eyebrow }
 
-# Container image vulnerability notifications for Docker and Kubernetes
+# Container image vulnerability scanning, notifications, and remediation
 
-KestreLynx regularly scans images used by running Docker and Kubernetes
-containers with [Trivy](https://trivy.dev/). It sends new findings, newly
-available fixes, priority increases, and resolutions since the previous scan to
-Slack or a webhook, along with priorities based on severity,
+KestreLynx is open-source software that regularly scans images used by running
+Docker and Kubernetes containers with [Trivy](https://trivy.dev/).
+It sends changes since the last scan and priorities based on severity,
 [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog), and
-[EPSS](https://www.first.org/epss/).
+[EPSS](https://www.first.org/epss/) to Slack or a webhook.
+For Docker and Compose,
+[remediation plans and pull requests (experimental)](documentation/remediation.md)
+support remediation by comparing rescans under the same conditions and creating
+GitHub pull requests, with both features disabled by default.
 
 [Setup](documentation/getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/kitsunetrail/kestrelynx){ .md-button }

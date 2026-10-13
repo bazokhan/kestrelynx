@@ -3,9 +3,9 @@ INHERIT: mkdocs.yml
 site_name: KestreLynx ドキュメント
 site_url: https://kestrelynx.dev/ja/
 site_description: >-
-  Docker・Kubernetesで使用するコンテナイメージの脆弱性の変化を監視する
-  オープンソースツールKestreLynxの
-  公式ドキュメントと技術記事。
+  Docker・Kubernetesの稼働イメージのスキャン・通知と、
+  Docker・Compose向けの修正計画と修正PR（実験的）を提供するOSS、
+  KestreLynxの公式ドキュメントと技術記事。
 docs_dir: docs-ja
 site_dir: site/ja
 edit_uri: edit/main/docs-ja/

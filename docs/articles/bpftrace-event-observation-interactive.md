@@ -29,6 +29,6 @@ For the periodic-read approach and its sampling limitations, see [How to Map Run
 
 ---
 
-KestreLynx is a lightweight open-source agent that scans images used by running Docker or Kubernetes containers and notifies you when actionable vulnerabilities change. It combines Trivy scan results with CISA KEV and EPSS to separate urgent issues from noise.
+KestreLynx is open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends changes since the last scan and priorities based on severity, CISA KEV, and EPSS to Slack or a webhook. For Docker and Compose, remediation plans and pull requests (experimental) support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default. Users handle merging, rebuilding, and deployment.
 
 [About KestreLynx](../index.md) · [View source on GitHub](https://github.com/kitsunetrail/kestrelynx)

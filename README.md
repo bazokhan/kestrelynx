@@ -9,7 +9,7 @@
 [Getting started](docs/documentation/getting-started.md) ·
 [Configuration reference](docs/documentation/configuration.md)
 
-> An agent that regularly scans images used by running Docker and Kubernetes containers and sends **prioritized vulnerabilities and changes since the last scan** to Slack or a webhook.
+> Open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends **changes since the last scan and priorities based on severity, CISA KEV, and EPSS** to Slack or a webhook. For Docker and Compose, **remediation plans and pull requests (experimental)** support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default.
 
 ## What it does
 

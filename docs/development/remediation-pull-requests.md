@@ -167,37 +167,114 @@ The current implementation leaves the root filesystem writable in Docker's confi
 | Multiple locations in the same file | Combine them into one PR |
 | Merging and deployment to production | Do not perform them automatically |
 
-## Unverified areas and next steps
+### Changes after implementation
+
+Remediation plans and PRs draw on some ideas from the [Remediation Relations Model](remediation-relations-model.md), without directly implementing its types.
+
+#### Execution environment for updates
+
+- Use official images and fetch the required tools
+    - Replace the dedicated image with official Node and Python images pinned by digest, supplying KestreLynx's job program to each container
+    - Have KestreLynx fetch and verify the project-specified versions of npm, pnpm, and uv, and check them again when reusing cached copies
+    - Require manual action for conflicting or unsupported version declarations, or declarations that allow only runtime versions that have reached end of support
+- Restrict where update jobs can write
+    - Replace the dedicated image's permission settings with confinement to temporary storage with capacity limits, and check these restrictions at runtime
+
+#### Language package update methods and scope
+
+- Regenerate lockfiles with package-manager-specific handling
+    - For npm and pnpm, remove entries for the update targets before regenerating the lockfile, requiring manual action for pnpm 12 because it does not support this approach
+    - For uv, specify a target version for each package being updated
+    - Allow accompanying changes to dependencies and annotations when the checks can account for them, and show those changes in the PR body
+- Support pnpm projects whose configuration files contain only supported settings
+    - For pnpm 10 and later, include projects with a `pnpm-workspace.yaml` containing only settings such as packages allowed to build or supported CPU architectures
+    - Continue to require manual action for workspace definitions that group multiple packages or for unsupported settings
+- Allow partial PRs for language package updates
+    - For npm, pnpm, and uv, create PRs containing only updates that pass verification, excluding packages that cannot reach a fixed version because of dependency constraints or other restrictions
+    - Report excluded packages as requiring manual action, and do not split pip updates into partial PRs
+
+#### Finding image candidates
+
+- Support authentication to private image registries, lifting the restriction to public images
+- Retrieve tags more efficiently by limiting requests to the target version series, without selecting candidates from incomplete tag lists
+- Exclude locally built running images before querying registries, and do not guess a registry to search when the image's origin cannot be determined
+
+#### Slack notifications
+
+- Send remediation plans as separate messages from vulnerability notifications, including packages excluded from partial PRs and details of required manual action
+
+#### PR body content and Japanese support
+
+- Focus language package PR bodies on execution and inspection results and instructions for checking the update in the user's CI, removing the `Not verified` and rationale sections
+- Show the comparison of base images only and the limits of layer attribution in Dockerfile PRs, removing the explicit statement that the final image has not been verified
+- Apply the notification language setting to PR bodies so they can also be displayed in Japanese
+
+## Verification results
 
 Language package update PRs for npm, pnpm, uv, and pip are implemented, completing the minimal release scope alongside Compose tag and Dockerfile base image updates.
 
-- **Verified Compose tag PRs in a GitHub repository used for validation**
+### Compose tag updates
+
+- Verified Compose tag PRs in a GitHub repository used for validation
     - PRs change only the targeted tag lines
     - Repeated runs do not create duplicate PRs
     - Updates from closed PRs are not recreated, even after their branches are deleted
     - Branches modified by users are left untouched
     - Lost local records are reconstructed from markers in PR bodies
     - With read-only permissions, writes fail, leave nothing behind, and trigger a notification
-- **Verified language package PRs in a GitHub repository used for validation**
-    - Created four PRs covering npm and pnpm transitive updates from minimist 1.2.5 to 1.2.8, a pip update from urllib3 1.26.4 to 2.8.0 with hashes, and a uv update from urllib3 `==1.26.4` to `==2.8.0` including a manifest edit
-    - Repeated runs created no duplicate PRs and ran no update jobs when inputs were unchanged
+
+### Language package updates with the previous job image
+
+- Verified language package PRs in a GitHub repository used for validation
+    - Created four PRs covering the following updates
+        - npm and pnpm each updated the transitive dependency minimist from 1.2.5 to 1.2.8
+        - pip updated urllib3 from 1.26.4 to 2.8.0 with hashes for verifying distributions
+        - uv updated urllib3 from `==1.26.4` to `==2.8.0`, including a manifest edit
+    - Repeated runs created no duplicate PRs and ran no update jobs when the source files and update targets were unchanged
     - Job containers were excluded from scan targets and removed after every run
-- **Verified larger dependency sets and arm64 under emulation**
-    - Of eight updates to old transitive dependencies in realistic dependency sets using express and axios, vite, fastapi and httpx, and requests, seven became PR candidates and one required manual action because uv itself could not resolve the dependencies
+- Verified updates with dependency sets comparable in size to those in real projects
+    - Of eight updates to old transitive dependencies in dependency sets using express and axios, vite, fastapi and httpx, and requests, seven became PR candidates
+    - The remaining update required manual action because uv itself could not resolve the dependencies
     - No valid output was rejected by the checks in these cases
-    - Built the arm64 job image under QEMU on x86_64 and confirmed the same results for all four package manager updates
-- **Unverified environments and limits**
-    - Execution on physical arm64 hardware and rootless Docker remain unverified
-    - Publishing the job image through CI and measurements supporting the default limits remain unverified
-    - The glibc version mapping used to determine pip's target environment has been checked against measurements only on Debian 12 x86_64
-- **Publish the minimal release and track remediation results**
-    - Publish the minimal release, including the job image
+- Verified arm64 execution under emulation
+    - Built the arm64 job image using QEMU to emulate another CPU architecture on x86_64 and confirmed the same update results for all four package managers
+
+### Verification with official images and fetched tools
+
+- Verified the current approach in a project in active use
+    - Using the backend and frontend dependency files, verified the process from fetching the declared pnpm 10.34.4 through updating with the official `node:24` image, checking the output, and rescanning the source
+    - Verified updates for a project with a settings-only `pnpm-workspace.yaml` and partial updates that excluded packages unable to reach a fixed version
+    - Confirmed that remediation PRs were created and merged in production use
+
+The results for all four package managers and QEMU with the previous job image do not establish equivalent verification coverage for the current approach.
+
+## Unverified areas and next steps
+
+- Verify execution environments and limits
+    - Execution on physical arm64 hardware and rootless Docker, which runs Docker itself without administrator privileges, remain unverified with the current approach
+    - Measurements supporting the default limits on update counts, execution time, and similar constraints remain unverified
+    - The glibc version mapping used to determine pip's target environment needs to be checked against measurements beyond Debian 12 x86_64, where glibc is a core Linux library
+- Track remediation results
     - Pick up images built by a PR's CI and rescan them to verify the results
-- **Expand the supported change targets**
+    - Confirming resolution by rescanning the final image built and deployed after merging remains separate work from verifying PR creation and merging
+- Verify the workflow that updates the official image digest table
+    - Verify the workflow that creates update PRs weekly or on manual request, from execution in actual use through merging the update PR
+    - Confirm that it proposes updates only after checks of image versions, configuration, and writable locations, vulnerability scans, and update job tests have passed
+- Add runtime version selection
+    - Select Node and Python versions according to project declarations and add verification for each version
+- Update the user documentation
+    - Document removed settings, mirrors of official images, tool fetching and caching, supported declarations and versions, and the handling of partial PRs
+- Expand the supported change targets
     - Add Kubernetes definition files and automatic source identification in turn, guided by user feedback
     - Defer emergency patching that generates patched images
 
 ## Update history
+
+### October 13, 2026
+
+- Switched to official images and fetched tools.
+- Updated partial PR handling, PR body content, and remediation plan notifications.
+- Separated verification results from next steps.
 
 ### October 11, 2026
 

@@ -1,6 +1,10 @@
-// Command kestrelynx scans the host's running container images for HIGH/CRITICAL
-// vulnerabilities and notifies Slack/webhook on a schedule. See docs/ for
-// more detail.
+// Command kestrelynx regularly scans images used by running Docker and Kubernetes
+// containers with Trivy and sends changes since the last scan and priorities
+// based on severity, CISA KEV, and EPSS to Slack or a webhook.
+// For Docker and Compose, remediation plans and pull requests (experimental)
+// support remediation from comparing update candidates to creating GitHub pull
+// requests, with both features disabled by default. Users handle merging,
+// rebuilding, and deployment. See docs/ for more detail.
 package main
 
 import (

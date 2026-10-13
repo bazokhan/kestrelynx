@@ -1,8 +1,10 @@
 site_name: KestreLynx
 site_url: https://kestrelynx.dev/
 site_description: >-
-  Official documentation and technical articles for KestreLynx, an open-source
-  container image vulnerability change monitor for Docker and Kubernetes.
+  Official documentation and technical articles for KestreLynx, open-source
+  software providing scanning and notifications for running container images
+  in Docker and Kubernetes, with remediation plans and pull requests
+  (experimental) for Docker and Compose.
 repo_name: kitsunetrail/kestrelynx
 repo_url: https://github.com/kitsunetrail/kestrelynx
 edit_uri: edit/main/docs/
