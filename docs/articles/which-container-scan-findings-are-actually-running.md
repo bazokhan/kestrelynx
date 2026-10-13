@@ -271,6 +271,9 @@ result using the classifications from the procfs mapping article:
 | `unknown` | Failed reads, missing metadata, ambiguous ownership, or identity/version problems prevented a reliable conclusion |
 | `unobserved` | Valid collection produced no confirming evidence, including unsupported language-package mapping |
 
+The `confirmed`, `unknown`, and `unobserved` classifications used in this measurement are separate from KestreLynx's [runtime usage](../documentation/runtime-usage.md) classifications of `in_use`, `not_observed`, and `unavailable`.
+In KestreLynx, language ecosystems without a supported usage rule are classified as `unavailable`.
+
 These classifications describe evidence, not severity.
 Retain the observation time, successful sample count, and reason for an
 unsuccessful match alongside the classification.[^harness]

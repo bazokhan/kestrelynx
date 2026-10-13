@@ -131,9 +131,13 @@ Failure without capabilities does not mean that every procfs entry,
 including `status`, was unreadable. The table describes whether collection
 provided the information required to confirm package use.
 
-A separate Ubuntu host with AppArmor enabled was tested only as root.
-Non-root capability combinations were not verified there. These results
-do not establish a universal minimum permission set for Linux
+Non-root capability combinations remain unverified with an AppArmor
+profile applied to the collector.
+In a later [operational-environment validation](../development/runtime-environment-validation.md),
+the collector ran unconfined under AppArmor, and a non-root collector with
+`CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` achieved 12/12 valid reads and
+matched root on every compared measure.
+These results do not establish a universal minimum permission set for Linux
 hosts.[^measurements]
 
 ## The program used for the measurement

@@ -130,16 +130,16 @@ Kubernetesでは、実行中のコンテナと稼働中の`restartPolicy: Always
 | --- | --- |
 | `fixed` | 修正版あり、`fixed`へ集約 |
 | `affected` | 影響あり・修正版なし、`affected`へ集約 |
-| `will_not_fix` | 上流に修正予定なし、`will_not_fix`へ集約 |
+| `will_not_fix` | 対象プラットフォームでは現時点で修正予定なし、`will_not_fix`へ集約。OSパッケージでは対象OSリリース向けの方針であり、開発元や別のOSリリースにも修正版がないことを意味しない |
 | `fix_deferred` | 修正延期、`affected`へ集約 |
-| `end_of_life` | このリリースでは対象CVEがサポート対象外、EOL packageへ集約 |
+| `end_of_life` | OSの配布元がサポート範囲外として、CVEが当てはまるかを調べておらず、修正版も出ない、EOL packageへ集約 |
 | `unknown` | 修正状態不明、`affected`へ集約 |
 | `under_investigation` | 調査中、`affected`へ集約 |
 | `not_affected` | 集約・通知・優先度判定から除外 |
 
 ### EOL baseとEOL package
 
-EOLはサポート状態を示し、CVEの優先度とは別に扱う。ベースOSとパッケージでは、次のように表示する。
+EOLはサポート終了やサポート範囲に関わる状態を示す。パッケージの`end_of_life`は、OSの配布元がサポート範囲外として、そのCVEが当てはまるかを調べていない状態を指す。CVEの優先度とは別に扱い、ベースOSとパッケージでは、次のように表示する。
 
 - EOL baseはTrivyが報告したベースOSのサポート終了で、最上部に表示する
 - EOL packageは`end_of_life`のパッケージで、トリアージの有効・無効にかかわらずEOL baseの次に表示する
@@ -444,7 +444,7 @@ CRITICAL・HIGHは、パッケージと修正状態のグループ内で重複�
 | ラベル | 意味 |
 | --- | --- |
 | `⛔ EOL base` | ベースOSのサポート終了 |
-| `⛔ EOL package` | このリリースでは対象CVEがサポート対象外 |
+| `⛔ EOL package` | OSの配布元がサポート範囲外として、対象のCVEを調べていない`end_of_life`のパッケージ |
 | `⛔ N EOL base` | Priority行のEOLベースイメージ件数 |
 | `⛔ N EOL package` | Priority行のEOLグループ件数で、ベースOSへ畳み込んだ分を除外 |
 | `🚨 N act now` | Priority行のAct nowグループ件数で、Act nowのEOLグループも含む |
@@ -493,7 +493,7 @@ CRITICAL・HIGHは、パッケージと修正状態のグループ内で重複�
 | `Change: new CVEs: CVE-…, CVE-… (+N more)` | 追加CVEのリンクを最大3件、残りは件数で表示 |
 | `Change: fix now available` | 前回は修正版なし、今回は1つ以上あり |
 | `Change: ↩️ Unmuted (<理由>)` / `変化: ↩️ 通知を再開 (<理由>)` | 通知オフからの再開で、修正版の公開・優先度昇格・CVE追加には既存の変化の表示を使用 |
-| `Fixed in: none — end-of-life: no fix planned for this release` | このリリースでは対象CVEがサポート対象外 |
+| `Fixed in: none — end-of-life: no fix planned for this release` | `end_of_life`の表示であり、OSの配布元がサポート範囲外として対象のCVEを調べていない状態を指す |
 | `Details: 🚨 see Act now` | EOLパッケージの詳細はAct now区分に表示 |
 | `includes N end-of-life package(s)` | ベースOSの行へ畳み込んだEOLグループ件数 |
 | `includes N newly end-of-life package(s)` | 新規EOL baseへ畳み込んだAct now以外の新規EOLパッケージ件数 |
@@ -1045,7 +1045,7 @@ EOL変化は別配列と別の`kind`で表し、`diff.new_eol_packages`と`diff.
 
 `triage.enabled: false`では、優先度の分類を停止し、Slackで修正状態別に結果を確認する。KEV・EPSS・議論リンクの取得も停止する。
 
-Slackの表示順は、EOL base → EOL package → 修正版あり → 上流の修正待ち → 上流では修正予定なしである。EOL区分とベースOSへの畳み込みは有効時と同じであり、上流の修正待ちには`affected`、`fix_deferred`、`under_investigation`、`unknown`を含む。
+Slackの表示順は、EOL base → EOL package → 修正版あり → 上流の修正待ち → 対象プラットフォームでは現時点で修正予定なしである。EOL区分とベースOSへの畳み込みは有効時と同じであり、上流の修正待ちには`affected`、`fix_deferred`、`under_investigation`、`unknown`を含む。
 
 Open nowは、保持中の記録を含むEOL件数を先に表示する。続くCRITICAL・HIGH・影響イメージ数は今回の検出結果から数え、今回の検出項目がなく保持だけがある場合は、有効時と同じ保持表示を使う。
 

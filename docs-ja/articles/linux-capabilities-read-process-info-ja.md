@@ -103,7 +103,8 @@ Linuxのマニュアルでは、`exe`と`maps`に使われる読み取り用の�
 capabilityなしで観測失敗になったことは、`status`などを含めて`/proc`の情報がすべて読めないことを意味しません。
 表は、パッケージの利用確認に必要な情報を収集できたかを示しています。
 
-また、AppArmorが有効な別のUbuntuホストではrootでの収集だけを確認しており、非rootと各capabilityの組み合わせは未検証です。
+AppArmorのプロファイルが適用された条件での非rootと各capabilityの組み合わせは引き続き未検証です。
+一方、後の[実運用環境での検証](../development/runtime-environment-validation.md)では、収集プロセスがAppArmorのunconfinedで動作する条件で、非rootに`CAP_SYS_PTRACE`と`CAP_DAC_READ_SEARCH`を付与すると有効な読み取りが12/12となり、比較した全項目がrootと一致しました。
 この結果を、すべてのLinuxホストで成立する最小権限として一般化することはできません。[^measurements]
 
 ## 計測に使用したプログラム

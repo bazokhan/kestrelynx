@@ -30,6 +30,8 @@ the Sensor and can be used with `runtime.enabled: false`.
 | Language package compiled into a binary, such as Go or Rust | The executable identified by Trivy's Target is running as a process. |
 | Language package loaded by a runtime, such as Python, Node.js, or Java | A corresponding runtime process, such as `python`, `node`, or `java`, is running in the container. All packages in that ecosystem are then considered in use. |
 
+Treating all packages in an ecosystem as in use because its runtime process is running is KestreLynx's conservative classification rule, rather than confirmation that each dependency is actually used.
+
 Function calls and module imports are not checked. Reading a data file does not
 count as evidence of use.
 
@@ -162,7 +164,7 @@ runtime:
 A package is muted only when all current groups for the same image and package
 meet every condition below.
 
-- No fix is available: the status is `affected` (including `fix_deferred`, `unknown`, and related statuses) or `will_not_fix`.
+- No fix is available for the target platform: the status is `affected` (including `fix_deferred`, `unknown`, and related statuses) or `will_not_fix`.
 - Runtime usage is `not_observed`; `unavailable` is not eligible.
 - The Sensor has observed every container used in the assessment for at least 7 days, to cover weekly activity.
 - Priority is not Act now.

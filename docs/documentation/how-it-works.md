@@ -131,16 +131,16 @@ When the original status differs from the canonical group status, it is availabl
 | --- | --- |
 | `fixed` | A fixed version is available. Included in `fixed`. |
 | `affected` | The package is affected, but no fix is available. Included in `affected`. |
-| `will_not_fix` | Upstream indicates that it will not be fixed. Included in `will_not_fix`. |
+| `will_not_fix` | No current plan to fix it on the target platform. Included in `will_not_fix`. For OS packages, this is the policy for the target OS release; it does not mean that a fix is unavailable from the software's developer or in another OS release. |
 | `fix_deferred` | A fix is deferred. Included in `affected`. |
-| `end_of_life` | The selected CVEs are out of support for this release. Included in EOL package. |
+| `end_of_life` | The OS distributor treats the package as outside its support scope and has not checked whether the CVE applies, so no fix is provided. Included in EOL package. |
 | `unknown` | The fix status is unknown. Included in `affected`. |
 | `under_investigation` | The vulnerability is under investigation. Included in `affected`. |
 | `not_affected` | Excluded from grouping, notifications, and priority classification. |
 
 ### EOL base and EOL package
 
-EOL describes support status and is handled separately from CVE priority. Base OS and package status appear as follows.
+EOL describes states related to the end or scope of support. Package `end_of_life` means the OS distributor treats the package as outside its support scope and has not checked whether the CVE applies. These states are handled separately from CVE priority. Base OS and package status appear as follows.
 
 - EOL base indicates that Trivy reported the base OS as end of life and appears at the top.
 - EOL package contains packages with `end_of_life` status and appears after EOL base, whether triage is enabled or disabled.
@@ -447,7 +447,7 @@ CRITICAL and HIGH count distinct CVE IDs within each package and fix-status grou
 | Label | Meaning |
 | --- | --- |
 | `⛔ EOL base` | The base OS is end of life. |
-| `⛔ EOL package` | The selected CVEs are out of support for this release. |
+| `⛔ EOL package` | A package with `end_of_life` status: the OS distributor treats it as outside its support scope and has not checked the selected CVEs. |
 | `⛔ N EOL base` | EOL base-image count in the Priority line. |
 | `⛔ N EOL package` | EOL group count in the Priority line, excluding groups folded into a base OS. |
 | `🚨 N act now` | Act now group count in the Priority line, including Act now EOL groups. |
@@ -496,7 +496,7 @@ CRITICAL and HIGH count distinct CVE IDs within each package and fix-status grou
 | `Change: new CVEs: CVE-…, CVE-… (+N more)` | Added CVEs are linked, with up to 3 IDs shown and the remainder shown as a count. |
 | `Change: fix now available` | No fix was previously available, and at least 1 fix is now available. |
 | `Change: ↩️ Unmuted (<reason>)` | Notification resumed after muting, unless a newly available fix, a priority escalation, or added CVEs use an existing change label. |
-| `Fixed in: none — end-of-life: no fix planned for this release` | The selected CVEs are out of support for this release. |
+| `Fixed in: none — end-of-life: no fix planned for this release` | Indicates `end_of_life`: the OS distributor treats the package as outside its support scope and has not checked the selected CVEs. |
 | `Details: 🚨 see Act now` | The EOL package's details appear in Act now. |
 | `includes N end-of-life package(s)` | Count of EOL groups folded into the base-OS line. |
 | `includes N newly end-of-life package(s)` | Count of newly EOL packages other than Act now folded into a new EOL base. |
@@ -1053,7 +1053,7 @@ EOL changes use separate arrays and `kind` values. `diff.new_eol_packages` and `
 
 With `triage.enabled: false`, priority classification stops, and Slack shows results by fix status. KEV, EPSS, and discussion-link lookups also stop.
 
-Slack uses this order: EOL base → EOL package → fix available → waiting for an upstream fix → upstream will not fix. EOL sections and folding into the base OS work as they do with triage enabled. The waiting-for-an-upstream-fix section includes `affected`, `fix_deferred`, `under_investigation`, and `unknown`.
+Slack uses this order: EOL base → EOL package → fix available → waiting for an upstream fix → no current plan to fix on the target platform. EOL sections and folding into the base OS work as they do with triage enabled. The waiting-for-an-upstream-fix section includes `affected`, `fix_deferred`, `under_investigation`, and `unknown`.
 
 Open now starts with EOL counts, including retained records. The following CRITICAL, HIGH, and affected-image counts come from current findings. If there are no current findings and only retained records remain, the same holding display is used as with triage enabled.
 

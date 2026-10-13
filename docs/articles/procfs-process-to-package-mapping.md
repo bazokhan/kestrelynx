@@ -423,7 +423,8 @@ configuration.
 - A ptrace access check does not mean the collector attaches a debugger. It evaluates credentials, the target's dumpable state, capabilities, and applicable security-module restrictions.[^ptrace]
 - `CAP_SYS_PTRACE` must apply in the target's user namespace.
 - The capability tests ran on WSL2 Linux 6.6.114 with Docker Engine 29.1.3, Yama `ptrace_scope=1`, and no `hidepid` restriction.
-- A separate Ubuntu host with AppArmor enabled also allowed collection, but that host was tested only as root, not with the non-root capability combinations.
+- Non-root capability combinations remain unverified with an AppArmor profile applied to the collector.
+- In a later [operational-environment validation](../development/runtime-environment-validation.md), the collector ran unconfined under AppArmor, and a non-root collector with `CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` achieved 12/12 valid reads and matched root on every compared measure.
 - Yama's `ptrace_scope` restrictions concern attach-mode operations and `PTRACE_TRACEME`; they do not directly restrict these read-mode accesses. Other security policies can still deny reads.[^ptrace]
 - These measurements are not a general permission guarantee. Procfs mount options, user namespaces, file modes, and AppArmor or SELinux policies can change the outcome.[^proc]
 - Record permission failures separately from processes that exited or package databases that are absent.
@@ -435,7 +436,7 @@ configuration.
 Periodic sampling can miss short-lived processes.
 
 - In one measured run, curl executed for approximately 0.1 seconds every 5 seconds. Sampling every 10 seconds over 300 seconds caught it **once in 30 samples**.
-- Other tested intervals and starting offsets sometimes caught nothing. Sampling phase matters as well as frequency.
+- Sampling every 60 seconds over 600 seconds with no starting offset, and every 30 seconds over 300 seconds with a 7-second starting offset, also caught curl once in 10 samples each; the remaining four conditions caught it zero times, so observation duration and starting time matter as well as frequency.
 - A process or a temporary `dlopen` can begin and end entirely between observations.
 
 ### Language dependencies need another mapping method

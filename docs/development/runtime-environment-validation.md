@@ -404,6 +404,14 @@ The table shows collector and bpftrace values for each observation, with attach_
 - **Interpreting resource use**: Initial-read elapsed time differs from CPU time, cgroup peak memory does not indicate growth in the process's own memory, and observation-process CPU time alone excludes the full cost of eBPF processing in the kernel
 - **Applicability to implementation**: Local and production values including bpftrace are upper-bound estimates that include its user-space cost, and differences in target counts and configurations prevent using the two environments as overhead-difference baselines
 
+### Correction to Java response times (September 30, 2026 remeasurement)
+
+- The 1.0–2.2 ms increases in the conclusion and Java curl results above measured the duration of the entire curl process, including startup, and do not establish an increase in the Java application's HTTP response time
+- Local measurements alternated three conditions—no Sensor, Sensor without eBPF, and Sensor with eBPF—using a 30-second sampling interval for Sensor conditions and measuring curl's `time_total` after observation became active, with eight runs of 5,000 consecutive requests and four runs of 1,000 requests at 150 ms intervals per condition, for 36 runs in total
+- Median response-time differences between Sensor with eBPF and no Sensor were −0.11 to +0.20 ms within comparable speed groups for consecutive requests and −0.35 to +0.30 ms for requests at 150 ms intervals, within variation between runs and without a consistent increase in response time
+- All 36 runs had zero failures or timeouts, and eBPF recorded zero lost events
+- Some runs with Sensor and eBPF had slightly higher p95 and p99 values, but the number of runs was insufficient to establish a trend
+
 ## Completed work
 
 - Checked event-observation permissions and compared observation-method overhead and effects on normal processing in the local environment
@@ -414,6 +422,10 @@ The table shows collector and bpftrace values for each observation, with attach_
 - Compared event-observation and procfs permission conditions in production
 
 ## Change log
+
+### October 13, 2026 {#2026-10-13}
+
+- Corrected the interpretation of Java response times and added remeasurement results
 
 ### September 22, 2026 {#2026-09-22}
 
