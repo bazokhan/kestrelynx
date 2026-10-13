@@ -9,7 +9,10 @@ use. It needs the docker CLI (with buildx); Trivy runs from its container image.
                platforms to read the exact versions, read the image configuration,
                scan the final filesystem for what the job user could write, run
                Trivy, refresh the support dates, and write the candidate table
-               and a report (the body of the pull request)
+               and a report (the body of the pull request); it also adds a row
+               for each newer series that endoflife.date lists as released and in
+               support and whose official image tag exists, through the same
+               checks
   mark-tested  record the manifest digest of a platform for the runtimes named
                with --only, the ones whose fixtures passed on it; no other row
                is recorded
@@ -24,17 +27,30 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
+import urllib.error
 import urllib.request
 
 TABLE = "internal/worker/runtimes.json"
 JOB_UID = 10001
 PLATFORMS = ("linux/amd64", "linux/arm64")
 TRIVY_IMAGE = "aquasec/trivy:0.71.2"
-NODE_SCHEDULE = "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json"
-PYTHON_CYCLE = "https://peps.python.org/api/release-cycle.json"
+EOL_API = "https://endoflife.date/api/%s.json"
+HUB_TAG = "https://hub.docker.com/v2/repositories/library/%s/tags/%s"
+# Per kind: the endoflife.date product, the official image and the tag of a series.
+KINDS = {
+    "node": {"product": "nodejs", "image": "node", "tag": "%s-trixie-slim", "prefix": ""},
+    "python": {"product": "python", "image": "python", "tag": "%s-slim-trixie", "prefix": "3."},
+}
+# Paths the official images leave writable by everyone; a new row starts from
+# them and the scan of the image has to agree.
+STANDARD_COVERED_PATHS = ["/tmp", "/var/tmp", "/run/lock"]
+FIELD_ORDER = ["id", "kind", "series", "version", "pip", "image", "tag", "exact_tag", "index_digest", "platforms",
+               "covered_paths", "volumes_empty", "healthcheck", "support", "eol", "eol_month_only", "lts_from",
+               "checked", "tested"]
 
 
 class Failure(Exception):
@@ -186,85 +202,286 @@ def trivy(pinned, platform):
     return findings
 
 
-# ---- support dates ----
+# ---- support dates and new series ----
 
 def fetch_json(url):
     with urllib.request.urlopen(url, timeout=30) as r:
         return json.load(r)
 
 
-def support_dates():
-    """Return {runtime id: (eol, month_only)} from the projects' own schedules."""
+def cycles_of(kind):
+    """Return {series: entry} of the release cycles endoflife.date lists."""
+    return {str(c["cycle"]): c for c in fetch_json(EOL_API % KINDS[kind]["product"])}
+
+
+DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+
+
+def is_date(v):
+    """Whether v is a calendar date written YYYY-MM-DD."""
+    if not isinstance(v, str) or not DATE_RE.match(v):
+        return False
+    try:
+        datetime.date.fromisoformat(v)
+    except ValueError:
+        return False
+    return True
+
+
+def now_utc():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def today_utc(now=None):
+    """Today's date in UTC, the zone the build judges the end of support in."""
+    now = now or now_utc()
+    return now.astimezone(datetime.timezone.utc).date().isoformat()
+
+
+def support_state(kind, entry, today):
+    """The maintenance state of a cycle on the date today (ISO date)."""
+    if is_date(entry.get("eol")) and entry["eol"] < today:
+        return "end_of_life"
+    if kind == "node":
+        in_support = is_date(entry.get("support")) and today < entry["support"]
+        if not is_date(entry.get("lts")):
+            # A series that never enters long-term support.
+            return "current" if in_support else "maintenance"
+        if today < entry["lts"]:
+            return "current"
+        return "lts" if in_support else "maintenance"
+    if is_date(entry.get("support")) and today < entry["support"]:
+        return "bugfix"
+    return "security"
+
+
+def optional_date(entry, key):
+    """Return the date an optional field of a cycle holds, or None when the
+    field is absent or false (endoflife.date's way to say there is none). Any
+    other value that is not a calendar date, an explicit null included, is a
+    Failure: it is not read as "none"."""
+    if key not in entry:
+        return None
+    v = entry[key]
+    if v is False:
+        return None
+    if is_date(v):
+        return v
+    raise Failure("endoflife.date gives %r as %s of %s" % (v, key, entry.get("cycle")))
+
+
+def support_facts(kind, entry, today):
+    """Return the fields of a row that endoflife.date decides for a cycle: the
+    end of support, the start of long-term support (Node.js) and the state.
+    The answer has to hold together: the release date and the end of support
+    are dates, any other date is a date or false, and release <= start of
+    long-term support <= end of support. Otherwise a Failure is raised and none
+    of the cycle's answer is used."""
+    cycle = entry.get("cycle")
+    released, eol = entry.get("releaseDate"), entry.get("eol")
+    if not is_date(released):
+        raise Failure("endoflife.date gives %r as the release date of %s %s" % (released, kind, cycle))
+    if not is_date(eol):
+        raise Failure("endoflife.date gives %r as the end of support of %s %s" % (eol, kind, cycle))
+    lts = optional_date(entry, "lts")
+    if entry.get("support") is not True:
+        optional_date(entry, "support")
+    if released > eol:
+        raise Failure("%s %s is released (%s) after its end of support (%s)" % (kind, cycle, released, eol))
+    if lts and (lts < released or lts > eol):
+        raise Failure("%s %s starts long-term support (%s) outside its release (%s) and end of support (%s)" % (kind, cycle, lts, released, eol))
+    facts = {"eol": eol, "support": support_state(kind, entry, today)}
+    if kind == "node" and lts:
+        facts["lts_from"] = lts
+    return facts
+
+
+def support_dates(today):
+    """Return {runtime id: facts} from endoflife.date. The dates are refreshed
+    when they can be read; a failure to read them is reported and leaves the
+    rows as they are."""
     out = {}
     try:
-        for key, v in fetch_json(NODE_SCHEDULE).items():
-            if key.startswith("v") and key[1:].isdigit() and "end" in v:
-                out["node" + key[1:]] = (v["end"], False)
-        for key, v in fetch_json(PYTHON_CYCLE).items():
-            end = v.get("end_of_life", "")
-            if key.startswith("3.") and end:
-                out["python" + key] = (end + "-01", True) if len(end) == 7 else (end, False)
-    except Exception as e:  # the dates are refreshed when they can be read
+        for kind, k in KINDS.items():
+            for series, entry in cycles_of(kind).items():
+                if series.startswith(k["prefix"]) and (kind == "python" or series.isdigit()) and entry.get("eol") is not None and not isinstance(entry["eol"], bool):
+                    try:
+                        out[kind + series] = support_facts(kind, entry, today)
+                    except Failure as e:
+                        print("support dates of %s%s skipped: %s" % (kind, series, e), file=sys.stderr)
+    except Exception as e:
         print("support dates not refreshed: %s" % e, file=sys.stderr)
+        return {}
     return out
+
+
+def series_key(kind, series):
+    """Order key of a series: 24 -> (24,), 3.15 -> (3, 15)."""
+    return tuple(int(p) for p in series.split("."))
+
+
+def tag_exists(kind, series):
+    """Whether the official image has the series tag. Only a 404 means it has
+    not; any other failure to ask is a Failure."""
+    k = KINDS[kind]
+    url = HUB_TAG % (k["image"], k["tag"] % series)
+    try:
+        with urllib.request.urlopen(url, timeout=30):
+            return True
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        raise Failure("Docker Hub answered %d for %s" % (e.code, url))
+    except OSError as e:
+        raise Failure("Docker Hub could not be asked about %s: %s" % (url, e))
+
+
+def new_series(table, kind, cycles, today, exists=None):
+    """Return (series, facts) of the series newer than every series of the
+    table that have been released, are in support, and have an official image
+    tag, oldest first."""
+    exists = exists or tag_exists
+    have = [series_key(kind, r["series"]) for r in table["runtimes"] if r["kind"] == kind]
+    top = max(have) if have else ()
+    found = []
+    for series, entry in cycles.items():
+        k = KINDS[kind]
+        if not series.startswith(k["prefix"]) or (kind == "node" and not series.isdigit()):
+            continue
+        if series_key(kind, series) <= top:
+            continue
+        released = entry.get("releaseDate")
+        if not is_date(released) or released > today:
+            continue
+        if not is_date(entry.get("eol")) or entry["eol"] < today:
+            continue
+        try:
+            facts = support_facts(kind, entry, today)
+        except Failure as e:
+            # An answer that does not hold together adds no row.
+            print("%s%s not added: %s" % (kind, series, e), file=sys.stderr)
+            continue
+        if not exists(kind, series):
+            continue
+        found.append((series, facts))
+    found.sort(key=lambda f: series_key(kind, f[0]))
+    return found
+
+
+def skeleton(kind, series, facts, today):
+    """The row of a new series, before its image has been resolved."""
+    k = KINDS[kind]
+    row = {"id": kind + series, "kind": kind, "series": series, "image": k["image"], "tag": k["tag"] % series,
+           "covered_paths": list(STANDARD_COVERED_PATHS), "volumes_empty": True, "healthcheck": False,
+           "checked": today, "tested": {}}
+    row.update(facts)
+    return row
+
+
+def ordered(row):
+    """The row with its fields in the order the table is written in."""
+    extra = sorted(k for k in row if k not in FIELD_ORDER)
+    return {k: row[k] for k in FIELD_ORDER + extra if k in row}
 
 
 # ---- the commands ----
 
+IMAGE_FIELDS = ("version", "pip", "exact_tag", "index_digest", "platforms")
+
+
+def add_new_series(table, only, today, report):
+    """Add a skeleton row for each newer series that is released, in support
+    and has an official image tag. Returns whether a row was added."""
+    added = False
+    for kind in KINDS:
+        try:
+            cycles = cycles_of(kind)
+        except Exception as e:
+            print("new %s series not looked for: %s" % (kind, e), file=sys.stderr)
+            continue
+        for series, facts in new_series(table, kind, cycles, today):
+            rid = kind + series
+            if only and rid not in only:
+                continue
+            rows = table["runtimes"]
+            last = max(i for i, r in enumerate(rows) if r["kind"] == kind)
+            rows.insert(last + 1, skeleton(kind, series, facts, today))
+            report.append("- %s: added (end of support %s, %s)" % (rid, facts["eol"], facts["support"]))
+            added = True
+    return added
+
+
+def refresh_facts(row, facts):
+    """Set the support fields endoflife.date decides; a month-only date of
+    an earlier table is replaced by the full date."""
+    row.update(facts)
+    row.pop("eol_month_only", None)
+    if "lts_from" not in facts:
+        row.pop("lts_from", None)
+
+
+def resolve_row(row, facts, today, report):
+    """Run every check on the image of a row and return the row as it is now."""
+    rid = row["id"]
+    index, manifests = resolve_index(row["image"], row["tag"])
+    pinned = "%s@%s" % (row["image"], index)
+    versions = set()
+    for plat in PLATFORMS:
+        run("docker", "pull", "--quiet", "--platform", plat, pinned)
+        versions.add(exact_versions(row, pinned, plat))
+        cfg = image_config(pinned, plat)
+        if cfg.get("Volumes"):
+            raise Failure("%s %s declares volumes: %s" % (rid, plat, sorted(cfg["Volumes"])))
+        if cfg.get("Healthcheck"):
+            raise Failure("%s %s declares a health check" % (rid, plat))
+        env = dict(e.split("=", 1) for e in cfg.get("Env") or [])
+        key = "NODE_VERSION" if row["kind"] == "node" else "PYTHON_VERSION"
+        if env.get(key) != next(iter(versions))[0]:
+            raise Failure("%s %s: %s is %r, the executable reports %r" % (rid, plat, key, env.get(key), next(iter(versions))[0]))
+        writable = scan_image(pinned, plat)
+        if sorted(writable) != sorted(row["covered_paths"]):
+            raise Failure("%s %s: the job user could write %s, the table covers %s" % (rid, plat, writable, row["covered_paths"]))
+    if len(versions) != 1:
+        raise Failure("%s: the platforms report different versions: %s" % (rid, sorted(versions)))
+    version, pip = versions.pop()
+    findings = trivy(pinned, "linux/amd64")
+    new = dict(row)
+    new.update(version=version, index_digest=index, platforms=manifests, exact_tag=version + row["tag"][len(row["series"]):])
+    if row["kind"] == "python":
+        new["pip"] = pip
+    if facts:
+        refresh_facts(new, facts)
+    image_changed = any(new.get(f) != row.get(f) for f in IMAGE_FIELDS)
+    if image_changed:
+        new["tested"] = {}
+        report.append("- %s: %s (pip %s) %s -> %s" % (rid, version, pip or "-", row.get("index_digest", "")[:19], index[:19]))
+    elif new != row:
+        report.append("- %s: support dates refreshed (end of support %s, %s)" % (rid, new["eol"], new["support"]))
+    new["checked"] = today
+    report.append("  - Trivy (HIGH, CRITICAL, fixed): %d finding(s)%s" % (len(findings), "".join("\n    - %s %s %s -> %s" % (f[0], f[1], f[2], f[3]) for f in findings[:20])))
+    return new
+
+
 def cmd_resolve(args):
     table = load(args.table)
-    today = datetime.date.today().isoformat()
-    dates = support_dates()
+    today = today_utc()
+    dates = support_dates(today)
     report = ["# Runtime table update", ""]
-    changed = False
+    changed = add_new_series(table, args.only, today, report)
     for row in table["runtimes"]:
         rid = row["id"]
         if args.only and rid not in args.only:
             continue
         if "image" not in row:
-            if rid in dates and dates[rid][0] != row["eol"]:
-                report.append("- %s: end of support %s -> %s" % (rid, row["eol"], dates[rid][0]))
-                row["eol"], changed = dates[rid][0], True
+            if rid in dates and dates[rid]["eol"] != row["eol"]:
+                report.append("- %s: end of support %s -> %s" % (rid, row["eol"], dates[rid]["eol"]))
+                row["eol"], changed = dates[rid]["eol"], True
             continue
-        index, manifests = resolve_index(row["image"], row["tag"])
-        pinned = "%s@%s" % (row["image"], index)
-        versions = set()
-        for plat in PLATFORMS:
-            run("docker", "pull", "--quiet", "--platform", plat, pinned)
-            versions.add(exact_versions(row, pinned, plat))
-            cfg = image_config(pinned, plat)
-            if cfg.get("Volumes"):
-                raise Failure("%s %s declares volumes: %s" % (rid, plat, sorted(cfg["Volumes"])))
-            if cfg.get("Healthcheck"):
-                raise Failure("%s %s declares a health check" % (rid, plat))
-            env = dict(e.split("=", 1) for e in cfg.get("Env") or [])
-            key = "NODE_VERSION" if row["kind"] == "node" else "PYTHON_VERSION"
-            if env.get(key) != next(iter(versions))[0]:
-                raise Failure("%s %s: %s is %r, the executable reports %r" % (rid, plat, key, env.get(key), next(iter(versions))[0]))
-            writable = scan_image(pinned, plat)
-            if sorted(writable) != sorted(row["covered_paths"]):
-                raise Failure("%s %s: the job user could write %s, the table covers %s" % (rid, plat, writable, row["covered_paths"]))
-        if len(versions) != 1:
-            raise Failure("%s: the platforms report different versions: %s" % (rid, sorted(versions)))
-        version, pip = versions.pop()
-        findings = trivy(pinned, "linux/amd64")
-        new = dict(row)
-        new.update(version=version, index_digest=index, platforms=manifests, exact_tag=version + row["tag"][len(row["series"]):])
-        if row["kind"] == "python":
-            new["pip"] = pip
-        if rid in dates:
-            new["eol"] = dates[rid][0]
-            if dates[rid][1] or "eol_month_only" in new:
-                new["eol_month_only"] = dates[rid][1]
-        if new != row:
-            new["checked"], new["tested"] = today, {}
-            report.append("- %s: %s (pip %s) %s -> %s" % (rid, version, pip or "-", row.get("index_digest", "")[:19], index[:19]))
+        new = resolve_row(row, dates.get(rid), today, report)
+        if {k: v for k, v in new.items() if k != "checked"} != {k: v for k, v in row.items() if k != "checked"}:
             changed = True
-        else:
-            new["checked"] = today
-        report.append("  - Trivy (HIGH, CRITICAL, fixed): %d finding(s)%s" % (len(findings), "".join("\n    - %s %s %s -> %s" % (f[0], f[1], f[2], f[3]) for f in findings[:20])))
         row.clear()
-        row.update(new)
+        row.update(ordered(new))
     if not changed:
         print("no change")
         return 0

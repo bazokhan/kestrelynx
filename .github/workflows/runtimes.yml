@@ -9,9 +9,12 @@ name: Runtime table
 #   - the image configuration declares no volumes and no health check
 #   - the final filesystem of each platform holds exactly the paths the table
 #     says are covered by a tmpfs as writable by the job user
-#   - the fixture tests of the update stage pass against the new images of
-#     node24 and python3.13 (the runtimes the build selects); only those two
-#     rows are recorded as tested
+#   - the fixture tests of the update stage pass against the new images; only
+#     the runtimes a fixture case ran in are recorded as tested
+#   - a series newer than every row of the table is added when endoflife.date
+#     lists it as released and in support and the official image has its tag;
+#     the new row goes through the same checks as the others, and its end of
+#     support and start of long-term support come from endoflife.date
 #   - Trivy scans every image (a scan that cannot be made stops the run) and
 #     what it finds goes into the pull request
 # A change to the table is normally taken in the monthly release; a serious
@@ -69,14 +72,20 @@ jobs:
         if: steps.changed.outputs.changed == 'true'
         env:
           KESTRELYNX_WORKER_IT: "1"
+          KESTRELYNX_IT_TESTED_RUNTIMES: ${{ runner.temp }}/tested-runtimes.txt
         run: go test ./internal/remediation -run 'TestIntegrationLangUpdate$' -count=1 -timeout 30m
 
-      # The fixture tests run in node24 and python3.13 only, so only those two
-      # rows are recorded as tested; the other pins are checked by the steps
-      # above but carry no record of an integration test.
+      # The test writes the runtimes its cases ran in and passed; a row no case
+      # ran in (a series just added, for instance) is checked by the steps above
+      # but carries no record of an integration test.
       - name: Record the runtimes and platform that passed
         if: steps.changed.outputs.changed == 'true'
-        run: python3 scripts/update_runtimes.py mark-tested --platform linux/amd64 --only node24 python3.13
+        run: |
+          set -eu
+          ids=$(cat "$RUNNER_TEMP/tested-runtimes.txt")
+          if [ -n "$ids" ]; then
+            python3 scripts/update_runtimes.py mark-tested --platform linux/amd64 --only $ids
+          fi
 
       - name: Unit tests with the new table
         if: steps.changed.outputs.changed == 'true'

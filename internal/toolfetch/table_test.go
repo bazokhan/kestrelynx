@@ -56,7 +56,7 @@ func TestDefaultVersions(t *testing.T) {
 		{ManagerPnpm, "node22", true}, {ManagerNpm, "node22", true},
 		{ManagerPnpm, "node20", true}, {ManagerNpm, "node20", false},
 		{ManagerUv, "python3.13", true}, {ManagerUv, "node24", false}, {ManagerPnpm, "python3.13", false},
-		{ManagerPnpm, "node18", false},
+		{ManagerPnpm, "node27", true}, {ManagerUv, "python3.16", true},
 	} {
 		v := DefaultVersion(c.m, c.runtime)
 		if (v != "") != c.set {
@@ -129,12 +129,37 @@ func TestNodeEnginesOfTheManagers(t *testing.T) {
 		}
 	}
 	for _, m := range []Manager{ManagerNpm, ManagerPnpm} {
-		for r, v := range defaultVersions {
-			if d, ok := v[m]; ok {
+		for _, r := range []string{"node20", "node22", "node24", "node26", "node27"} {
+			if d := DefaultVersion(m, r); d != "" {
 				if _, known := NodeEngines(m, d); !known {
 					t.Errorf("no engines.node for the default %s %s of %s", m, d, r)
 				}
 			}
+		}
+	}
+}
+
+func TestDefaultVersionIsPerLanguageWithRuntimeOverrides(t *testing.T) {
+	for _, c := range []struct {
+		manager Manager
+		runtime string
+		want    string
+	}{
+		{ManagerPnpm, "node24", "11.28.5"},
+		{ManagerNpm, "node27", "11.21.0"}, // a runtime the table gains takes the language's
+		{ManagerPnpm, "node30", "11.28.5"},
+		{ManagerPnpm, "node20", "10.34.6"}, // overridden
+		{ManagerNpm, "node20", ""},
+		{ManagerUv, "python3.16", "0.13.0"},
+		{ManagerUv, "python3.9", "0.13.0"},
+		{ManagerUv, "node24", ""}, // a manager of the other language
+		{ManagerPnpm, "python3.13", ""},
+		{ManagerPnpm, "node", ""},
+		{ManagerPnpm, "", ""},
+		{ManagerPnpm, "ruby3", ""},
+	} {
+		if got := DefaultVersion(c.manager, c.runtime); got != c.want {
+			t.Errorf("DefaultVersion(%s, %s) = %q, want %q", c.manager, c.runtime, got, c.want)
 		}
 	}
 }

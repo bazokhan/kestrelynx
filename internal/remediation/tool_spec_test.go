@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,9 @@ func TestToolSpec_NodeDeclarationsBeforeAnyRun(t *testing.T) {
 		{".nvmrc 24", "npm", "", map[string]string{".nvmrc": "24\n"}, ""},
 		{".nvmrc v24.15.0 differs in the patch only", "npm", "", map[string]string{".nvmrc": "v24.15.0\n"}, ""},
 		{".nvmrc lts/krypton", "npm", "", map[string]string{".nvmrc": "lts/krypton\n"}, ""},
+		{".node-version 26", "npm", "", map[string]string{".node-version": "26\n"}, ""},
+		{".nvmrc 26 for pnpm", "pnpm", "", map[string]string{".nvmrc": "v26.11.1\n"}, ""},
+		{"engines.node >=26", "npm", withField(npmManifest, `"engines":{"node":">=26"}`), nil, ""},
 		{".node-version 24.21.0", "pnpm", "", map[string]string{".node-version": "24.21.0\n"}, ""},
 		{"engines.node >=24", "npm", withField(npmManifest, `"engines":{"node":">=24"}`), nil, ""},
 		{"devEngines.runtime range", "npm", withField(npmManifest, `"devEngines":{"runtime":{"name":"node","version":">=22"}}`), nil, ""},
@@ -78,7 +82,9 @@ func TestToolSpec_NodeDeclarationsBeforeAnyRun(t *testing.T) {
 		{".nvmrc lts/iron", "npm", "", map[string]string{".nvmrc": "lts/iron\n"}, ReasonRuntimeEndOfLife},
 		{".nvmrc node", "npm", "", map[string]string{".nvmrc": "node\n"}, ReasonNodeSpecUnsupported},
 		{".nvmrc latest", "npm", "", map[string]string{".nvmrc": "latest\n"}, ReasonNodeSpecUnsupported},
-		{".node-version 26", "npm", "", map[string]string{".node-version": "26\n"}, ReasonNodeSpecUnsupported},
+		{".node-version of a series not in the table yet", "npm", "", map[string]string{".node-version": nextNodeSeries() + "\n"}, ReasonNodeSpecUnsupported},
+		{".nvmrc 25 is not in the table", "npm", "", map[string]string{".nvmrc": "25\n"}, ReasonNodeSpecUnsupported},
+		{"engines.node above the table", "npm", withField(npmManifest, `"engines":{"node":">=`+nextNodeSeries()+`"}`), nil, ReasonNodeSpecUnsupported},
 		{"engines.node <20.12", "npm", withField(npmManifest, `"engines":{"node":"<20.12"}`), nil, ReasonRuntimeEndOfLife},
 		{"engines.node 18 and below", "npm", withField(npmManifest, `"engines":{"node":"<=18"}`), nil, ReasonNodeSpecUnsupported},
 		{"devEngines.runtime 20", "npm", withField(npmManifest, `"devEngines":{"runtime":{"name":"node","version":"20.x"}}`), nil, ReasonRuntimeEndOfLife},
@@ -262,7 +268,8 @@ func TestToolSpec_PythonAndUvDeclarationsBeforeAnyRun(t *testing.T) {
 		{".python-version 3.12", uvPyproject, map[string]string{"svc/.python-version": "3.12\n"}, ""},
 		{".python-version 3.14.0", uvPyproject, map[string]string{"svc/.python-version": "3.14.0\n"}, ""},
 		{".python-version 3.12.99 differs from the image in the patch", uvPyproject, map[string]string{"svc/.python-version": "3.12.99\n"}, ""},
-		{".python-version 3.15", uvPyproject, map[string]string{"svc/.python-version": "3.15\n"}, ReasonPythonSpecUnsupported},
+		{".python-version 3.15", uvPyproject, map[string]string{"svc/.python-version": "3.15\n"}, ""},
+		{".python-version of a series not in the table yet", uvPyproject, map[string]string{"svc/.python-version": nextPythonSeries() + "\n"}, ReasonPythonSpecUnsupported},
 		{".python-version 3.8", req(">=3.8"), map[string]string{"svc/.python-version": "3.8\n"}, ReasonPythonSpecUnsupported},
 		{"requires-python below 3.9", req("<3.9"), nil, ReasonPythonSpecUnsupported},
 		{"requires-python needs a newer patch than the image has", req(">=3.12.99,<3.13"), nil, ReasonPythonSpecUnsupported},
@@ -271,7 +278,8 @@ func TestToolSpec_PythonAndUvDeclarationsBeforeAnyRun(t *testing.T) {
 		{".python-versions", uvPyproject, map[string]string{"svc/.python-versions": "3.13\n3.12\n"}, ReasonPythonSpecUnsupported},
 		{"requires-python excludes 3.13", req(">=3.9,<3.13"), nil, ""},
 		{"requires-python from 3.14", req(">=3.14"), nil, ""},
-		{"requires-python from 3.15", req(">=3.15"), nil, ReasonPythonSpecUnsupported},
+		{"requires-python from 3.15", req(">=3.15"), nil, ""},
+		{"requires-python above the table", req(">=" + nextPythonSeries()), nil, ReasonPythonSpecUnsupported},
 		{"required-version fixes 0.12.30", toolSection(`required-version = "==0.12.30"`), nil, ""},
 		{"required-version fixes 0.12.21", toolSection(`required-version = "==0.12.21"`), nil, ReasonManagerSpecUnsupported},
 		{"required-version fixes the default", toolSection(`required-version = "==0.13.0"`), nil, ""},
@@ -409,9 +417,9 @@ func TestToolSpec_RequestedRuntimes(t *testing.T) {
 		{".nvmrc 20", npmManifest, map[string]string{".nvmrc": "20"}, []string{"node20"}, ""},
 		{".nvmrc lts/jod", npmManifest, map[string]string{".nvmrc": "lts/jod"}, []string{"node22"}, ""},
 		{"engines.node <20.12", withField(npmManifest, `"engines":{"node":"<20.12"}`), nil, []string{"node20"}, ""},
-		{"engines.node >=20", withField(npmManifest, `"engines":{"node":">=20"}`), nil, []string{"node20", "node22", "node24"}, ""},
+		{"engines.node >=20", withField(npmManifest, `"engines":{"node":">=20"}`), nil, tableNodeIDs(), ""},
 		{"engines.node ^20 || ^24 with .node-version 24.1", withField(npmManifest, `"engines":{"node":"^20 || ^24"}`), map[string]string{".node-version": "24.1"}, []string{"node24"}, ""},
-		{"no declaration names every series", npmManifest, nil, []string{"node20", "node22", "node24"}, ""},
+		{"no declaration names every series", npmManifest, nil, tableNodeIDs(), ""},
 		{"engines.node 18", withField(npmManifest, `"engines":{"node":"<19"}`), nil, nil, ""},
 		{"conflict", npmManifest, map[string]string{".node-version": "20.11.1", ".nvmrc": "20.11.0"}, nil, ReasonNodeSpecConflict},
 	}
@@ -608,4 +616,17 @@ func TestToolSpec_LowestIsAlwaysInTheSet(t *testing.T) {
 			t.Errorf("%q: lowest %v is not in the set %v", text, low, set)
 		}
 	}
+}
+
+// tableNodeIDs are the ids of the Node.js rows of the runtime table, lowest
+// series first.
+func tableNodeIDs() []string {
+	var ids []string
+	for _, r := range worker.Runtimes() {
+		if r.Kind == worker.KindNode {
+			ids = append(ids, r.ID)
+		}
+	}
+	sort.SliceStable(ids, func(i, j int) bool { return seriesNumber(ids[i]) < seriesNumber(ids[j]) })
+	return ids
 }

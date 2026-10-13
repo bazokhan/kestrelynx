@@ -3,9 +3,12 @@ package remediation
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
 // TestIntegrationLangUpdate runs the update stage over the R4 fixtures with
@@ -44,6 +47,22 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			if rest != nil {
 				rest(f)
 			}
+		}
+	}
+	// urllib3OnPython315 is the same finding in an image whose Python is 3.15,
+	// which makes pip target Python 3.15.
+	urllib3OnPython315 := func() *findingGroup {
+		o := pyOrigin
+		o.PkgPath = strings.Replace(o.PkgPath, "python3.12", "python3.15", 1)
+		return group(typePythonPkg, "urllib3", "1.26.4", o,
+			CVERef{VulnID: "CVE-2021-33503", FixedVers: []string{"1.26.5"}},
+			CVERef{VulnID: "CVE-2023-43804", FixedVers: []string{"1.26.17", "2.0.6"}})
+	}
+	// onNode26 makes the project name Node.js 26 and the manager release.
+	onNode26 := func(manager string) func(map[string]string) {
+		return func(f map[string]string) {
+			f[".nvmrc"] = "26\n"
+			declare(`"packageManager": "` + manager + `"`)(f)
 		}
 	}
 	cases := []struct {
@@ -143,12 +162,36 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			declare(`"devEngines": {"packageManager": {"name": "npm", "version": "^11", "onFail": "error"}}`), "", "", itDefaultToolVersions[ManagerNpm], "default_in_range"},
 		// A Node.js version the project declares chooses the image the update
 		// runs in.
+		{"npm_node24_from_nvmrc", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			func(f map[string]string) { f[".nvmrc"] = "24\n" }, "", "", "", ""},
 		{"npm_node22_from_nvmrc", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
 			func(f map[string]string) { f[".nvmrc"] = "22\n" }, "", "", "", ""},
 		{"pnpm_node22_from_nvmrc", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			func(f map[string]string) { f[".nvmrc"] = "22\n" }, "", "", "", ""},
 		{"pnpm_node22_from_engine_ranges", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			declare(`"engines": {"node": ">=20", "pnpm": ">=11"}`), "", "", itDefaultToolVersions[ManagerPnpm], "default_in_range"},
+		// Node.js 26 with every manager release the build fetches: the frozen
+		// check and the lock made again run on it.
+		{"npm_node26_from_nvmrc", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			func(f map[string]string) { f[".nvmrc"] = "26\n" }, "", "", "", ""},
+		{"pnpm_node26_from_nvmrc", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) { f[".nvmrc"] = "26\n" }, "", "", "", ""},
+		{"npm_node26_declared_9", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			onNode26("npm@9.9.4"), "", "", "9.9.4", "declared"},
+		{"npm_node26_declared_10", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			onNode26("npm@10.9.9"), "", "", "10.9.9", "declared"},
+		{"npm_node26_declared_11", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			onNode26("npm@11.21.0"), "", "", "11.21.0", "declared"},
+		{"npm_node26_declared_12", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			onNode26("npm@12.2.0"), "", "", "12.2.0", "declared"},
+		{"pnpm_node26_declared_9", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			onNode26("pnpm@9.15.9"), "", "", "9.15.9", "declared"},
+		{"pnpm_node26_declared_10", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			onNode26("pnpm@10.34.4"), "", "", "10.34.4", "declared"},
+		{"pnpm_node26_declared_11", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			onNode26("pnpm@11.28.5"), "", "", "11.28.5", "declared"},
+		{"pnpm_node26_declared_12", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			onNode26("pnpm@12.11.2"), "", "", "12.11.2", "declared"},
 		// The Python the project declares chooses the image uv locks in; the
 		// fixture's own requires-python (">=3.9") runs in the lowest series in
 		// support.
@@ -162,11 +205,52 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			requires(">=3.12"), "", "", "", ""},
 		{"uv_python314_from_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
 			requires(">=3.14"), "", "", "", ""},
+		{"uv_python315_from_file", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			withFile(".python-version", "3.15\n", nil), "", "", "", ""},
+		{"uv_python315_from_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			requires(">=3.15"), "", "", "", ""},
+		// The lowest uv the build supports, on Python 3.15.
+		{"uv_python315_declared_0_12_22", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			func(f map[string]string) {
+				f[".python-version"] = "3.15\n"
+				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], "[tool.uv]", "[tool.uv]\nrequired-version = \"==0.12.22\"", 1)
+			}, "", "", "0.12.22", "declared"},
+		// pip runs in the default image and targets the Python of the scanned one.
+		{"pip_target_315", ManagerPip, "pip", []string{"requirements.txt"}, urllib3OnPython315, "urllib3", nil, "", "", "", ""},
 		{"uv_declared", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
 			func(f map[string]string) {
 				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], "[tool.uv]", "[tool.uv]\nrequired-version = \"==0.12.24\"", 1)
 			}, "", "", "0.12.24", "declared"},
 	}
+	// One case per runtime of the table that is in support and has an image,
+	// made from the table: each is chosen by a declaration (.nvmrc for npm and
+	// pnpm, .python-version for uv) and runs the update and the check after it.
+	// A series the table gains is covered without a case being written.
+	tableRuntime := map[string]string{}
+	now := time.Now()
+	for _, r := range worker.Runtimes() {
+		if !r.HasImage() || r.EndOfLife(now) {
+			continue
+		}
+		add := func(name string, manager DependencyManager, dir string, files []string, g func() *findingGroup, pkg string, mutate func(map[string]string)) {
+			c := cases[0]
+			c.name, c.manager, c.dir, c.files, c.group, c.pkg, c.mutate = name, manager, dir, files, g, pkg, mutate
+			c.wantNote, c.wantEdit, c.wantTool, c.wantSource = "", "", "", ""
+			cases = append(cases, c)
+			tableRuntime[name] = r.ID
+		}
+		switch r.Kind {
+		case worker.KindNode:
+			nvmrc := func(f map[string]string) { f[".nvmrc"] = r.Series + "\n" }
+			add("table_npm_"+r.ID, ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist", nvmrc)
+			add("table_pnpm_"+r.ID, ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist", nvmrc)
+		case worker.KindPython:
+			add("table_uv_"+r.ID, ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+				withFile(".python-version", r.Series+"\n", nil))
+		}
+	}
+	// ran holds the runtimes a case ran in and passed.
+	ran := map[string]bool{}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			files := readTestdata(t, c.dir, c.files...)
@@ -192,7 +276,7 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			if got.Update != nil {
 				t.Logf("steps=%+v notes=%v diff=%+v", got.Update.Steps, got.Update.Notes, got.Update.Diff)
 			}
-			if strings.HasPrefix(c.name, "pnpm_declared_12") {
+			if c.manager == ManagerPnpm && strings.HasSuffix(c.name, "declared_12") {
 				// A lockfile with entries taken out cannot be made again by pnpm 12, so
 				// the unit is left to a person before anything runs.
 				if got.Category != CategoryManual || got.Reason != ReasonPnpm12RemovalUnsupported || use.Jobs != 1 {
@@ -210,14 +294,19 @@ func TestIntegrationLangUpdate(t *testing.T) {
 				t.Errorf("executed flags = %v %v", got.UpdateExecuted, got.PostUpdateCheckExecuted)
 			}
 			// What the update ran in and with is on record.
-			wantRuntime := map[DependencyManager]string{ManagerNpm: "node24", ManagerPnpm: "node24", ManagerUv: "python3.13", ManagerPip: "python3.13"}[c.manager]
+			wantRuntime := map[DependencyManager]string{ManagerNpm: defaultNodeRuntime(time.Now()), ManagerPnpm: defaultNodeRuntime(time.Now()), ManagerUv: "python3.13", ManagerPip: "python3.13"}[c.manager]
 			if c.manager == ManagerUv {
 				wantRuntime = "python3.11"
 			}
-			if strings.Contains(c.name, "node22") {
-				wantRuntime = "node22"
+			if id, ok := tableRuntime[c.name]; ok {
+				wantRuntime = id
 			}
-			for _, minor := range []string{"12", "13", "14"} {
+			for _, series := range []string{"22", "24", "26"} {
+				if strings.Contains(c.name, "node"+series) {
+					wantRuntime = "node" + series
+				}
+			}
+			for _, minor := range []string{"12", "13", "14", "15"} {
 				if strings.Contains(c.name, "python3"+minor) {
 					wantRuntime = "python3." + minor
 				}
@@ -275,7 +364,30 @@ func TestIntegrationLangUpdate(t *testing.T) {
 					t.Errorf("%s is not among the resolved findings", cv.VulnID)
 				}
 			}
+			if !t.Failed() {
+				ran[got.Update.Runtime.ID] = true
+			}
 		})
+	}
+	// Every runtime of the table that is in support and has an image has to
+	// have run and passed here; one that did not fails the test (and so the
+	// table update), whatever the reason.
+	for _, r := range worker.Runtimes() {
+		if r.HasImage() && !r.EndOfLife(now) && !ran[r.ID] {
+			t.Errorf("the runtime %s is in the table and in support, and no case ran in it and passed", r.ID)
+		}
+	}
+	// The table update records the runtimes that were run and passed, and no
+	// others, as tested.
+	if path := os.Getenv("KESTRELYNX_IT_TESTED_RUNTIMES"); path != "" && !t.Failed() {
+		var ids []string
+		for id := range ran {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if err := os.WriteFile(path, []byte(strings.Join(ids, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

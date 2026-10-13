@@ -5,8 +5,9 @@
       "id": "node20",
       "kind": "node",
       "series": "20",
-      "eol": "2026-04-30",
       "support": "end_of_life",
+      "eol": "2026-04-30",
+      "lts_from": "2023-10-24",
       "checked": "2026-10-12"
     },
     {
@@ -31,8 +32,11 @@
       "healthcheck": false,
       "support": "maintenance",
       "eol": "2027-04-30",
+      "lts_from": "2024-10-29",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:6b25e0bf3aaee33c18ba3c5d1b71646df1ba485a2a5500fd8376a3be3d110812"
+      }
     },
     {
       "id": "node24",
@@ -56,23 +60,54 @@
       "healthcheck": false,
       "support": "lts",
       "eol": "2028-04-30",
+      "lts_from": "2025-10-28",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:c83040f7e24bacea68e58a0b96a484ba430bf24abb2973eab7ba4701144b7b63"
+      }
+    },
+    {
+      "id": "node26",
+      "kind": "node",
+      "series": "26",
+      "version": "26.11.1",
+      "image": "node",
+      "tag": "26-trixie-slim",
+      "exact_tag": "26.11.1-trixie-slim",
+      "index_digest": "sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0",
+      "platforms": {
+        "linux/amd64": "sha256:dc959319aa89ba9ab709c3e2d2ef8827e254284df2221856c58d78d32c45a913",
+        "linux/arm64": "sha256:d844f1e8928a5c77d26cb8ed37d7425e27014aff39d10f4194716c215fef7398"
+      },
+      "covered_paths": [
+        "/tmp",
+        "/var/tmp",
+        "/run/lock"
+      ],
+      "volumes_empty": true,
+      "healthcheck": false,
+      "support": "current",
+      "eol": "2029-04-30",
+      "lts_from": "2026-10-28",
+      "checked": "2026-10-13",
+      "tested": {
+        "linux/amd64": "sha256:dc959319aa89ba9ab709c3e2d2ef8827e254284df2221856c58d78d32c45a913"
+      }
     },
     {
       "id": "python3.9",
       "kind": "python",
       "series": "3.9",
-      "eol": "2025-10-31",
       "support": "end_of_life",
+      "eol": "2025-10-31",
       "checked": "2026-10-12"
     },
     {
       "id": "python3.10",
       "kind": "python",
       "series": "3.10",
-      "eol": "2026-10-01",
       "support": "end_of_life",
+      "eol": "2026-10-01",
       "checked": "2026-10-12"
     },
     {
@@ -97,10 +132,11 @@
       "volumes_empty": true,
       "healthcheck": false,
       "support": "security",
-      "eol": "2027-10-01",
-      "eol_month_only": true,
+      "eol": "2027-10-31",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:e529028263dbe6910a2d96f7d2b8f5266385e917fd45d286ef166977c094a51e"
+      }
     },
     {
       "id": "python3.12",
@@ -124,10 +160,11 @@
       "volumes_empty": true,
       "healthcheck": false,
       "support": "security",
-      "eol": "2028-10-01",
-      "eol_month_only": true,
+      "eol": "2028-10-31",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe"
+      }
     },
     {
       "id": "python3.13",
@@ -151,10 +188,11 @@
       "volumes_empty": true,
       "healthcheck": false,
       "support": "security",
-      "eol": "2029-10-01",
-      "eol_month_only": true,
+      "eol": "2029-10-31",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024"
+      }
     },
     {
       "id": "python3.14",
@@ -178,10 +216,39 @@
       "volumes_empty": true,
       "healthcheck": false,
       "support": "bugfix",
-      "eol": "2030-10-01",
-      "eol_month_only": true,
+      "eol": "2030-10-31",
       "checked": "2026-10-12",
-      "tested": {}
+      "tested": {
+        "linux/amd64": "sha256:cfe2e24a75302a15934d37c2d86412893c0aa934dc3a97cbb439d04c01890ca9"
+      }
+    },
+    {
+      "id": "python3.15",
+      "kind": "python",
+      "series": "3.15",
+      "version": "3.15.0",
+      "pip": "26.2.1",
+      "image": "python",
+      "tag": "3.15-slim-trixie",
+      "exact_tag": "3.15.0-slim-trixie",
+      "index_digest": "sha256:ea4f1f290e071bf7d28199cfb3e09f5dbad31b50e9c32fd58f2f2d7be915f3ae",
+      "platforms": {
+        "linux/amd64": "sha256:6ea0540b2837a9a285e64f59a2e8eb7e85defc4bb7c8cea52742821f50217deb",
+        "linux/arm64": "sha256:bc92099185ed701e0f8c10fa317df59a7dee57528bce2a728b433db0d4c551fd"
+      },
+      "covered_paths": [
+        "/tmp",
+        "/var/tmp",
+        "/run/lock"
+      ],
+      "volumes_empty": true,
+      "healthcheck": false,
+      "support": "bugfix",
+      "eol": "2031-10-31",
+      "checked": "2026-10-13",
+      "tested": {
+        "linux/amd64": "sha256:6ea0540b2837a9a285e64f59a2e8eb7e85defc4bb7c8cea52742821f50217deb"
+      }
     }
   ]
 }

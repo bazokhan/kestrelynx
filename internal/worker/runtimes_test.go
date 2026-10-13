@@ -8,7 +8,7 @@ import (
 
 func TestRuntimeTableIsConsistent(t *testing.T) {
 	specs := Runtimes()
-	for _, id := range []string{"node20", "node22", "node24", "python3.9", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14"} {
+	for _, id := range []string{"node20", "node22", "node24", "node26", "python3.9", "python3.10", "python3.11", "python3.12", "python3.13", "python3.14", "python3.15"} {
 		if _, ok := LookupRuntime(id); !ok {
 			t.Errorf("%s is not in the table", id)
 		}
@@ -60,7 +60,7 @@ func TestRuntimeTableIsConsistent(t *testing.T) {
 			}
 		}
 	}
-	if len(specs) < 9 {
+	if len(specs) < 11 {
 		t.Errorf("%d rows", len(specs))
 	}
 }
@@ -76,6 +76,7 @@ func TestParseRuntimesRejects(t *testing.T) {
 		"kind":       strings.Replace(good, `"kind":"node"`, `"kind":"ruby"`, 1),
 		"eol":        strings.Replace(good, `2026-04-30`, `soon`, 1),
 		"no digests": strings.Replace(good, `"series":"20"`, `"series":"20","image":"node","version":"20.1.0"`, 1),
+		"lts_from":   strings.Replace(good, `"eol":"2026-04-30"`, `"eol":"2026-04-30","lts_from":"later"`, 1),
 		"duplicate":  strings.Replace(good, `}]}`, `},{"id":"node20","kind":"node","series":"20","eol":"2026-04-30"}]}`, 1),
 	} {
 		if _, err := parseRuntimes([]byte(bad)); err == nil {
@@ -203,5 +204,33 @@ func TestProgramSHA256(t *testing.T) {
 	}
 	if got := ProgramFileName("arm64"); got != "kestrelynx-worker-arm64" {
 		t.Error(got)
+	}
+}
+
+func TestLongTermSupportAndTheDefaultNodeRuntime(t *testing.T) {
+	day := func(s string) time.Time { v, _ := time.Parse("2006-01-02", s); return v }
+	n26, _ := LookupRuntime("node26")
+	for _, c := range []struct {
+		now  string
+		want bool
+	}{{"2026-10-27", false}, {"2026-10-28", true}, {"2029-04-30", true}, {"2029-05-01", false}} {
+		if got := n26.InLTS(day(c.now)); got != c.want {
+			t.Errorf("node26 on %s: in LTS = %v, want %v", c.now, got, c.want)
+		}
+	}
+	p313, _ := LookupRuntime("python3.13")
+	if p313.InLTS(day("2026-10-13")) {
+		t.Error("a Python series is never in long-term support")
+	}
+	for _, c := range []struct{ now, want string }{
+		{"2024-10-29", "node22"}, // the newer series are not in long-term support yet
+		{"2026-10-13", "node24"},
+		{"2026-10-28", "node26"},
+		{"2029-05-01", "node26"},
+	} {
+		got, ok := DefaultNodeRuntime(day(c.now))
+		if !ok || got != c.want {
+			t.Errorf("default Node.js runtime on %s = %q (%v), want %s", c.now, got, ok, c.want)
+		}
 	}
 }

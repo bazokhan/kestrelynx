@@ -14,12 +14,23 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
-// The runtimes an update job runs in when a project's declarations do not
-// choose another: Node.js 24 for npm and pnpm, Python 3.13 for uv and pip.
+// The Python runtime an update job runs in when a project's declarations do
+// not choose another (uv) and always for pip. The Node.js runtime of such a
+// project is the newest series in long-term support (defaultNodeRuntime).
 const (
-	defaultNodeRuntime   = "node24"
 	defaultPythonRuntime = "python3.13"
+	// fallbackNodeRuntime is used when the table has no series in support.
+	fallbackNodeRuntime = "node24"
 )
+
+// defaultNodeRuntime is the Node.js runtime used when nothing declares the
+// Node.js version, at the time now.
+func defaultNodeRuntime(now time.Time) string {
+	if id, ok := worker.DefaultNodeRuntime(now); ok {
+		return id
+	}
+	return fallbackNodeRuntime
+}
 
 // Reasons that belong to the runtime and the files a job is given.
 const (
@@ -42,15 +53,23 @@ const (
 )
 
 // DefaultRuntimeIDs are the runtimes update jobs run in, which the process
-// that starts the containers sets up a client for.
+// that starts the containers sets up a client for: every row of the runtime
+// table that pins an image.
 func DefaultRuntimeIDs() []string {
-	return []string{"node22", defaultNodeRuntime, "python3.11", "python3.12", defaultPythonRuntime, "python3.14"}
+	var ids []string
+	for _, r := range worker.Runtimes() {
+		if r.HasImage() {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids
 }
 
-// runtimeIDFor is the runtime a manager's jobs run in.
-func runtimeIDFor(m worker.Manager) string {
+// runtimeIDFor is the runtime a manager's jobs run in when nothing chooses
+// another, at the time now.
+func runtimeIDFor(m worker.Manager, now time.Time) string {
 	if worker.KindFor(m) == worker.KindNode {
-		return defaultNodeRuntime
+		return defaultNodeRuntime(now)
 	}
 	return defaultPythonRuntime
 }
@@ -141,7 +160,7 @@ type jobEnvironment struct {
 func (u *LangUpdater) prepareJob(ctx context.Context, m worker.Manager, ts ToolSpec) (*jobEnvironment, *updateFailure) {
 	rid := ts.Runtime
 	if rid == "" {
-		rid = runtimeIDFor(m)
+		rid = runtimeIDFor(m, u.now())
 	}
 	spec, ok := worker.LookupRuntime(rid)
 	if !ok || !spec.HasImage() {

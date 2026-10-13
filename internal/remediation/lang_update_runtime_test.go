@@ -31,7 +31,7 @@ func TestLangUpdateJobCarriesRuntimeToolAndProgram(t *testing.T) {
 			it, _ := h.run()
 			wantCategory(t, it, CategoryPRCandidate, ReasonUpdateVerified)
 
-			wantRuntime := "node24"
+			wantRuntime := defaultNodeRuntime(time.Now())
 			if name == "uv" || name == "pip" {
 				wantRuntime = "python3.13"
 			}
@@ -83,7 +83,7 @@ func TestLangUpdateJobCarriesRuntimeToolAndProgram(t *testing.T) {
 				t.Errorf("tool record = %+v", tl)
 			}
 			ft := h.cfg.Tools.(*fakeTools)
-			if len(ft.reqs) == 0 || ft.reqs[0].Platform != "linux/amd64" || (wantRuntime == "node24") != (ft.reqs[0].NodeVersion != "") {
+			if len(ft.reqs) == 0 || ft.reqs[0].Platform != "linux/amd64" || strings.HasPrefix(wantRuntime, "node") != (ft.reqs[0].NodeVersion != "") {
 				t.Errorf("tool requests = %+v", ft.reqs)
 			}
 			if len(ft.released) != len(ft.reqs) {
@@ -94,15 +94,16 @@ func TestLangUpdateJobCarriesRuntimeToolAndProgram(t *testing.T) {
 }
 
 func TestLangUpdateRuntimeEndOfLifeIsManual(t *testing.T) {
+	useSnapshotTable(t)
 	for _, c := range []struct {
 		name, manager string
 		now           time.Time
 		text          string
 	}{
-		{"node", "npm", time.Date(2028, 5, 1, 0, 0, 0, 0, time.UTC), "Node.js 24 reached the end of its support on 2028-04-30; upgrade the runtime before updating"},
-		{"python", "uv", time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC), "Python 3.9 reached the end of its support on 2025-10-31; upgrade the runtime before updating"},
+		{"node", "npm", time.Date(2029, 5, 1, 0, 0, 0, 0, time.UTC), "Node.js 26 reached the end of its support on 2029-04-30; upgrade the runtime before updating"},
+		{"python", "uv", time.Date(2031, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.9 reached the end of its support on 2025-10-31; upgrade the runtime before updating"},
 		// pip is judged by the Python of the scanned image (3.12 here).
-		{"python pip", "pip", time.Date(2029, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.12 reached the end of its support on 2028-10-01; upgrade the runtime before updating"},
+		{"python pip", "pip", time.Date(2029, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.12 reached the end of its support on 2028-10-31; upgrade the runtime before updating"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, c.manager)
@@ -122,7 +123,7 @@ func TestLangUpdateRuntimeEndOfLifeIsManual(t *testing.T) {
 	}
 	// Just before the end of support the update still runs.
 	h := newHarness(t, "npm")
-	h.cfg.Now = func() time.Time { return time.Date(2028, 4, 30, 12, 0, 0, 0, time.UTC) }
+	h.cfg.Now = func() time.Time { return time.Date(2029, 4, 30, 12, 0, 0, 0, time.UTC) }
 	it, _ := h.run()
 	wantCategory(t, it, CategoryPRCandidate, ReasonUpdateVerified)
 }

@@ -20,7 +20,8 @@ const (
 	// and the package manager allow.
 	RuntimeBasisLowestInRange = "lowest_in_range"
 	// RuntimeBasisDefault: nothing declares the Node.js version, and the
-	// runtime is the highest series updates run in.
+	// runtime is the newest series in long-term support among those updates
+	// run in.
 	RuntimeBasisDefault = "default"
 )
 
@@ -78,10 +79,11 @@ func nodePool(now time.Time) []worker.RuntimeSpec {
 // a version file, the manager release satisfies every declaration about the
 // manager, and the engines.node of that release allows the exact Node.js. Of
 // those the series a version file names is used, else the lowest one when only
-// ranges declare Node.js, else the highest. A failed update never moves on to
-// another candidate.
+// ranges declare Node.js, else the newest one in long-term support. A failed
+// update never moves on to another candidate.
 func resolveNodeSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
-	spec := ToolSpec{Manager: in.Manager, Runtime: defaultNodeRuntime}
+	now := specNow(in)
+	spec := ToolSpec{Manager: in.Manager, Runtime: defaultNodeRuntime(now)}
 	if uerr := nodeFetchConfigProblem(in); uerr != nil {
 		return spec, uerr
 	}
@@ -92,10 +94,6 @@ func resolveNodeSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 	spec.Requested = nodeSeriesOf(d)
 	for _, decl := range d.decls {
 		spec.Declarations = append(spec.Declarations, ToolDeclaration{Source: decl.source, Value: clip(decl.value, 100)})
-	}
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now()
 	}
 
 	var files, ranges []nodeDecl
@@ -132,8 +130,17 @@ func resolveNodeSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 		order = pool
 	default:
 		spec.RuntimeBasis = RuntimeBasisDefault
+		// The default runtime first, then the others from the newest.
+		first := defaultNodeRuntime(now)
+		for _, r := range pool {
+			if r.ID == first {
+				order = append(order, r)
+			}
+		}
 		for i := len(pool) - 1; i >= 0; i-- {
-			order = append(order, pool[i])
+			if pool[i].ID != first {
+				order = append(order, pool[i])
+			}
 		}
 	}
 

@@ -33,7 +33,12 @@ func TestNodeSelection(t *testing.T) {
 		excluded []RuntimeExclusion
 		reason   Reason // for a unit that cannot be run
 	}{
-		{name: "nothing declared uses the highest series", manager: ManagerPnpm, manifest: pnpmManifest, runtime: "node24", basis: RuntimeBasisDefault},
+		{name: "nothing declared uses the newest series in long-term support", manager: ManagerPnpm, manifest: pnpmManifest, runtime: "node24", basis: RuntimeBasisDefault},
+		{name: ".nvmrc 26", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "26"}, runtime: "node26", basis: RuntimeBasisFile, floor: "26.0.0"},
+		{name: ".node-version v26.11.1 has the image's own version", manager: ManagerPnpm, manifest: pnpmManifest, files: map[string]string{".node-version": "v26.11.1"}, runtime: "node26", basis: RuntimeBasisFile},
+		{name: "engines.node >=26", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=26"}`), runtime: "node26", basis: RuntimeBasisLowestInRange, floor: "26.0.0"},
+		{name: "engines.node >=24 takes the lowest series", manager: ManagerPnpm, manifest: pnpm(`"engines":{"node":">=24"}`), runtime: "node24", basis: RuntimeBasisLowestInRange, floor: "24.0.0"},
+		{name: "npm 12 declared on Node.js 26", manager: ManagerNpm, manifest: npm(`"packageManager":"npm@12.2.0"`), files: map[string]string{".nvmrc": "26"}, runtime: "node26", basis: RuntimeBasisFile, floor: "26.0.0", tool: "12.2.0"},
 		{name: ".nvmrc 22", manager: ManagerPnpm, manifest: pnpmManifest, files: map[string]string{".nvmrc": "22\n"}, runtime: "node22", basis: RuntimeBasisFile, floor: "22.0.0"},
 		{name: ".nvmrc 24", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "v24\n"}, runtime: "node24", basis: RuntimeBasisFile, floor: "24.0.0"},
 		{name: ".node-version with the image's own version has no floor", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".node-version": "22.23.3"}, runtime: "node22", basis: RuntimeBasisFile},
@@ -52,11 +57,12 @@ func TestNodeSelection(t *testing.T) {
 		{name: "pnpm 10 declared with Node.js 22", manager: ManagerPnpm, manifest: pnpm(`"packageManager":"pnpm@10.34.4"`), files: map[string]string{".nvmrc": "22"}, runtime: "node22", basis: RuntimeBasisFile, floor: "22.0.0", tool: "10.34.4"},
 
 		{name: ".nvmrc 18", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "18"}, reason: ReasonNodeSpecUnsupported},
-		{name: ".nvmrc 26", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "26"}, reason: ReasonNodeSpecUnsupported},
+		{name: ".nvmrc of a series not in the table yet", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": nextNodeSeries()}, reason: ReasonNodeSpecUnsupported},
+		{name: ".nvmrc 25 is not in the table", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "25"}, reason: ReasonNodeSpecUnsupported},
 		{name: ".nvmrc 20 is not a runtime updates run on", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "20"}, reason: ReasonNodeSpecUnsupported},
 		{name: "engines.node of 18 and below", manager: ManagerNpm, manifest: npm(`"engines":{"node":"<=18"}`), reason: ReasonNodeSpecUnsupported},
 		{name: "engines.node of odd series only", manager: ManagerNpm, manifest: npm(`"engines":{"node":"^21 || ^23 || ^25"}`), reason: ReasonNodeSpecUnsupported},
-		{name: "engines.node of 26 and above", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=26"}`), reason: ReasonNodeSpecUnsupported},
+		{name: "engines.node above the table", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=` + nextNodeSeries() + `"}`), reason: ReasonNodeSpecUnsupported},
 		{name: "a full version in a range is not the image's", manager: ManagerNpm, manifest: npm(`"engines":{"node":"22.5.0"}`), reason: ReasonNodeSpecUnsupported},
 		{name: "two full versions of one series disagree", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".node-version": "22.5.0", ".nvmrc": "22.5.1"}, reason: ReasonNodeSpecConflict},
 		{name: "a file and a range share nothing", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=24"}`), files: map[string]string{".nvmrc": "22"}, reason: ReasonNodeSpecConflict},
@@ -95,7 +101,51 @@ func TestNodeSelection(t *testing.T) {
 	}
 }
 
+// The runtime of a project that declares nothing about Node.js is the newest
+// series in long-term support, which the table's dates decide.
+func TestNodeDefaultFollowsLongTermSupport(t *testing.T) {
+	useSnapshotTable(t)
+	day := func(s string) time.Time { v, _ := time.Parse("2006-01-02", s); return v }
+	for _, c := range []struct {
+		now, want string
+	}{
+		{"2026-10-13", "node24"},
+		{"2026-10-27", "node24"},
+		{"2026-10-28", "node26"},
+		{"2028-04-30", "node26"},
+		{"2029-04-30", "node26"},
+		// Every series has ended: the newest is named, so the failure says so.
+		{"2029-05-01", "node26"},
+	} {
+		in := ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(npmManifest), Now: day(c.now)}
+		spec, uerr := ResolveToolSpec(in)
+		if c.now == "2029-05-01" {
+			if uerr == nil || uerr.Reason != ReasonNodeSpecUnsupported {
+				t.Errorf("%s: %+v %v", c.now, spec, uerr)
+			}
+			if got := defaultNodeRuntime(day(c.now)); got != c.want {
+				t.Errorf("%s: default = %s", c.now, got)
+			}
+			continue
+		}
+		if uerr != nil || spec.Runtime != c.want || spec.RuntimeBasis != RuntimeBasisDefault {
+			t.Errorf("%s: runtime %s basis %s (%v), want %s", c.now, spec.Runtime, spec.RuntimeBasis, uerr, c.want)
+		}
+		if spec.ToolVersion != defaultTool(ManagerNpm) {
+			t.Errorf("%s: tool %s", c.now, spec.ToolVersion)
+		}
+	}
+	// "lts/*" in .nvmrc follows the same dates.
+	for now, want := range map[string]string{"2026-10-13": "node24", "2026-10-28": "node26"} {
+		spec, uerr := ResolveToolSpec(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(npmManifest), Files: fileBytes(map[string]string{".nvmrc": "lts/*"}), Now: day(now)})
+		if uerr != nil || spec.Runtime != want {
+			t.Errorf("lts/* on %s: %s (%v), want %s", now, spec.Runtime, uerr, want)
+		}
+	}
+}
+
 func TestNodeSelectionAtTheEndOfASupport(t *testing.T) {
+	useSnapshotTable(t)
 	after22 := time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC)
 	in := func(manifest string, files map[string]string) ToolSpecInput {
 		return ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(manifest), Files: fileBytes(files), Now: after22}

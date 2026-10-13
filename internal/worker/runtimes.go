@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,6 +59,9 @@ type RuntimeSpec struct {
 	Support      string `json:"support"`
 	EOL          string `json:"eol"`
 	EOLMonthOnly bool   `json:"eol_month_only,omitempty"`
+	// LTSFrom is the date a Node.js series enters long-term support; it is
+	// empty for a series that never does and for Python.
+	LTSFrom string `json:"lts_from,omitempty"`
 	// Checked is the date the row was last confirmed. Tested holds, per
 	// platform, the manifest digest that passed the integration tests.
 	Checked string            `json:"checked"`
@@ -108,6 +112,11 @@ func parseRuntimes(raw []byte) ([]RuntimeSpec, error) {
 		}
 		if _, err := time.Parse("2006-01-02", r.EOL); err != nil {
 			return nil, fmt.Errorf("runtime %q: eol %q is not a date", r.ID, r.EOL)
+		}
+		if r.LTSFrom != "" {
+			if _, err := time.Parse("2006-01-02", r.LTSFrom); err != nil || r.Kind != KindNode {
+				return nil, fmt.Errorf("runtime %q: lts_from %q is not a date of a Node.js series", r.ID, r.LTSFrom)
+			}
 		}
 		if r.Image == "" {
 			if r.IndexDigest != "" || len(r.Platforms) != 0 || r.Version != "" {
@@ -199,6 +208,63 @@ func (r RuntimeSpec) EndOfLife(now time.Time) bool {
 	y, m, d := now.UTC().Date()
 	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 	return today.After(r.EOLDate())
+}
+
+// InLTS reports whether the series is in long-term support at the time now:
+// its long-term support has begun and its support has not ended.
+func (r RuntimeSpec) InLTS(now time.Time) bool {
+	if r.LTSFrom == "" || r.EndOfLife(now) {
+		return false
+	}
+	from, err := time.Parse("2006-01-02", r.LTSFrom)
+	if err != nil {
+		return false
+	}
+	y, m, d := now.UTC().Date()
+	return !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(from)
+}
+
+// DefaultNodeRuntime is the id of the Node.js runtime used when a project
+// declares nothing about Node.js: the newest series of the table that has an
+// image and is in long-term support at the time now. When none is, it is the
+// newest series that has an image and is in support, and when the support of
+// every series has ended, the newest series that has an image.
+func DefaultNodeRuntime(now time.Time) (string, bool) {
+	var lts, supported, newest RuntimeSpec
+	for _, r := range runtimeSpecs {
+		if r.Kind != KindNode || !r.HasImage() {
+			continue
+		}
+		if seriesOrder(r.Series, newest.Series) {
+			newest = r
+		}
+		if r.EndOfLife(now) {
+			continue
+		}
+		if seriesOrder(r.Series, supported.Series) {
+			supported = r
+		}
+		if r.InLTS(now) && seriesOrder(r.Series, lts.Series) {
+			lts = r
+		}
+	}
+	for _, r := range []RuntimeSpec{lts, supported, newest} {
+		if r.ID != "" {
+			return r.ID, true
+		}
+	}
+	return "", false
+}
+
+// seriesOrder reports whether the Node.js series a is newer than b; an empty
+// b is older than every series.
+func seriesOrder(a, b string) bool {
+	if b == "" {
+		return true
+	}
+	x, ex := strconv.Atoi(a)
+	y, ey := strconv.Atoi(b)
+	return ex == nil && ey == nil && x > y
 }
 
 // Label is how the runtime is named to a person.

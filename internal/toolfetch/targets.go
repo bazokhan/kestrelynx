@@ -26,25 +26,38 @@ const (
 	PlatformArm64 = "linux/arm64"
 )
 
-// defaultVersions holds, per runtime id, the exact version of each manager
-// used when a project does not declare one. A value is the newest stable
-// release that was past its waiting period when the table was made, and that
-// is known to work with the runtime's Node.js (or Python).
-var defaultVersions = map[string]map[Manager]string{
-	"node24":     {ManagerPnpm: "11.28.5", ManagerNpm: "11.21.0"},
-	"node22":     {ManagerPnpm: "11.28.5", ManagerNpm: "11.21.0"},
-	"node20":     {ManagerPnpm: "10.34.6"},
-	"python3.11": {ManagerUv: "0.13.0"},
-	"python3.12": {ManagerUv: "0.13.0"},
-	"python3.13": {ManagerUv: "0.13.0"},
-	"python3.14": {ManagerUv: "0.13.0"},
+// languageDefaults holds, per language of the runtime ("node", "python"), the
+// exact version of each manager used when a project does not declare one. A
+// value is the newest stable release that was past its waiting period when the
+// table was made, and that is known to work with the runtimes of the language.
+// A runtime that is added to the runtime table takes these; whether the
+// release runs on its Node.js (engines.node) is judged when the pair is chosen.
+var languageDefaults = map[string]map[Manager]string{
+	"node":   {ManagerPnpm: "11.28.5", ManagerNpm: "11.21.0"},
+	"python": {ManagerUv: "0.13.0"},
+}
+
+// runtimeDefaults holds the versions of the runtimes that differ from the
+// default of their language; a manager named here, even with "", replaces the
+// default for that runtime.
+var runtimeDefaults = map[string]map[Manager]string{
+	"node20": {ManagerPnpm: "10.34.6", ManagerNpm: ""},
 }
 
 // DefaultVersion returns the exact version of the manager that runs in the
 // runtime (an id such as "node24" or "python3.13") when the project declares
-// none, or "" when the table has none for the pair.
+// none, or "" when there is none for the pair.
 func DefaultVersion(manager Manager, runtimeID string) string {
-	return defaultVersions[runtimeID][manager]
+	if v, ok := runtimeDefaults[runtimeID][manager]; ok {
+		return v
+	}
+	switch {
+	case strings.HasPrefix(runtimeID, "node") && len(runtimeID) > len("node"):
+		return languageDefaults["node"][manager]
+	case strings.HasPrefix(runtimeID, "python") && len(runtimeID) > len("python"):
+		return languageDefaults["python"][manager]
+	}
+	return ""
 }
 
 // managerNodeEngines holds, per manager and major version, the engines.node

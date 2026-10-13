@@ -46,6 +46,10 @@ func TestPythonSelection(t *testing.T) {
 			declared: []ToolDeclaration{{Source: ".python-version", Value: "cpython-3.12.3"}}},
 		{name: ">=3.11 takes 3.11", requires: ">=3.11", runtime: "python3.11", basis: RuntimeBasisLowestInRange,
 			declared: []ToolDeclaration{{Source: "requires-python", Value: ">=3.11"}}},
+		{name: ".python-version 3.15", requires: ">=3.12", files: file("3.15"), runtime: "python3.15", basis: RuntimeBasisFile,
+			declared: []ToolDeclaration{{Source: ".python-version", Value: "3.15"}}},
+		{name: "requires-python >=3.15 takes 3.15", requires: ">=3.15", runtime: "python3.15", basis: RuntimeBasisLowestInRange,
+			declared: []ToolDeclaration{{Source: "requires-python", Value: ">=3.15"}}},
 		{name: ">=3.9 skips the series past the end of support", requires: ">=3.9", runtime: "python3.11", basis: RuntimeBasisLowestInRange,
 			declared: []ToolDeclaration{{Source: "requires-python", Value: ">=3.9"}},
 			excluded: []RuntimeExclusion{{ID: "python3.9", Why: ExcludedEndOfLife, EOL: "2025-10-31"}, {ID: "python3.10", Why: ExcludedEndOfLife, EOL: "2026-10-01"}}},
@@ -65,8 +69,8 @@ func TestPythonSelection(t *testing.T) {
 		{name: "the file names a series below the range", requires: ">=3.12", files: file("3.11"), reason: ReasonPythonSpecConflict},
 		{name: "3.9 alone is past the end of support", requires: ">=3.9,<3.10", reason: ReasonPythonSpecUnsupported},
 		{name: "3.8 and below is outside the table", requires: "<3.9", reason: ReasonPythonSpecUnsupported},
-		{name: "3.15 and above is outside the table", requires: ">=3.15", reason: ReasonPythonSpecUnsupported},
-		{name: ".python-version 3.15", requires: ">=3.12", files: file("3.15"), reason: ReasonPythonSpecUnsupported},
+		{name: "above the table is outside the table", requires: ">=" + nextPythonSeries(), reason: ReasonPythonSpecUnsupported},
+		{name: ".python-version above the table", requires: ">=3.12", files: file(nextPythonSeries()), reason: ReasonPythonSpecUnsupported},
 		{name: ".python-version 3.8", requires: ">=3.8", files: file("3.8"), reason: ReasonPythonSpecUnsupported},
 		{name: "a range the image's Python is just outside of", requires: ">=3.12.99,<3.13", reason: ReasonPythonSpecUnsupported},
 		{name: ".python-versions lists several versions", requires: ">=3.12", files: map[string]string{".python-versions": "3.13\n3.12\n"}, reason: ReasonPythonSpecUnsupported},
@@ -213,12 +217,13 @@ func TestLangUpdatePipTargetPastEndOfSupportIsManual(t *testing.T) {
 }
 
 func TestDeclaredEndOfLifeNamesTheLowestSeriesTheDeclarationsAllow(t *testing.T) {
-	now := time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC)
+	useSnapshotTable(t)
+	now := time.Date(2031, 11, 1, 0, 0, 0, 0, time.UTC)
 	spec, ok := declaredRuntimeEOL(ToolSpecInput{Manager: ManagerUv, Manifest: []byte(strings.Replace(uvPyproject, ">=3.12", ">=3.11", 1))}, now)
 	if !ok || spec.ID != "python3.11" {
 		t.Errorf("uv: %+v %v", spec, ok)
 	}
-	spec, ok = declaredRuntimeEOL(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(withField(npmManifest, `"engines":{"node":">=20"}`))}, time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC))
+	spec, ok = declaredRuntimeEOL(ToolSpecInput{Manager: ManagerNpm, Manifest: []byte(withField(npmManifest, `"engines":{"node":">=20"}`))}, time.Date(2029, 5, 1, 0, 0, 0, 0, time.UTC))
 	if !ok || spec.ID != "node20" {
 		t.Errorf("npm: %+v %v", spec, ok)
 	}

@@ -30,7 +30,7 @@ func declaredRuntimeEOL(in ToolSpecInput, now time.Time) (worker.RuntimeSpec, bo
 		if !ok || !spec.EndOfLife(now) {
 			return worker.RuntimeSpec{}, false
 		}
-		if first.ID == "" || (undeclared && id == runtimeIDFor(worker.Manager(in.Manager))) {
+		if first.ID == "" || (undeclared && id == runtimeIDFor(worker.Manager(in.Manager), now)) {
 			first = spec
 		}
 	}

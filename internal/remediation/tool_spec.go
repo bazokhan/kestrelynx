@@ -185,7 +185,7 @@ func readNodeDeclarations(in ToolSpecInput) (*nodeDeclarations, *UnsupportedErro
 		if !ok {
 			continue
 		}
-		decl, uerr := parseNodeVersionFile(f, data)
+		decl, uerr := parseNodeVersionFile(f, data, specNow(in))
 		if uerr != nil {
 			return nil, uerr
 		}
@@ -245,6 +245,14 @@ func rangeDecl(source, text string) (nodeDecl, *UnsupportedError) {
 	return nodeDecl{declared: declared{source, text, set}}, nil
 }
 
+// specNow is the time the end of support and long-term support are judged at.
+func specNow(in ToolSpecInput) time.Time {
+	if in.Now.IsZero() {
+		return time.Now()
+	}
+	return in.Now
+}
+
 // nvmrcAliases are the names of release lines nvm accepts, with the major
 // version each stands for.
 var nvmrcAliases = map[string]string{
@@ -253,11 +261,11 @@ var nvmrcAliases = map[string]string{
 }
 
 // latestLTSSeries is the Node.js series that "lts/*" stands for: the newest
-// one of the runtime table in long-term support.
-func latestLTSSeries() (string, bool) {
+// one of the runtime table in long-term support at the time now.
+func latestLTSSeries(now time.Time) (string, bool) {
 	best, found := 0, false
 	for _, r := range worker.Runtimes() {
-		if r.Kind != worker.KindNode || r.Support != "lts" {
+		if r.Kind != worker.KindNode || !r.InLTS(now) {
 			continue
 		}
 		if n, err := strconv.Atoi(r.Series); err == nil && (!found || n > best) {
@@ -271,7 +279,7 @@ func latestLTSSeries() (string, bool) {
 // not empty, a version with its major version and optionally the minor and the
 // patch, written with or without a leading "v". .nvmrc also takes the names
 // of long-term support lines.
-func parseNodeVersionFile(name string, data []byte) (nodeDecl, *UnsupportedError) {
+func parseNodeVersionFile(name string, data []byte, now time.Time) (nodeDecl, *UnsupportedError) {
 	line := firstLine(data)
 	if line == "" || len(line) > 100 {
 		return nodeDecl{}, unsupported(ReasonNodeSpecInvalid, "%s has no version on its first line, or the line is too long", name)
@@ -286,7 +294,7 @@ func parseNodeVersionFile(name string, data []byte) (nodeDecl, *UnsupportedError
 			major := nvmrcAliases[alias]
 			if alias == "*" {
 				var ok bool
-				if major, ok = latestLTSSeries(); !ok {
+				if major, ok = latestLTSSeries(now); !ok {
 					return nodeDecl{}, unsupported(ReasonNodeSpecUnsupported, "%s names %q, and no Node.js series in the runtime table is in long-term support", name, line)
 				}
 			}
