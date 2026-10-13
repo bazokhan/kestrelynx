@@ -159,6 +159,7 @@ var planReasonTexts = map[string]struct{ en, ja string }{
 	"work_program_mismatch":         {"the program in the work container is not the one this build came with", "作業用コンテナ内のプログラムがこのビルドのものと異なる"},
 	"work_environment_rejected":     {"the work container did not meet the requirements of its program", "作業用コンテナがプログラムの要件を満たしていない"},
 	"runtime_eol":                   {"the runtime of the update is past the end of its support", "更新を実行するランタイムがサポート終了している"},
+	"runtime_engines_mismatch":      {"an updated package does not run on the lowest Node.js version the project declares", "更新したパッケージが、プロジェクトが宣言する最小の Node.js の版で動かない"},
 
 	// The update stage.
 	"update_job_limit":                  {"the limit on update jobs of a run was reached", "1回の実行で行える更新の数の上限に達した"},

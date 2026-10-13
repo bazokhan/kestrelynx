@@ -14,8 +14,8 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
 
-// The runtimes an update job runs in until a project's own declarations are
-// read: Node.js 24 for npm and pnpm, Python 3.13 for uv and pip.
+// The runtimes an update job runs in when a project's declarations do not
+// choose another: Node.js 24 for npm and pnpm, Python 3.13 for uv and pip.
 const (
 	defaultNodeRuntime   = "node24"
 	defaultPythonRuntime = "python3.13"
@@ -26,6 +26,10 @@ const (
 	// ReasonRuntimeEndOfLife: the runtime the update would run in is past the
 	// end of its support. Nothing is run in it.
 	ReasonRuntimeEndOfLife Reason = "runtime_eol"
+	// ReasonRuntimeEnginesMismatch: an entry the update added or changed
+	// declares an engines.node that does not allow the lowest Node.js version
+	// the project's declarations allow, while the update ran on a newer one.
+	ReasonRuntimeEnginesMismatch Reason = "runtime_engines_mismatch"
 	// ReasonWorkEnvironmentRejected: the program in the container refused to
 	// run because the container or the runtime was not what it requires.
 	ReasonWorkEnvironmentRejected Reason = "work_environment_rejected"
@@ -39,7 +43,9 @@ const (
 
 // DefaultRuntimeIDs are the runtimes update jobs run in, which the process
 // that starts the containers sets up a client for.
-func DefaultRuntimeIDs() []string { return []string{defaultNodeRuntime, defaultPythonRuntime} }
+func DefaultRuntimeIDs() []string {
+	return []string{"node22", defaultNodeRuntime, defaultPythonRuntime}
+}
 
 // runtimeIDFor is the runtime a manager's jobs run in.
 func runtimeIDFor(m worker.Manager) string {
@@ -73,6 +79,16 @@ type RuntimeRecord struct {
 	// support ends.
 	Support string `json:"support,omitempty"`
 	EOL     string `json:"eol,omitempty"`
+	// Basis says why the runtime was chosen (the RuntimeBasis values of a
+	// Node.js runtime), Declared are the declarations it rests on and Excluded
+	// the lower series they allow that were not used. EnginesFloor is the
+	// lowest Node.js version the declarations allow when it is not the one of
+	// the runtime: the entries the update added or changed were checked to run
+	// on it.
+	Basis        string             `json:"basis,omitempty"`
+	Declared     []ToolDeclaration  `json:"declared,omitempty"`
+	Excluded     []RuntimeExclusion `json:"excluded,omitempty"`
+	EnginesFloor string             `json:"engines_floor,omitempty"`
 }
 
 // ToolRecord is the package manager release an update ran: the version, how
@@ -135,6 +151,7 @@ func (u *LangUpdater) prepareJob(ctx context.Context, m worker.Manager, ts ToolS
 	env.rtRec = &RuntimeRecord{
 		ID: spec.ID, Version: spec.Version, Pip: spec.Pip, Image: spec.ImageRef(),
 		Platform: u.cfg.Platform, Digest: spec.Platforms[u.cfg.Platform], Support: spec.Support, EOL: spec.EOL,
+		Basis: ts.RuntimeBasis, Declared: ts.RuntimeDeclared, Excluded: ts.RuntimeExcluded, EnginesFloor: ts.NodeFloor,
 	}
 	if m == worker.ManagerPip {
 		return env, nil
@@ -273,7 +290,8 @@ func (u *LangUpdater) readProgram() ([]byte, *updateFailure) {
 // than the project asks for. Declarations that allow a runtime still in
 // support, or that name none of the table, are left to ResolveToolSpec.
 func (u *LangUpdater) declaredRuntimeEndOfLife(in ToolSpecInput) *updateFailure {
-	spec, ok := declaredRuntimeEOL(in, u.now())
+	in.Now = u.now()
+	spec, ok := declaredRuntimeEOL(in, in.Now)
 	if !ok {
 		return nil
 	}

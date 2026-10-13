@@ -96,9 +96,14 @@ func TestIntegrationLangUpdateToPullRequest(t *testing.T) {
 			if err != nil || m.verify(testRepoID) != nil || m.Kind != "language" {
 				t.Fatalf("marker %+v err %v", m, err)
 			}
-			for _, want := range []string{"## Not verified", "Scan of the dependency files before and after", "Resolved "} {
+			for _, want := range []string{"## What", "## Change", "## Verification", "Scan of the dependency files before and after", "Resolved "} {
 				if !strings.Contains(pr.Body, want) {
 					t.Errorf("body lacks %q", want)
+				}
+			}
+			for _, gone := range []string{"## Not verified", "## Why these versions", "Opened by KestreLynx"} {
+				if strings.Contains(pr.Body, gone) {
+					t.Errorf("body still has %q", gone)
 				}
 			}
 			t.Logf("%s: %s; fixes %d targets; files %v", c.name, pr.Title, len(u.FixTargets), func() []string {

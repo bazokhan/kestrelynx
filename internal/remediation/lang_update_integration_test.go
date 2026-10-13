@@ -125,6 +125,14 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			declare(`"packageManager": "npm@12.2.0"`), "", "", "12.2.0", "declared"},
 		{"npm_devEngines_range_default", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
 			declare(`"devEngines": {"packageManager": {"name": "npm", "version": "^11", "onFail": "error"}}`), "", "", itDefaultToolVersions[ManagerNpm], "default_in_range"},
+		// A Node.js version the project declares chooses the image the update
+		// runs in.
+		{"npm_node22_from_nvmrc", ManagerNpm, "npm", []string{"package.json", "package-lock.json"}, minimist, "minimist",
+			func(f map[string]string) { f[".nvmrc"] = "22\n" }, "", "", "", ""},
+		{"pnpm_node22_from_nvmrc", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			func(f map[string]string) { f[".nvmrc"] = "22\n" }, "", "", "", ""},
+		{"pnpm_node22_from_engine_ranges", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
+			declare(`"engines": {"node": ">=20", "pnpm": ">=11"}`), "", "", itDefaultToolVersions[ManagerPnpm], "default_in_range"},
 		{"uv_declared", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
 			func(f map[string]string) {
 				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], "[tool.uv]", "[tool.uv]\nrequired-version = \"==0.12.24\"", 1)
@@ -174,6 +182,9 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			}
 			// What the update ran in and with is on record.
 			wantRuntime := map[DependencyManager]string{ManagerNpm: "node24", ManagerPnpm: "node24", ManagerUv: "python3.13", ManagerPip: "python3.13"}[c.manager]
+			if strings.Contains(c.name, "node22") {
+				wantRuntime = "node22"
+			}
 			if rt := got.Update.Runtime; rt == nil || rt.ID != wantRuntime || rt.Version == "" || rt.Digest == "" {
 				t.Errorf("runtime record = %+v, want %s", rt, wantRuntime)
 			}

@@ -64,11 +64,21 @@ func tighterHigh(a, b bound) bound {
 }
 
 func (iv interval) empty() bool {
-	if !iv.lo.set || !iv.hi.set {
+	if !iv.hi.set {
 		return false
 	}
-	c := iv.lo.v.cmp(iv.hi.v)
-	return c > 0 || (c == 0 && (iv.lo.open || iv.hi.open))
+	// Versions are whole releases starting at 0.0.0, so an open lower bound
+	// starts at the next patch (">22.0.0 <22.0.1" holds no version) and a
+	// missing one at 0.0.0 ("<0.0.0" holds none).
+	lo := triple{"0", "0", "0"}
+	if iv.lo.set {
+		lo = iv.lo.v
+		if iv.lo.open {
+			lo[2] = incDecimal(lo[2])
+		}
+	}
+	c := lo.cmp(iv.hi.v)
+	return c > 0 || (c == 0 && iv.hi.open)
 }
 
 func (iv interval) contains(v triple) bool {
@@ -247,4 +257,23 @@ func fullVersion(s string) (triple, bool) {
 		return triple{}, false
 	}
 	return p.low(), true
+}
+
+// lowest is the lowest version in the set; ok is false for an empty set. A set
+// with no lower end starts at 0.0.0, and an open lower bound starts at the next
+// patch (the intervals that hold no release have been dropped by normalize).
+func (s versionSet) lowest() (triple, bool) {
+	n := s.normalize()
+	if len(n) == 0 {
+		return triple{}, false
+	}
+	lo := n[0].lo
+	if !lo.set {
+		return triple{"0", "0", "0"}, true
+	}
+	v := lo.v
+	if lo.open {
+		v[2] = incDecimal(v[2])
+	}
+	return v, true
 }

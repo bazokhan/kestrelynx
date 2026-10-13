@@ -47,6 +47,39 @@ func DefaultVersion(manager Manager, runtimeID string) string {
 	return defaultVersions[runtimeID][manager]
 }
 
+// managerNodeEngines holds, per manager and major version, the engines.node
+// range the registry publishes for the releases of that major version (the
+// same for every release of 9 to 12 of pnpm and npm published when the table
+// was made). pnpm 12 publishes ">=18.*", which is written here as ">=18.0.0".
+var managerNodeEngines = map[Manager]map[int]string{
+	ManagerNpm: {
+		9:  "^14.17.0 || ^16.13.0 || >=18.0.0",
+		10: "^18.17.0 || >=20.5.0",
+		11: "^20.17.0 || >=22.9.0",
+		12: "^22.22.2 || ^24.15.0 || >=26.0.0",
+	},
+	ManagerPnpm: {
+		9:  ">=18.12.0",
+		10: ">=18.12.0",
+		11: ">=22.13.0",
+		12: ">=18.0.0",
+	},
+}
+
+// NodeEngines returns the range of Node.js versions a release of the manager
+// declares it runs on (its engines.node), and false for a manager or a
+// version the table has no range for. It is the range of the major version of
+// the release as the registry publishes it; whether a release is taken is
+// still decided from its own document when it is provided.
+func NodeEngines(manager Manager, version string) (string, bool) {
+	v, ok := parseExact(version)
+	if !ok {
+		return "", false
+	}
+	r, ok := managerNodeEngines[manager][int(v[0])]
+	return r, ok
+}
+
 // Supported ranges of the managers.
 const (
 	minUv = "0.12.22"

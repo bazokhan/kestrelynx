@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
@@ -49,6 +50,9 @@ type ToolSpecInput struct {
 	// directory of the lockfile and above it, up to the root of the
 	// repository.
 	UvToml []string
+	// Now is the time the end of a runtime's support is judged at; the zero
+	// value means the present.
+	Now time.Time
 }
 
 // ToolDeclaration is one declaration that was read, for the record.
@@ -75,6 +79,17 @@ type ToolSpec struct {
 	// declaration it is empty.
 	Requested    []string
 	Declarations []ToolDeclaration
+	// RuntimeBasis says why Runtime was chosen (the RuntimeBasis values), and
+	// RuntimeDeclared are the declarations about the language it rests on.
+	// RuntimeExcluded are the lower series that the declarations allow and
+	// that were not used. They are empty for the Python runtimes.
+	RuntimeBasis    string
+	RuntimeDeclared []ToolDeclaration
+	RuntimeExcluded []RuntimeExclusion
+	// NodeFloor is the lowest Node.js version every declaration allows, set
+	// when it differs from the Node.js of the runtime: the dependencies the
+	// update adds or changes have to run on it too.
+	NodeFloor string
 }
 
 const toolSourceDeclared = "declared"
@@ -375,47 +390,6 @@ func seriesNumber(id string) int {
 		n = n*1000 + v
 	}
 	return n
-}
-
-// resolveNodeSpec resolves the declarations of an npm or pnpm unit.
-func resolveNodeSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
-	spec := ToolSpec{Manager: in.Manager, Runtime: defaultNodeRuntime}
-	if uerr := nodeFetchConfigProblem(in); uerr != nil {
-		return spec, uerr
-	}
-	d, uerr := readNodeDeclarations(in)
-	if uerr != nil {
-		return spec, uerr
-	}
-	spec.Requested = nodeSeriesOf(d)
-	for _, decl := range d.decls {
-		spec.Declarations = append(spec.Declarations, ToolDeclaration{Source: decl.source, Value: clip(decl.value, 100)})
-	}
-
-	rt, ok := worker.LookupRuntime(defaultNodeRuntime)
-	if !ok {
-		return spec, unsupported(ReasonNodeSpecUnsupported, "the runtime %s is not in the runtime table", defaultNodeRuntime)
-	}
-	exact, ok := fullVersion(rt.Version)
-	if !ok {
-		return spec, unsupported(ReasonNodeSpecUnsupported, "the runtime %s has the version %q", rt.ID, rt.Version)
-	}
-	for _, decl := range d.decls {
-		switch {
-		case decl.major != "" && decl.major != rt.Series:
-			return spec, unsupported(ReasonNodeSpecUnsupported, "%s asks for Node.js %s, and updates run on Node.js %s so far", decl.source, decl.value, rt.Version)
-		case decl.major == "" && !decl.set.contains(exact):
-			return spec, unsupported(ReasonNodeSpecUnsupported, "%s %s does not allow Node.js %s, which updates run on so far", decl.source, clip(decl.value, 80), rt.Version)
-		}
-	}
-
-	mgr, uerr := resolveNodeManager(in, d.top)
-	if uerr != nil {
-		return spec, uerr
-	}
-	spec.ToolVersion, spec.ToolSource, spec.SpecHash = mgr.version, mgr.source, mgr.specHash
-	spec.Declarations = append(spec.Declarations, mgr.declarations...)
-	return spec, nil
 }
 
 // objectField reads a member of a JSON object that must itself be an object (or

@@ -23,6 +23,7 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 	if r.it.Manager != ManagerPip {
 		in := ToolSpecInput{
 			Manager: r.it.Manager, Manifest: src.manifest, Lock: src.lock, Files: src.specFiles, UvToml: src.uvToml,
+			Now: r.u.now(),
 		}
 		if f := r.u.declaredRuntimeEndOfLife(in); f != nil {
 			return f

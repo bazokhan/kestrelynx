@@ -532,6 +532,13 @@ func (r *updateRun) checkDistributions(ctx context.Context, g *depGraph, touched
 			if why := installProblem(r.it.Manager, n, d); why != "" {
 				return mismatch(n, "%s %s", k, why)
 			}
+			if why := nodeEnginesProblem(d, r.toolSpec.NodeFloor); why != "" {
+				f := manualFailure(ReasonRuntimeEnginesMismatch, "%s %s: %s", n.name, n.version, why)
+				if targets[n.name] {
+					f.pkgs = map[string]updateFailureDetail{n.name: {ReasonRuntimeEnginesMismatch, f.detail}}
+				}
+				return f
+			}
 			if r.it.Manager == ManagerNpm {
 				if f := r.checkNotBundled(ctx, g, k, n, d, mismatch); f != nil {
 					return f
@@ -1193,6 +1200,42 @@ func (r *updateRun) uvTarget() (*worker.Target, *updateFailure) {
 		return nil, manualFailure(ReasonPipTargetMismatch, "%s", why)
 	}
 	return t, nil
+}
+
+// nodeEnginesProblem checks the engines.node the registry publishes for a
+// version against the lowest Node.js version the project's declarations allow
+// (floor, "" when the update ran on the Node.js the declarations name). An
+// entry that does not allow it would not install on the Node.js the project
+// says it supports, although the update ran on a newer one. It returns what
+// is wrong, or "". A range that cannot be read is a problem: it cannot be
+// shown to allow the version.
+func nodeEnginesProblem(d NpmDist, floor string) string {
+	if floor == "" {
+		return ""
+	}
+	low, ok := fullVersion(floor)
+	if !ok {
+		return "the lowest Node.js version of the declarations is not a version"
+	}
+	engines, ok := asStringMap(json.RawMessage(d.Install["engines"]))
+	if !ok {
+		if d.Install["engines"] == "" {
+			return ""
+		}
+		return "its engines cannot be read"
+	}
+	text, present := engines["node"]
+	if !present {
+		return ""
+	}
+	set, ok := rangeSet(text)
+	if !ok {
+		return fmt.Sprintf("engines.node %q is not a range that is read, so it cannot be shown to allow Node.js %s, the lowest version the project's declarations allow", clip(text, 80), floor)
+	}
+	if !set.contains(low) {
+		return fmt.Sprintf("engines.node %q does not allow Node.js %s, the lowest version the project's declarations allow", clip(text, 80), floor)
+	}
+	return ""
 }
 
 // installProblem compares what a lockfile entry of npm or pnpm records about

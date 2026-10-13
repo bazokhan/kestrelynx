@@ -17,7 +17,7 @@ func (r *run) planToolSpec(it *LanguageItem, u *depUnit, groups []*findingGroup,
 	if pair.manager == ManagerPip {
 		return true
 	}
-	in := ToolSpecInput{Manager: pair.manager, Manifest: manifest, Lock: lock, Files: map[string][]byte{}}
+	in := ToolSpecInput{Manager: pair.manager, Manifest: manifest, Lock: lock, Files: map[string][]byte{}, Now: r.p.cfg.Now()}
 	for _, name := range ToolSpecFileNames(pair.manager) {
 		e, present := byName(entries, name)
 		if !present {
@@ -43,7 +43,7 @@ func (r *run) planToolSpec(it *LanguageItem, u *depUnit, groups []*findingGroup,
 	}
 	// A project that wants only a runtime past the end of its support is told
 	// so, with the date, as an update would be.
-	if spec, eol := declaredRuntimeEOL(in, r.p.cfg.Now()); eol {
+	if spec, eol := declaredRuntimeEOL(in, in.Now); eol {
 		unitManual(it, groups, ReasonRuntimeEndOfLife, RuntimeEndOfLifeText(spec))
 		it.RuntimeEOL = runtimeEOLInfo(spec)
 		return false

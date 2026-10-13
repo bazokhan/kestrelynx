@@ -101,3 +101,40 @@ func TestResolveEntries(t *testing.T) {
 		t.Errorf("amd64 exe = %s", tg.main.name)
 	}
 }
+
+func TestNodeEnginesOfTheManagers(t *testing.T) {
+	cases := []struct {
+		manager Manager
+		version string
+		want    string
+		known   bool
+	}{
+		{ManagerPnpm, "9.15.9", ">=18.12.0", true},
+		{ManagerPnpm, "10.34.6", ">=18.12.0", true},
+		{ManagerPnpm, "11.28.5", ">=22.13.0", true},
+		{ManagerPnpm, "12.11.2", ">=18.0.0", true},
+		{ManagerNpm, "9.9.4", "^14.17.0 || ^16.13.0 || >=18.0.0", true},
+		{ManagerNpm, "10.9.4", "^18.17.0 || >=20.5.0", true},
+		{ManagerNpm, "11.21.0", "^20.17.0 || >=22.9.0", true},
+		{ManagerNpm, "12.2.0", "^22.22.2 || ^24.15.0 || >=26.0.0", true},
+		{ManagerNpm, "13.0.0", "", false},
+		{ManagerPnpm, "8.15.9", "", false},
+		{ManagerUv, "0.13.0", "", false},
+		{ManagerNpm, "11", "", false},
+	}
+	for _, c := range cases {
+		got, known := NodeEngines(c.manager, c.version)
+		if got != c.want || known != c.known {
+			t.Errorf("NodeEngines(%s, %s) = %q, %v; want %q, %v", c.manager, c.version, got, known, c.want, c.known)
+		}
+	}
+	for _, m := range []Manager{ManagerNpm, ManagerPnpm} {
+		for r, v := range defaultVersions {
+			if d, ok := v[m]; ok {
+				if _, known := NodeEngines(m, d); !known {
+					t.Errorf("no engines.node for the default %s %s of %s", m, d, r)
+				}
+			}
+		}
+	}
+}

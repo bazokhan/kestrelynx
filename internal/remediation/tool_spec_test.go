@@ -75,16 +75,20 @@ func TestToolSpec_NodeDeclarationsBeforeAnyRun(t *testing.T) {
 		{"devEngines.runtime range", "npm", withField(npmManifest, `"devEngines":{"runtime":{"name":"node","version":">=22"}}`), nil, ""},
 
 		{".nvmrc 20", "npm", "", map[string]string{".nvmrc": "20\n"}, ReasonRuntimeEndOfLife},
-		{".nvmrc 22 for pnpm", "pnpm", "", map[string]string{".nvmrc": "22\n"}, ReasonNodeSpecUnsupported},
 		{".nvmrc lts/iron", "npm", "", map[string]string{".nvmrc": "lts/iron\n"}, ReasonRuntimeEndOfLife},
 		{".nvmrc node", "npm", "", map[string]string{".nvmrc": "node\n"}, ReasonNodeSpecUnsupported},
 		{".nvmrc latest", "npm", "", map[string]string{".nvmrc": "latest\n"}, ReasonNodeSpecUnsupported},
 		{".node-version 26", "npm", "", map[string]string{".node-version": "26\n"}, ReasonNodeSpecUnsupported},
 		{"engines.node <20.12", "npm", withField(npmManifest, `"engines":{"node":"<20.12"}`), nil, ReasonRuntimeEndOfLife},
-		{"engines.node ^20 || ^22", "pnpm", withField(pnpmManifest, `"engines":{"node":"^20 || ^22"}`), nil, ReasonNodeSpecUnsupported},
 		{"engines.node 18 and below", "npm", withField(npmManifest, `"engines":{"node":"<=18"}`), nil, ReasonNodeSpecUnsupported},
 		{"devEngines.runtime 20", "npm", withField(npmManifest, `"devEngines":{"runtime":{"name":"node","version":"20.x"}}`), nil, ReasonRuntimeEndOfLife},
-		{"engines.runtime 22", "npm", withField(npmManifest, `"engines":{"runtime":{"name":"node","version":"^22"}}`), nil, ReasonNodeSpecUnsupported},
+		{"engines.runtime 22", "npm", withField(npmManifest, `"engines":{"runtime":{"name":"node","version":"^22"}}`), nil, ""},
+		{".nvmrc 22 for pnpm", "pnpm", "", map[string]string{".nvmrc": "22\n"}, ""},
+		{"engines.node >=20 with engines.pnpm >=11", "pnpm", withField(pnpmManifest, `"engines":{"node":">=20","pnpm":">=11"}`), nil, ""},
+		{".nvmrc 20 with npm 12 is a runtime past its support", "npm", withField(npmManifest, `"packageManager":"npm@12.2.0"`), map[string]string{".nvmrc": "20\n"}, ReasonRuntimeEndOfLife},
+		{".nvmrc 18", "pnpm", "", map[string]string{".nvmrc": "18\n"}, ReasonNodeSpecUnsupported},
+		{"engines.node of odd series only", "npm", withField(npmManifest, `"engines":{"node":"^23"}`), nil, ReasonNodeSpecUnsupported},
+		{"engines.node ^20 || ^22", "pnpm", withField(pnpmManifest, `"engines":{"node":"^20 || ^22"}`), nil, ""},
 		{"devEngines.runtime for bun", "npm", withField(npmManifest, `"devEngines":{"runtime":{"name":"bun","version":"1"}}`), nil, ReasonNodeSpecUnsupported},
 		{".node-version 20.11.1 with engines <20.12 agree, and name a runtime past its support", "npm", withField(npmManifest, `"engines":{"node":"<20.12"}`), map[string]string{".node-version": "20.11.1\n"}, ReasonRuntimeEndOfLife},
 
@@ -554,5 +558,48 @@ func TestToolSpec_LockRuntimeInAnyYAMLSpelling(t *testing.T) {
 	_, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerPnpm, Manifest: []byte(pnpmManifest), Lock: []byte("lockfileVersion: '9.0'\npackages:\n  lodash@4.17.21:\n    resolution: {integrity: sha512-xx}\n    note: not a runtime\n")})
 	if uerr != nil {
 		t.Errorf("plain lock: %v", uerr)
+	}
+}
+
+func TestToolSpec_VersionSetLowestSkipsIntervalsWithoutAnyRelease(t *testing.T) {
+	set, ok := rangeSet(">22.0.0 <22.0.1 || >=24")
+	if !ok {
+		t.Fatal("range not read")
+	}
+	if low, ok := set.lowest(); !ok || low != (triple{"24", "0", "0"}) {
+		t.Errorf("lowest = %v %v", low, ok)
+	}
+	if set, _ := rangeSet(">22.0.0 <22.0.2"); !set.contains(triple{"22", "0", "1"}) || set.contains(triple{"22", "0", "2"}) {
+		t.Errorf("set = %v", set)
+	}
+	if low, _ := (versionSet{{lo: bound{set: true, v: triple{"1", "2", "3"}, open: true}}}).lowest(); low != (triple{"1", "2", "4"}) {
+		t.Errorf("open lower bound: %v", low)
+	}
+}
+
+func TestToolSpec_LowestIsAlwaysInTheSet(t *testing.T) {
+	set, _ := rangeSet("<0.0.0 || >=22")
+	if low, ok := set.lowest(); !ok || low != (triple{"22", "0", "0"}) {
+		t.Errorf("<0.0.0 || >=22: lowest = %v %v", low, ok)
+	}
+	if set, _ := rangeSet("<0.0.0"); !set.isEmpty() {
+		t.Errorf("<0.0.0 holds %v", set)
+	}
+	for _, text := range []string{
+		">=22", ">22.0.0", "<22", "<=0.0.0", "<0.0.1", ">1.2.3 <1.2.4 || ^24", ">22.0.0 <22.0.1 || >=24", "<0.0.0 || >=22",
+		"<0.0.0 || >0.0.0 <0.0.2", "^20 || ^22.5", "~22.1.0 || >24.3.7", "20.x || <0.0.0", ">=1 <1", "",
+	} {
+		set, ok := rangeSet(text)
+		if !ok {
+			t.Fatalf("%q not read", text)
+		}
+		low, has := set.lowest()
+		if has != !set.isEmpty() {
+			t.Errorf("%q: lowest ok = %v for a set %v", text, has, set)
+			continue
+		}
+		if has && !set.contains(low) {
+			t.Errorf("%q: lowest %v is not in the set %v", text, low, set)
+		}
 	}
 }

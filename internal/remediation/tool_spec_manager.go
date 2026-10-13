@@ -28,8 +28,9 @@ var hashHexLengths = map[string]int{"sha1": 40, "sha224": 56, "sha256": 64, "sha
 // resolveNodeManager chooses the release of npm or pnpm from the declarations
 // in package.json: packageManager, devEngines.packageManager and engines.<name>.
 // A version the project declares exactly is the one to run; ranges only have to
-// allow the version run otherwise.
-func resolveNodeManager(in ToolSpecInput, top map[string]json.RawMessage) (managerChoice, *UnsupportedError) {
+// allow the version run otherwise (the default of the runtime the update would
+// run in).
+func resolveNodeManager(in ToolSpecInput, top map[string]json.RawMessage, runtimeID string) (managerChoice, *UnsupportedError) {
 	name := string(in.Manager)
 	var out managerChoice
 	var decls []declared
@@ -126,10 +127,10 @@ func resolveNodeManager(in ToolSpecInput, top map[string]json.RawMessage) (manag
 		return out, uerr
 	}
 
-	def := toolfetch.DefaultVersion(toolfetch.Manager(in.Manager), defaultNodeRuntime)
+	def := toolfetch.DefaultVersion(toolfetch.Manager(in.Manager), runtimeID)
 	defV, ok := fullVersion(def)
 	if !ok {
-		return out, unsupported(ReasonManagerSpecUnsupported, "no default version of %s is set for %s", name, defaultNodeRuntime)
+		return out, unsupported(ReasonManagerSpecUnsupported, "no default version of %s is set for %s", name, runtimeID)
 	}
 	if len(points) > 0 {
 		// Consistency makes the exact versions one, and it is inside every range

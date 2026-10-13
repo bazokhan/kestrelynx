@@ -87,7 +87,8 @@ func normStringSet(raw json.RawMessage) (string, error) {
 	return plainJSON(out), nil
 }
 
-// asStringMap reads an object of strings; ok is false for any other value.
+// asStringMap reads an object of strings; ok is false for any other value, a
+// null member included (it is not the empty string).
 func asStringMap(raw json.RawMessage) (map[string]string, bool) {
 	m, err := nameMap(raw)
 	if err != nil || m == nil {
@@ -96,7 +97,7 @@ func asStringMap(raw json.RawMessage) (map[string]string, bool) {
 	out := make(map[string]string, len(m))
 	for k, v := range m {
 		var s string
-		if json.Unmarshal(v, &s) != nil {
+		if isNull(v) || json.Unmarshal(v, &s) != nil {
 			return nil, false
 		}
 		out[k] = s

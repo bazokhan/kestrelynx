@@ -345,9 +345,16 @@ func writeEnvironment(t *prText, b *strings.Builder, rec *LangRecord) {
 		return
 	}
 	if r := rec.Runtime; r != nil {
-		fmt.Fprintf(b, t.LEnvRuntime, mdCode(r.ID), mdCode(r.Version), mdCode(r.Image))
+		if why := runtimeWhy(t, r); why != "" {
+			fmt.Fprintf(b, t.LEnvRuntimeWhy, mdCode(r.ID), mdCode(r.Version), mdCode(r.Image), why)
+		} else {
+			fmt.Fprintf(b, t.LEnvRuntime, mdCode(r.ID), mdCode(r.Version), mdCode(r.Image))
+		}
 		if r.Pip != "" {
 			fmt.Fprintf(b, t.LEnvPip, mdCode(r.Pip))
+		}
+		if r.EnginesFloor != "" {
+			fmt.Fprintf(b, t.LEnvFloor, mdCode(r.EnginesFloor))
 		}
 	}
 	if tl := rec.Tool; tl != nil {
@@ -365,4 +372,36 @@ func writeEnvironment(t *prText, b *strings.Builder, rec *LangRecord) {
 		fmt.Fprintf(b, t.LEnvTool, mdCode(tl.Name), mdCode(tl.Version), source, mdCode(tl.SHA256))
 	}
 	b.WriteString("\n")
+}
+
+// runtimeWhy words how the runtime was chosen from its record, or returns ""
+// for a record that says nothing of it.
+func runtimeWhy(t *prText, r *RuntimeRecord) string {
+	var decls []string
+	for _, d := range r.Declared {
+		decls = append(decls, mdCode(d.Source)+" "+mdCode(d.Value))
+	}
+	var parts []string
+	switch r.Basis {
+	case RuntimeBasisFile:
+		parts = append(parts, fmt.Sprintf(t.LEnvBasisFile, strings.Join(decls, t.ListSep)))
+	case RuntimeBasisLowestInRange:
+		parts = append(parts, fmt.Sprintf(t.LEnvBasisRange, strings.Join(decls, t.ListSep)))
+	case RuntimeBasisDefault:
+		parts = append(parts, t.LEnvBasisDefault)
+	default:
+		return ""
+	}
+	for _, x := range r.Excluded {
+		series := strings.TrimPrefix(x.ID, "node")
+		switch x.Why {
+		case ExcludedEndOfLife:
+			parts = append(parts, fmt.Sprintf(t.LEnvExcludedEOL, mdCode(series), mdCode(x.EOL)))
+		case ExcludedManagerEngines:
+			parts = append(parts, fmt.Sprintf(t.LEnvExcludedEngines, mdCode(series), mdCode(x.Manager), mdCode(x.ManagerVersion), mdCode(x.Engines)))
+		default:
+			parts = append(parts, fmt.Sprintf(t.LEnvExcludedDecl, mdCode(series)))
+		}
+	}
+	return strings.Join(parts, t.LEnvWhySep)
 }
