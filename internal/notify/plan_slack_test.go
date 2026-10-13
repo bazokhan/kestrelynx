@@ -159,7 +159,7 @@ func TestPlanMessage_Lines(t *testing.T) {
 		LanguageJA: {
 			"*🔧 修正計画*",
 			"Pull Request: 作成 2件 · オープン中 1件 · マージ済み 1件 · 未マージでクローズ 1件 · 延期 1件",
-			"*イメージ: ghcr.io/yyac-project/regfis-backend:latest*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml\nPull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)\n更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0\n⚠️ メジャーバージョンの変更: sharp 0.34.5 → 0.35.5 (0.x のマイナー変更)\n要判断: multer 2.1.1 → 2.3.0 は候補または更新後の版が依存関係の制約を満たさないため除外",
+			"*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml\nPull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)\n更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0\n⚠️ メジャーバージョンの変更: sharp 0.34.5 → 0.35.5 (0.x のマイナー変更)\n要判断: multer 2.1.1 → 2.3.0 は候補または更新後の版が依存関係の制約を満たさないため除外",
 			"*イメージ: regfis-infra-elasticsearch*\n修正するファイル: YYAC-project/regfis-infra の elasticsearch/Dockerfile\nPull Request: <https://github.com/YYAC-project/regfis-infra/pull/1|#1> (オープン中)\n更新: ベースイメージ docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23",
 			"Pull Request: <https://github.com/ex/deploy/pull/7|#7> (マージ済み)",
 			"Pull Request: <https://github.com/ex/deploy/pull/3|#3> (未マージでクローズ)",
@@ -170,7 +170,7 @@ func TestPlanMessage_Lines(t *testing.T) {
 		LanguageEN: {
 			"*🔧 Fix plan*",
 			"Pull requests: 2 created · 1 open · 1 merged · 1 closed without merging · 1 deferred",
-			"*Image: ghcr.io/yyac-project/regfis-backend:latest*\nFile to change: pnpm-lock.yaml in YYAC-project/regfis-backend\nPull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)\nUpdate: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0\n⚠️ Major version change: sharp 0.34.5 → 0.35.5 (0.x minor change)\nNeeds a decision: multer 2.1.1 → 2.3.0 left out because the candidate or the updated version does not satisfy the dependency constraints",
+			"*Image: `ghcr.io/yyac-project/regfis-backend:latest`*\nFile to change: pnpm-lock.yaml in YYAC-project/regfis-backend\nPull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)\nUpdate: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0\n⚠️ Major version change: sharp 0.34.5 → 0.35.5 (0.x minor change)\nNeeds a decision: multer 2.1.1 → 2.3.0 left out because the candidate or the updated version does not satisfy the dependency constraints",
 			"Update: base image docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23",
 			"Needs a decision: the candidate resolves only some of the findings",
 			"Deferred: the limit on pull requests of a run was reached",
@@ -296,7 +296,7 @@ func TestPlanMessage_ProposalsWithoutPullRequests(t *testing.T) {
 	r, _, _ := planCycleFixture()
 	for lang, want := range map[Language][]string{
 		LanguageJA: {
-			"提案: 更新候補 3件 · 再pull 1件 · 再ビルド 2件 · 要判断 3件",
+			"更新候補 3件 · 再pull 1件 · 再ビルド 2件 · 要判断 3件",
 			"*イメージ: web:latest*\n再pull: 所見4件中3件が解消 (KEV 2件)",
 			"更新候補: api 2.0.1 → 2.0.4 (所見1件が解消)",
 			"修正するファイル: ex/app の requirements.txt\n再ビルド: urllib3 1.26.5: 再ビルドで 1.26.18 以上が入る見込み",
@@ -305,7 +305,7 @@ func TestPlanMessage_ProposalsWithoutPullRequests(t *testing.T) {
 			"再ビルド: 稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
 		},
 		LanguageEN: {
-			"Proposals: 3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision",
+			"3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision",
 			"Update candidate: express 4.18.2 → 4.19.2, lodash 4.17.20 → 4.17.21, qs 6.11.0 → 6.11.3 (1 KEV)",
 		},
 	} {
@@ -325,7 +325,7 @@ func TestPlanMessage_ImagesSideBySide(t *testing.T) {
 	p.LanguageItems[0].Workloads = []string{"compose/regfis/backend", "compose/shop/web"}
 	p.PullRequests[0].Workloads = p.LanguageItems[0].Workloads
 	got := slackPlanText(r, &PlanInfo{Plan: &p}, LanguageJA)
-	want := "*イメージ: ghcr.io/yyac-project/regfis-backend:latest*\n*イメージ: nginx:1.25.3*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml"
+	want := "*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n*イメージ: nginx:1.25.3*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml"
 	if !strings.Contains(got, want) {
 		t.Errorf("missing %q in\n%s", want, got)
 	}
@@ -696,29 +696,29 @@ func TestPlanSlackFingerprint_SeesWhatTheLinesCutShort(t *testing.T) {
 		info := slackPlanInfo()
 		l := info.Plan.PullRequests[0].Language
 		l.Packages = nil
-		for i := 0; i < 7; i++ {
+		for i := 0; i < 12; i++ {
 			l.Packages = append(l.Packages, remediation.PRLanguagePackage{Name: string(rune('a' + i)), From: "1.0.0", To: "1.0.1"})
 		}
 		l.Remaining = nil
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 12; i++ {
 			l.Remaining = append(l.Remaining, remediation.PRLanguageRemaining{Name: string(rune('p' + i)), From: "1.0.0", Target: "2.0.0", Reason: remediation.ReasonTargetNotUpdated})
 		}
 		return info
 	}
 	base := many().SlackFingerprint()
 	sixth := many()
-	sixth.Plan.PullRequests[0].Language.Packages[5].To = "1.0.9"
+	sixth.Plan.PullRequests[0].Language.Packages[11].To = "1.0.9"
 	if sixth.SlackFingerprint() == base {
-		t.Error("the sixth package of the list is not in the fingerprint")
+		t.Error("the twelfth package of the list is not in the fingerprint")
 	}
 	fourth := many()
-	fourth.Plan.PullRequests[0].Language.Remaining[3].Reason = remediation.ReasonRangeExcludesFix
+	fourth.Plan.PullRequests[0].Language.Remaining[11].Reason = remediation.ReasonRangeExcludesFix
 	if fourth.SlackFingerprint() == base {
-		t.Error("the fourth left-out package is not in the fingerprint")
+		t.Error("the twelfth left-out package is not in the fingerprint")
 	}
-	// The message itself still shows five and three.
+	// The message itself still shows ten.
 	got := slackPlanText(planReport(), many(), LanguageEN)
-	if !strings.Contains(got, "and 2 more") {
+	if !strings.Contains(got, "and 2 more") || strings.Contains(got, "l 1.0.0") {
 		t.Errorf("the list is not cut:\n%s", got)
 	}
 }
@@ -935,7 +935,8 @@ func TestPlanReasonTextOfAnUnknownCodeIsLiteral(t *testing.T) {
 }
 
 // An item that is manual as a whole for a reason its packages have names those
-// packages, like the lines of the packages left out.
+// packages, like the lines of the packages left out. The line for a package
+// that could not be raised says what is known and what is not.
 func TestPlanMessage_ItemReasonNamesItsPackages(t *testing.T) {
 	item := func(detail string, extra int) *PlanInfo {
 		li := languageUpdated("deps:ex/app@main:.#npm")
@@ -951,8 +952,8 @@ func TestPlanMessage_ItemReasonNamesItsPackages(t *testing.T) {
 	}
 	r := planReport()
 	for lang, want := range map[Language]string{
-		LanguageJA: "要判断: multer 2.1.1 → 2.3.0 は更新しても目標の版に上がらなかった (lockfile は変わらず)",
-		LanguageEN: "Needs a decision: multer 2.1.1 → 2.3.0: the package is not at the target version in the updated file (the lockfile did not change)",
+		LanguageJA: "要判断: multer は脆弱性が直る 2.3.0 に上げられず、package-lock.json では 2.1.1 のまま（上げられない原因は KestreLynx では調べていないため、multer に依存しているパッケージの版の指定を確認してください）",
+		LanguageEN: "Needs a decision: multer could not be raised to 2.3.0, which fixes the vulnerability, and stays at 2.1.1 in package-lock.json (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on multer)",
 	} {
 		got := slackPlanText(r, item("the update left pnpm-lock.yaml unchanged", 0), lang)
 		if !strings.Contains(got, want) {
@@ -961,21 +962,16 @@ func TestPlanMessage_ItemReasonNamesItsPackages(t *testing.T) {
 		if strings.Contains(got, "other 1") {
 			t.Errorf("%s: a package with another reason is listed:\n%s", lang, got)
 		}
-		// Without the detail nothing is said about the lockfile.
-		got = slackPlanText(r, item("", 0), lang)
-		if strings.Contains(got, "lockfile は変わらず") || strings.Contains(got, "did not change") || !strings.Contains(got, "multer 2.1.1 → 2.3.0") {
-			t.Errorf("%s: without the detail:\n%s", lang, got)
-		}
 	}
-	// More than three packages are cut like the left-out ones.
-	got := slackPlanText(r, item("", 4), LanguageEN)
-	if n := strings.Count(got, "Needs a decision: "); n != 4 || !strings.Contains(got, "Needs a decision: and 2 more") {
+	// More than ten packages are cut at ten.
+	got := slackPlanText(r, item("", 11), LanguageEN)
+	if n := strings.Count(got, "Needs a decision: "); n != 11 || !strings.Contains(got, "Needs a decision: and 2 more") {
 		t.Errorf("%d lines in\n%s", n, got)
 	}
 	// Every package, and what is known of the lockfile, is in the fingerprint.
-	a, b := item("", 4), item("", 4)
-	b.Plan.LanguageItems[0].Packages[4].SelectionLowerBound = "9.9.9"
-	c := item("the update left x unchanged", 4)
+	a, b := item("", 11), item("", 11)
+	b.Plan.LanguageItems[0].Packages[11].SelectionLowerBound = "9.9.9"
+	c := item("the update left x unchanged", 11)
 	if a.SlackFingerprint() == b.SlackFingerprint() || a.SlackFingerprint() == c.SlackFingerprint() {
 		t.Error("a cut package or the lockfile note is not in the fingerprint")
 	}
@@ -991,5 +987,227 @@ func TestPlanMessage_ItemReasonGolden(t *testing.T) {
 		info.SlackChanged = true
 		msgs := buildPlanMessages(Message{Report: planReport(), Plan: info}, messagesFor(lang), defaultRenderLimits)
 		checkBlockGolden(t, "plan_slack_"+string(lang)+"_item_reason", "txt", dumpMessages(msgs))
+	}
+}
+
+// The frontend of production: packages that are not in the lockfile are one
+// heading and a bullet list, with no arrow and no target.
+func TestPlanMessage_PackagesNotInTheLockfile(t *testing.T) {
+	li := languageUpdated("deps:YYAC-project/regfis-frontend@main:.#pnpm")
+	li.Manager = remediation.ManagerPnpm
+	li.Category, li.Reason = remediation.CategoryManual, remediation.ReasonNotFoundInSource
+	li.Packages = nil
+	for _, p := range [][2]string{{"brace-expansion", "2.0.2"}, {"ip-address", "10.1.0"}, {"pacote", "19.0.2"}, {"a", "1"}, {"b", "2"}, {"c", "3"}} {
+		li.Packages = append(li.Packages, remediation.LanguagePackage{Name: p[0], Installed: p[1], Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource})
+	}
+	r := planReport()
+	for lang, want := range map[Language]string{
+		LanguageJA: "要判断: pnpm-lock.yaml に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）\n  • brace-expansion 2.0.2\n  • ip-address 10.1.0\n  • pacote 19.0.2\n  • a 1",
+		LanguageEN: "Needs a decision: packages that are not in pnpm-lock.yaml (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)\n  • brace-expansion 2.0.2\n  • ip-address 10.1.0",
+	} {
+		got := slackPlanText(r, languagePlanOf(li), lang)
+		if !strings.Contains(got, want) || strings.Contains(got, "→") {
+			t.Errorf("%s: missing %q (or an arrow) in\n%s", lang, want, got)
+		}
+		if strings.Count(got, "要判断:")+strings.Count(got, "Needs a decision:") != 1 {
+			t.Errorf("%s: more than one heading:\n%s", lang, got)
+		}
+	}
+	// Eleven packages: ten bullets, then the count of the rest.
+	for _, n := range []int{10, 11} {
+		li.Packages = nil
+		for i := 0; i < n; i++ {
+			li.Packages = append(li.Packages, remediation.LanguagePackage{Name: fmt.Sprintf("p%02d", i), Installed: "1", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource})
+		}
+		got := slackPlanText(r, languagePlanOf(li), LanguageJA)
+		if bullets := strings.Count(got, "  • p"); bullets != min(n, 10) || strings.Contains(got, "ほか") != (n > 10) {
+			t.Errorf("%d packages: %d bullets in\n%s", n, bullets, got)
+		}
+		if n > 10 && !strings.Contains(got, "ほか1件") {
+			t.Errorf("no count of the rest in\n%s", got)
+		}
+	}
+}
+
+// A package left out because it could not be raised gets the same sentence as
+// an item that is manual for it.
+func TestPlanMessage_LeftOutNotUpdatedSentence(t *testing.T) {
+	p := slackPlanFixture()
+	p.PullRequests[0].Language.Remaining = []remediation.PRLanguageRemaining{{Name: "multer", From: "2.1.1", Target: "2.3.0", Reason: remediation.ReasonTargetNotUpdated}}
+	for lang, want := range map[Language]string{
+		LanguageJA: "要判断: multer は脆弱性が直る 2.3.0 に上げられず、pnpm-lock.yaml では 2.1.1 のまま（上げられない原因は KestreLynx では調べていないため、multer に依存しているパッケージの版の指定を確認してください）",
+		LanguageEN: "Needs a decision: multer could not be raised to 2.3.0, which fixes the vulnerability, and stays at 2.1.1 in pnpm-lock.yaml (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on multer)",
+	} {
+		if got := slackPlanText(planReport(), &PlanInfo{Plan: &p}, lang); !strings.Contains(got, want) {
+			t.Errorf("%s: missing %q in\n%s", lang, want, got)
+		}
+	}
+}
+
+// A registry host in an image reference does not break the bold heading: it is
+// in a code span, which Slack does not turn into a link. References without a
+// host are written as in the vulnerability message.
+func TestPlanMessage_ImageHeadingWithARegistryHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"ghcr.io/yyac-project/regfis-backend:latest": "`ghcr.io/yyac-project/regfis-backend:latest`",
+		"localhost:5000/app:1":                       "`localhost:5000/app:1`",
+		"nginx:1.25.3":                               "nginx:1.25.3",
+		"library/nginx:1":                            "library/nginx:1",
+		"regfis-infra-elasticsearch":                 "regfis-infra-elasticsearch",
+		"evil.io/<@here>`x`":                         "`evil.io/&lt;@here&gt;'x'`",
+	} {
+		if got := refMrkdwn(in); got != want {
+			t.Errorf("refMrkdwn(%q) = %q, want %q", in, got, want)
+		}
+	}
+	got := slackPlanText(planReport(), slackPlanInfo(), LanguageJA)
+	if !strings.Contains(got, "*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n") {
+		t.Errorf("heading in\n%s", got)
+	}
+}
+
+// The lists of a line go to ten before they are cut.
+func TestPlanMessage_ListsAreCutAtTen(t *testing.T) {
+	for _, n := range []int{10, 11} {
+		p := slackPlanFixture()
+		l := p.PullRequests[0].Language
+		l.Packages, l.Remaining, l.ManifestEdits = nil, nil, nil
+		for i := 0; i < n; i++ {
+			l.Packages = append(l.Packages, remediation.PRLanguagePackage{Name: fmt.Sprintf("p%02d", i), From: "1.0.0", To: "1.0.1"})
+		}
+		got := slackPlanText(planReport(), &PlanInfo{Plan: &p}, LanguageEN)
+		if strings.Contains(got, "p09 1.0.0") != true || strings.Contains(got, "p10 1.0.0") {
+			t.Errorf("%d packages: wrong cut in\n%s", n, got)
+		}
+		if has := strings.Contains(got, "and 1 more"); has != (n == 11) {
+			t.Errorf("%d packages: more clause = %v in\n%s", n, has, got)
+		}
+	}
+}
+
+// A plan without pull requests whose two dependency files need a person: one
+// package that could not be raised, and packages the lockfile does not have.
+func TestPlanMessage_ManualDependencyFilesGolden(t *testing.T) {
+	backend := planImage("ghcr.io/yyac-project/regfis-backend:latest", "regfis", "backend")
+	frontend := planImage("ghcr.io/yyac-project/regfis-frontend:latest", "regfis", "frontend")
+	item := func(repo, service string, reason remediation.Reason, pkgs ...remediation.LanguagePackage) remediation.LanguageItem {
+		li := languageUpdated("deps:" + repo)
+		li.Workloads = []string{"compose/regfis/" + service}
+		li.Manager, li.Category, li.Reason, li.Packages = remediation.ManagerPnpm, remediation.CategoryManual, reason, pkgs
+		li.Source.Repository, li.Source.Directory = repo, "."
+		return li
+	}
+	pkg := func(name, installed, target string, reason remediation.Reason, detail string) remediation.LanguagePackage {
+		return remediation.LanguagePackage{Name: name, Installed: installed, SelectionLowerBound: target, Action: remediation.ActionManual, Reason: reason, Detail: detail}
+	}
+	var missing []remediation.LanguagePackage
+	for _, p := range [][2]string{{"brace-expansion", "2.0.2"}, {"ip-address", "10.1.0"}, {"pacote", "19.0.2"}, {"tar-fs", "3.0.4"}, {"semver", "7.5.1"}, {"zod", "3.22.0"}} {
+		missing = append(missing, pkg(p[0], p[1], "", remediation.ReasonNotFoundInSource, ""))
+	}
+	missing = append(missing, remediation.LanguagePackage{Name: "lodash", Installed: "4.17.15", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource,
+		Occurrences: []remediation.SourceOccurrence{{Path: "node_modules/lodash", Version: "4.17.20"}}})
+	plan := remediation.Plan{
+		Items: []remediation.Item{backend, frontend},
+		LanguageItems: []remediation.LanguageItem{
+			item("YYAC-project/regfis-backend", "backend", remediation.ReasonTargetNotUpdated,
+				pkg("multer", "2.1.1", "2.3.0", remediation.ReasonTargetNotUpdated, "the update left pnpm-lock.yaml unchanged")),
+			item("YYAC-project/regfis-frontend", "frontend", remediation.ReasonNotFoundInSource, missing...),
+		},
+	}
+	for _, lang := range []Language{LanguageEN, LanguageJA} {
+		info := &PlanInfo{Plan: &plan, SlackChanged: true}
+		msgs := buildPlanMessages(Message{Report: planReport(), Plan: info}, messagesFor(lang), defaultRenderLimits)
+		checkBlockGolden(t, "plan_slack_"+string(lang)+"_manual_files", "txt", dumpMessages(msgs))
+	}
+}
+
+// A package the files list at another version than the image has is told apart
+// from one they do not have.
+func TestPlanMessage_PackagesAtAnotherVersion(t *testing.T) {
+	li := languageUpdated("deps:YYAC-project/regfis-frontend@main:.#pnpm")
+	li.Manager = remediation.ManagerPnpm
+	li.Category, li.Reason = remediation.CategoryManual, remediation.ReasonNotFoundInSource
+	li.Packages = []remediation.LanguagePackage{
+		{Name: "zod", Installed: "3.22.0", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource},
+		{Name: "lodash", Installed: "4.17.15", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource,
+			Occurrences: []remediation.SourceOccurrence{{Path: "node_modules/lodash", Version: "4.17.20"}}},
+		{Name: "semver", Installed: "7.0.0", Action: remediation.ActionManual, Reason: remediation.ReasonNotFoundInSource,
+			Occurrences: []remediation.SourceOccurrence{{Path: "a/node_modules/semver", Version: "7.5.4"}, {Path: "b/node_modules/semver", Version: "7.6.0"}, {Path: "c/node_modules/semver", Version: "7.5.4"}}},
+	}
+	for lang, want := range map[Language][]string{
+		LanguageJA: {
+			"要判断: pnpm-lock.yaml に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）\n  • zod 3.22.0",
+			"要判断: イメージに入っている版が pnpm-lock.yaml と違うパッケージ（イメージが今の pnpm-lock.yaml から作られていない可能性があるため、作り直してから確認してください）\n  • lodash: イメージは 4.17.15、pnpm-lock.yaml は 4.17.20\n  • semver: イメージは 7.0.0、pnpm-lock.yaml は 7.5.4、7.6.0",
+		},
+		LanguageEN: {
+			"Needs a decision: packages that are not in pnpm-lock.yaml (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)\n  • zod 3.22.0",
+			"Needs a decision: packages whose version in the image differs from pnpm-lock.yaml (the image may not have been built from the current pnpm-lock.yaml, so rebuild it and check again)\n  • lodash: the image has 4.17.15, pnpm-lock.yaml has 4.17.20\n  • semver: the image has 7.0.0, pnpm-lock.yaml has 7.5.4, 7.6.0",
+		},
+	} {
+		got := slackPlanText(planReport(), languagePlanOf(li), lang)
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: missing %q in\n%s", lang, w, got)
+			}
+		}
+	}
+	a, b := languagePlanOf(li), languagePlanOf(li)
+	other := li
+	other.Packages = append([]remediation.LanguagePackage(nil), li.Packages...)
+	other.Packages[1].Occurrences = []remediation.SourceOccurrence{{Path: "node_modules/lodash", Version: "4.17.21"}}
+	b = languagePlanOf(other)
+	if a.SlackFingerprint() == b.SlackFingerprint() {
+		t.Error("the version the files list is not in the fingerprint")
+	}
+}
+
+// "Pull Request:" in the summary needs a pull request that exists; units that
+// only wait or need a person are counted as proposals.
+func TestPlanMessage_SummaryNeedsARealPullRequest(t *testing.T) {
+	unit := func(status remediation.PRUnitStatus) remediation.PRUnit {
+		u := prUnit(status, 0, "app:1", "2", "compose.yml")
+		u.Reason = remediation.ReasonComposeSetNotAdopted
+		return u
+	}
+	p := remediation.Plan{PullRequests: []remediation.PRUnit{unit(remediation.PRStatusManual), unit(remediation.PRStatusManual)}}
+	p.PullRequests[1].Current = "app2:1"
+	for lang, want := range map[Language]string{LanguageJA: "要判断 2件", LanguageEN: "2 need a decision"} {
+		got := slackPlanText(planReport(), &PlanInfo{Plan: &p}, lang)
+		if !strings.Contains(got, "\n"+want+"\n") || strings.Contains(got, "Pull Request:") || strings.Contains(got, "Pull requests:") {
+			t.Errorf("%s: summary in\n%s", lang, got)
+		}
+	}
+	// One pull request that exists brings the line back.
+	p.PullRequests = append(p.PullRequests, prUnit(remediation.PRStatusOpen, 5, "app3:1", "2", "compose.yml"))
+	if got := slackPlanText(planReport(), &PlanInfo{Plan: &p}, LanguageJA); !strings.Contains(got, "Pull Request: オープン中 1件 · 要判断 2件") {
+		t.Errorf("summary with a pull request in\n%s", got)
+	}
+}
+
+// Lines that add to a proposal (the file, the major version warning, the
+// candidate beside a decision) are not proposals: a unit without a pull request
+// is counted once, as what keeps it from having one.
+func TestPlanMessage_SupplementaryLinesAreNotCounted(t *testing.T) {
+	li := languageUpdated("deps:ex/app@main:.#npm")
+	for _, status := range []remediation.PRUnitStatus{remediation.PRStatusDeferred, remediation.PRStatusManual, remediation.PRStatusFailed} {
+		u := languageUnit(status, 0, remediation.ReasonPRLimit)
+		u.Language.Packages[0].Major = true // a package and a manifest edit both move to another major version
+		u.Language.ManifestEdits = []remediation.LangEdit{{File: "package.json", Section: "dependencies", Name: "lodash", From: "^4.0.0", To: "^5.0.0", Major: true}}
+		got := slackPlanText(planReport(), languagePlanOf(li, u), LanguageJA)
+		want := map[remediation.PRUnitStatus]string{
+			remediation.PRStatusDeferred: "保留 1件", remediation.PRStatusManual: "要判断 1件", remediation.PRStatusFailed: "失敗 1件",
+		}[status]
+		if !strings.Contains(got, "\n"+want+"\n") || strings.Contains(got, "更新候補 1件") || !strings.Contains(got, "⚠️ メジャーバージョンの変更") {
+			t.Errorf("%s: summary in\n%s", status, got)
+		}
+	}
+	// A manual image with a candidate is one decision, not a decision and a candidate.
+	p := slackPlanFixture()
+	p.Items = []remediation.Item{p.Items[6]}
+	p.Items[0].Candidate = &remediation.ImageState{Ref: "db:15.2", Tag: "15.2"}
+	p.Items[0].Kind = remediation.TagPinned
+	p.PullRequests, p.LanguageItems, p.DockerfileItems = nil, nil, nil
+	if got := slackPlanText(planReport(), &PlanInfo{Plan: &p}, LanguageJA); !strings.Contains(got, "\n要判断 1件\n") || strings.Contains(got, "更新候補 1件") {
+		t.Errorf("manual image with a candidate:\n%s", got)
 	}
 }

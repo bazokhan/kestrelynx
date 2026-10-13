@@ -19,7 +19,7 @@ Summary: e2fsprogs: out-of-bounds write
 --- section ---
 *◆ gcc-12-base*
 Installed: 12.2.0-14
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 1 / HIGH 0
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> · CRITICAL · severity only (intel unavailable)
@@ -69,7 +69,7 @@ Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0008|CVE-2031-0008> · HIGH 
 --- section ---
 *◆ zlib*
 Installed: 1.2.13
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 0 / HIGH 1
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · severity only (intel unavailable)

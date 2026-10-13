@@ -102,3 +102,14 @@ func litMrkdwn(s string) string {
 	}
 	return "`" + strings.ReplaceAll(e, "`", "'") + "`"
 }
+
+// refMrkdwn shows an image reference. One that starts with a registry host
+// (ghcr.io/org/app:tag) is put in an inline code span: Slack turns such a
+// name into a link, and the link would take the closing mark of a bold line
+// with it.
+func refMrkdwn(ref string) string {
+	if i := strings.IndexByte(ref, '/'); i > 0 && strings.ContainsAny(ref[:i], ".:") {
+		return "`" + strings.ReplaceAll(escMrkdwn(strings.NewReplacer("\r", " ", "\n", " ").Replace(ref)), "`", "'") + "`"
+	}
+	return litMrkdwn(ref)
+}

@@ -508,7 +508,7 @@ CRITICAL・HIGHは、パッケージと修正状態のグループ内で重複�
 | `🧨 ransomware campaign` | CISAがランサムウェアキャンペーンでの使用を確認 |
 | `severity only (intel unavailable)` | 両情報源が利用不能で深刻度のみを使用 |
 | `Fixed in: none — consider mitigation` | `affected`グループに修正版がなく緩和策を検討 |
-| `Fixed in: none — upstream won't fix, consider replacing` | `will_not_fix`のため置き換えなどを検討 |
+| `Fixed in: none — no fix planned for this OS release, consider replacing` | `will_not_fix`のため置き換えなどを検討 |
 | `Fixed in: none — end-of-life: no fix planned for this release, consider a supported version` | EOLパッケージのサポート中バージョンを検討 |
 | `advisory` | `References:`（日本語では`参照:`）の行に置くTrivyの主要アドバイザリーへのリンク |
 | `vendor advisory` | `References:`（日本語では`参照:`）の行に置くKEVのnotesにあるベンダーまたはCISAへのリンク |

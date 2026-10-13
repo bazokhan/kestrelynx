@@ -99,7 +99,7 @@ type messages struct {
 	// --- status sections, triage off ---
 	ActionableTitle     string // "✅ Actionable now (fixed)" (bare title; format.go wraps it "\n*%s*\n", thread.go wraps it "*%s*")
 	WatchSectionTitle   string // "ℹ️ No fix yet (affected / waiting on upstream)"
-	WontFixSectionTitle string // "🔕 Upstream won't fix (will_not_fix)"
+	WontFixSectionTitle string // "🔕 No fix planned for this OS release (will_not_fix)"
 
 	// --- upgrade-risk labels ---
 	RiskDistroUpdate string // "🟢 upgrade: distro security patch"
@@ -296,7 +296,7 @@ type messages struct {
 
 	// What to do when there is no fix, shown after the fixed-in "none".
 	FixNoteMitigate string // "consider mitigation"
-	FixNoteWontFix  string // "upstream won't fix, consider replacing"
+	FixNoteWontFix  string // "no fix planned for this OS release, consider replacing"
 	FixNoteEOL      string // "end-of-life: no fix planned for this release, consider a supported version"
 
 	CardNewCVEs      string // "new CVEs: %s" (linked CVE ids)
@@ -328,7 +328,7 @@ type messages struct {
 	FbSegRefChanged      string // "🔄 %d reference update(s)"
 	FbSegActionable      string // "✅ %d fixable"
 	FbSegNoFix           string // "ℹ️ %d no fix yet"
-	FbSegWontFix         string // "🔕 %d upstream won't fix"
+	FbSegWontFix         string // "🔕 %d with no fix planned for this OS release"
 	FbThread             string // "%[1]s — %[2]s · %[3]s" (role, short section name, first image)
 	FbThreadCont         string // " (cont.)"
 	FbThreadMoreImage    string // " +%d more image(s)"
@@ -357,7 +357,7 @@ type messages struct {
 	PlanPRSegManual      string // "%d need a decision"
 	PlanPRSegDeferred    string // "%d deferred"
 	PlanPRSegBlocked     string // "%d blocked or failed"
-	PlanCounts           string // "Proposals: %s" (the joined segments)
+	PlanCounts           string // "%s" (the joined segments)
 	PlanSegCandidate     string // "%d update candidate(s)"
 	PlanSegRepull        string // "%d re-pull"
 	PlanSegRebuild       string // "%d rebuild"
@@ -390,7 +390,7 @@ type messages struct {
 	PlanChange            string // "%[1]s %[2]s → %[3]s" (name, old version, new version)
 	PlanBaseImageValue    string // "base image %[1]s %[2]s → %[3]s" (image, old tag, new tag)
 	PlanListSep           string // ", " (between the items of a value)
-	PlanMore              string // " and %d more" (after a cut list)
+	PlanMore              string // " and %d more" (after a list cut at ten)
 	PlanMajorZero         string // "%s (0.x minor change)" (a package change)
 	PlanMajorEdit         string // "%[1]s specifier %[2]s → %[3]s (%[4]s)" (package, old, new, file)
 	PlanResolves          string // "resolves %d finding(s)"
@@ -402,7 +402,12 @@ type messages struct {
 	PlanPackageReason     string // "%[1]s %[2]s → %[3]s: %[4]s%[5]s" (name, installed, target, reason, the lockfile note)
 	PlanLockfileUnchanged string // " (the lockfile did not change)"
 	PlanLeftOut           string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
-	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s" (name, installed, lowest fixed version, the "and more" clause)
+	PlanNotUpdated        string // "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (...)" (name, target, installed, lockfile)
+	PlanNotInFile         string // "packages that are not in %s (...)" (lockfile)
+	PlanWrongVersion      string // "packages whose version in the image differs from %s (...)" (lockfile)
+	PlanBulletVersions    string // "  • %[1]s: the image has %[2]s, %[3]s has %[4]s" (name, image version, lockfile, lockfile versions)
+	PlanBullet            string // "  • %[1]s %[2]s" (name, installed)
+	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later" (name, installed, lowest fixed version)
 	PlanDockerfileRebuild string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
 	PlanRuntimeEOL        string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
 
@@ -478,7 +483,7 @@ var enMessages = messages{
 
 	ActionableTitle:     "✅ Actionable now (fixed)",
 	WatchSectionTitle:   "ℹ️ No fix yet (affected / waiting on upstream)",
-	WontFixSectionTitle: "🔕 Upstream won't fix (will_not_fix)",
+	WontFixSectionTitle: "🔕 No fix planned for this OS release (will_not_fix)",
 
 	RiskDistroUpdate: "🟢 upgrade: distro security patch",
 	RiskSafe:         "🟢 upgrade: low-risk",
@@ -643,7 +648,7 @@ var enMessages = messages{
 	RiskValueUnknown:      "⚪ risk unknown",
 
 	FixNoteMitigate: "consider mitigation",
-	FixNoteWontFix:  "upstream won't fix, consider replacing",
+	FixNoteWontFix:  "no fix planned for this OS release, consider replacing",
 	FixNoteEOL:      "end-of-life: no fix planned for this release, consider a supported version",
 
 	CardNewCVEs:      "new CVEs: %s",
@@ -674,7 +679,7 @@ var enMessages = messages{
 	FbSegRefChanged:      "🔄 %d reference update(s)",
 	FbSegActionable:      "✅ %d fixable",
 	FbSegNoFix:           "ℹ️ %d no fix yet",
-	FbSegWontFix:         "🔕 %d upstream won't fix",
+	FbSegWontFix:         "🔕 %d with no fix planned for this OS release",
 	FbThread:             "%[1]s — %[2]s · %[3]s",
 	FbThreadCont:         " (cont.)",
 	FbThreadMoreImage:    " +%d more image(s)",
@@ -698,7 +703,7 @@ var enMessages = messages{
 	PlanPRSegManual:      "%d need a decision",
 	PlanPRSegDeferred:    "%d deferred",
 	PlanPRSegBlocked:     "%d blocked or failed",
-	PlanCounts:           "Proposals: %s",
+	PlanCounts:           "%s",
 	PlanSegCandidate:     "%d update candidate(s)",
 	PlanSegRepull:        "%d re-pull",
 	PlanSegRebuild:       "%d rebuild",
@@ -741,7 +746,12 @@ var enMessages = messages{
 	PlanPackageReason:     "%[1]s %[2]s → %[3]s: %[4]s%[5]s",
 	PlanLockfileUnchanged: " (the lockfile did not change)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s left out because %[4]s",
-	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later%[4]s",
+	PlanNotUpdated:        "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on %[1]s)",
+	PlanNotInFile:         "packages that are not in %s (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)",
+	PlanWrongVersion:      "packages whose version in the image differs from %s (the image may not have been built from the current %[1]s, so rebuild it and check again)",
+	PlanBulletVersions:    "  • %[1]s: the image has %[2]s, %[3]s has %[4]s",
+	PlanBullet:            "  • %[1]s %[2]s",
+	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later",
 	PlanDockerfileRebuild: "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
 	PlanRuntimeEOL:        "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
 
@@ -812,7 +822,7 @@ var jaMessages = messages{
 
 	ActionableTitle:     "✅ 今すぐ対応可能 (fixed)",
 	WatchSectionTitle:   "ℹ️ 修正版なし (affected / 上流の対応待ち)",
-	WontFixSectionTitle: "🔕 上流では修正予定なし (will_not_fix)",
+	WontFixSectionTitle: "🔕 このOSリリースでは修正予定なし (will_not_fix)",
 
 	RiskDistroUpdate: "🟢 アップグレード: ディストリのセキュリティパッチ",
 	RiskSafe:         "🟢 アップグレード: 低リスク",
@@ -978,7 +988,7 @@ var jaMessages = messages{
 	RiskValueUnknown:      "⚪ リスク不明",
 
 	FixNoteMitigate: "緩和策を検討",
-	FixNoteWontFix:  "上流では修正予定なし、置き換えを検討",
+	FixNoteWontFix:  "このOSリリースでは修正予定なし、置き換えを検討",
 	FixNoteEOL:      "サポート終了(EOL): このリリースでは修正予定なし、サポート中のバージョンを検討",
 
 	CardNewCVEs:      "新しいCVE %s",
@@ -1009,7 +1019,7 @@ var jaMessages = messages{
 	FbSegRefChanged:      "🔄 参照の更新%d件",
 	FbSegActionable:      "✅ 修正版あり%d件",
 	FbSegNoFix:           "ℹ️ 修正版なし%d件",
-	FbSegWontFix:         "🔕 上流の修正予定なし%d件",
+	FbSegWontFix:         "🔕 このOSリリースでは修正予定なし%d件",
 	FbThread:             "%[1]s — %[2]s · %[3]s",
 	FbThreadCont:         " (続き)",
 	FbThreadMoreImage:    " ほか%dイメージ",
@@ -1033,7 +1043,7 @@ var jaMessages = messages{
 	PlanPRSegManual:      "要判断 %d件",
 	PlanPRSegDeferred:    "延期 %d件",
 	PlanPRSegBlocked:     "停止・失敗 %d件",
-	PlanCounts:           "提案: %s",
+	PlanCounts:           "%s",
 	PlanSegCandidate:     "更新候補 %d件",
 	PlanSegRepull:        "再pull %d件",
 	PlanSegRebuild:       "再ビルド %d件",
@@ -1076,7 +1086,12 @@ var jaMessages = messages{
 	PlanPackageReason:     "%[1]s %[2]s → %[3]s は%[4]s%[5]s",
 	PlanLockfileUnchanged: " (lockfile は変わらず)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s は%[4]sため除外",
-	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み%[4]s",
+	PlanNotUpdated:        "%[1]s は脆弱性が直る %[2]s に上げられず、%[4]s では %[3]s のまま（上げられない原因は KestreLynx では調べていないため、%[1]s に依存しているパッケージの版の指定を確認してください）",
+	PlanNotInFile:         "%s に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）",
+	PlanWrongVersion:      "イメージに入っている版が %s と違うパッケージ（イメージが今の %[1]s から作られていない可能性があるため、作り直してから確認してください）",
+	PlanBulletVersions:    "  • %[1]s: イメージは %[2]s、%[3]s は %[4]s",
+	PlanBullet:            "  • %[1]s %[2]s",
+	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み",
 	PlanDockerfileRebuild: "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
 	PlanRuntimeEOL:        "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
 

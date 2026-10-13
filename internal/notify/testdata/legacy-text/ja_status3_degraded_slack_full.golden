@@ -9,7 +9,7 @@ _未解決の所見の全体_
    • e2fsprogs 1.47.0-2 (修正版なし) (CRITICAL 1 / HIGH 0)
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0003|CVE-2031-0003> CRITICAL · 深刻度のみ (脅威情報が利用できない) — 修正版なし、緩和策を検討
    • gcc-12-base 12.2.0-14 (修正版なし) (CRITICAL 1 / HIGH 0)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> CRITICAL · 深刻度のみ (脅威情報が利用できない) — 上流では修正予定なし、置き換えを検討
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> CRITICAL · 深刻度のみ (脅威情報が利用できない) — このOSリリースでは修正予定なし、置き換えを検討
    • openssl 3.0.7 → 3.0.11 (CRITICAL 1 / HIGH 0)  🟢 アップグレード: ディストリのセキュリティパッチ
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0001|CVE-2031-0001> CRITICAL · 深刻度のみ (脅威情報が利用できない)
        📎 <https://avd.example/CVE-2031-0001|アドバイザリ> · <https://vendor.example/advisory/1|ベンダーのアドバイザリ>

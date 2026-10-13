@@ -18,8 +18,8 @@ import (
 
 // Caps on the lists a line of the plan message names by item.
 const (
-	planListed   = 5 // package changes of one line
-	planLeftOuts = 3 // left-out packages of one file
+	planListed   = 10 // package changes of one line
+	planLeftOuts = 10 // packages a file lists with a reason
 )
 
 // planTag names the kind of proposal a line of an entry stands for, for the
@@ -44,6 +44,9 @@ type planEntry struct {
 	lines    []string
 	tags     map[planTag]bool
 }
+
+// plain adds a line that stands for no kind of proposal by itself.
+func (e *planEntry) plain(line string) { e.lines = append(e.lines, line) }
 
 func (e *planEntry) line(tag planTag, line string) {
 	e.lines = append(e.lines, line)
@@ -138,7 +141,7 @@ func buildPlanView(p *PlanInfo, msg messages, o planOpts) planView {
 			g := planGroup{}
 			if len(e.images) > 0 {
 				for _, ref := range e.images {
-					g.headings = append(g.headings, "*"+msg.LblImage+": "+litMrkdwn(ref)+"*")
+					g.headings = append(g.headings, "*"+msg.LblImage+": "+refMrkdwn(ref)+"*")
 				}
 			} else {
 				names := make([]string, len(e.services))
@@ -173,11 +176,22 @@ func appendOnce(list []string, s string) []string {
 	return append(list, s)
 }
 
+// hasPullRequest reports whether any unit has a pull request: the stage may
+// report units that have none (they need a person, or wait).
+func (b *planBuilder) hasPullRequest() bool {
+	for _, u := range b.plan.PullRequests {
+		if u.Number > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // summary is the line under the heading: the pull requests by status when
 // there are any, else the proposals by kind.
 func (b *planBuilder) summary() string {
 	msg := b.msg
-	if len(b.plan.PullRequests) > 0 {
+	if b.hasPullRequest() {
 		n := map[remediation.PRUnitStatus]int{}
 		for _, u := range b.plan.PullRequests {
 			s := u.Status
@@ -362,8 +376,18 @@ func (b *planBuilder) unitLines(e *planEntry, u remediation.PRUnit, update strin
 		}
 		return
 	}
+	// A unit without a pull request counts as what keeps it from having one.
+	tag := tagCandidate
+	switch u.Status {
+	case remediation.PRStatusManual:
+		tag = tagDecide
+	case remediation.PRStatusFailed, remediation.PRStatusWriteBlocked:
+		tag = tagFailed
+	case remediation.PRStatusDeferred:
+		tag = tagDeferred
+	}
 	if update != "" {
-		e.line(tagCandidate, kv(b.msg.PlanLblCandidate, update))
+		e.line(tag, kv(b.msg.PlanLblCandidate, update))
 	}
 	why := b.reason(u.Reason)
 	if u.Reason == "" {
@@ -414,7 +438,7 @@ func (b *planBuilder) composeUnitOf(it remediation.Item) bool {
 
 func (b *planBuilder) composeUnit(u remediation.PRUnit) planEntry {
 	e := planEntry{images: []string{u.Current}}
-	e.line(tagCandidate, kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
+	e.plain(kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
 	image, old := splitImageRef(u.Current)
 	b.unitLines(&e, u, b.change(image, old, u.CandidateTag))
 	return e
@@ -463,7 +487,7 @@ func (b *planBuilder) composeItem(it remediation.Item) planEntry {
 	case remediation.CategoryManual:
 		if it.Candidate != nil && it.Candidate.Tag != "" && it.Kind == remediation.TagPinned {
 			image, old := splitImageRef(it.Current.Ref)
-			e.line(tagCandidate, kv(b.msg.PlanLblCandidate, b.change(image, old, it.Candidate.Tag)))
+			e.plain(kv(b.msg.PlanLblCandidate, b.change(image, old, it.Candidate.Tag)))
 		}
 		e.line(tagDecide, kv(b.msg.PlanLblDecide, b.reason(it.Reason)))
 	default:
@@ -479,7 +503,7 @@ func (b *planBuilder) composeItem(it remediation.Item) planEntry {
 func (b *planBuilder) dockerfileUnit(u remediation.PRUnit) planEntry {
 	e := planEntry{}
 	b.imagesOf(&e, u.Workloads)
-	e.line(tagCandidate, kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
+	e.plain(kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
 	image, old := splitImageRef(u.Current)
 	update := fmt.Sprintf(b.msg.PlanBaseImageValue, litMrkdwn(image), litMrkdwn(old), litMrkdwn(u.CandidateTag))
 	b.unitLines(&e, u, update)
@@ -505,20 +529,20 @@ func (b *planBuilder) dockerfileItem(it remediation.DockerfileItem) planEntry {
 		if k := dockerfileKEVResolved(it); k > 0 {
 			parts = append(parts, fmt.Sprintf(b.msg.PlanKEVClause, k))
 		}
-		e.line(tagCandidate, file)
+		e.plain(file)
 		e.line(tagCandidate, kv(b.msg.PlanLblCandidate, candidate()+b.wrap(parts...)))
 	case it.Category == remediation.CategoryManual:
-		e.line(tagDecide, file)
+		e.plain(file)
 		if it.Candidate != nil && it.Candidate.Tag != "" {
-			e.line(tagDecide, kv(b.msg.PlanLblCandidate, candidate()))
+			e.plain(kv(b.msg.PlanLblCandidate, candidate()))
 		}
 		e.line(tagDecide, kv(b.msg.PlanLblDecide, b.reason(it.Reason)))
 	case it.Category == remediation.CategoryNotComparable && it.Reason == remediation.ReasonFloatingBaseUnconfirmed:
-		e.line(tagRebuild, file)
+		e.plain(file)
 		e.line(tagRebuild, kv(b.msg.PlanLblRebuild, b.msg.PlanDockerfileRebuild))
 	default:
 		if label, tag, ok := b.outcome(it.Category); ok {
-			e.line(tag, file)
+			e.plain(file)
 			e.line(tag, kv(label, b.reason(it.Reason)))
 		}
 	}
@@ -535,7 +559,7 @@ func languageFile(li remediation.LanguageItem) string {
 func (b *planBuilder) languageUnit(u remediation.PRUnit) planEntry {
 	e := planEntry{}
 	b.imagesOf(&e, u.Workloads)
-	e.line(tagCandidate, kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
+	e.plain(kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
 	update := ""
 	if l := u.Language; l != nil {
 		var changes []string
@@ -558,7 +582,7 @@ func (b *planBuilder) languageUnit(u remediation.PRUnit) planEntry {
 			}
 		}
 		if len(majors) > 0 {
-			e.line(tagCandidate, kv(b.msg.PlanLblMajor, b.joined(majors)))
+			e.plain(kv(b.msg.PlanLblMajor, b.joined(majors)))
 		}
 	}
 	// The pull request's own view has the packages it leaves out; an item tied
@@ -574,7 +598,7 @@ func (b *planBuilder) languageUnit(u remediation.PRUnit) planEntry {
 			left = leftOutOf(li)
 		}
 	}
-	b.leftOutLines(&e, left)
+	b.leftOutLines(&e, left, b.lockName(u.Path, u.ItemKey))
 	return e
 }
 
@@ -584,6 +608,18 @@ func (b *planBuilder) majorPackage(name, from, to string) string {
 		return fmt.Sprintf(b.msg.PlanMajorZero, c)
 	}
 	return c
+}
+
+// lockName is the name of the lockfile of a unit: the file the pull request
+// changes, or else the one its manager keeps.
+func (b *planBuilder) lockName(p, itemKey string) string {
+	if p != "" {
+		return path.Base(p)
+	}
+	if li, ok := b.langItems[itemKey]; ok {
+		return li.Manager.LockfileName()
+	}
+	return ""
 }
 
 type leftOut struct {
@@ -601,17 +637,97 @@ func leftOutOf(li remediation.LanguageItem) []leftOut {
 	return out
 }
 
-func (b *planBuilder) leftOutLines(e *planEntry, left []leftOut) {
-	for _, x := range left {
-		b.detail = append(b.detail, strings.Join([]string{"left out", x.name, x.from, x.target, string(x.reason)}, "\x00"))
-	}
+// pkgLine is a package a file lists with the reason it needs a person.
+type pkgLine struct {
+	name, from, target string
+	reason             remediation.Reason
+	unchanged          bool // the update left the lockfile as it was
+	leftOut            bool // the package was left out of an update of the others
+	// lockVersions are the versions the files list when they list the package
+	// at another version than the image has.
+	lockVersions []string
+	inFile       bool // the files have the package, at another version
+}
+
+func (b *planBuilder) leftOutLines(e *planEntry, left []leftOut, file string) {
+	items := make([]pkgLine, len(left))
 	for i, x := range left {
-		if i == planLeftOuts {
-			e.line(tagDecide, kv(b.msg.PlanLblDecide, strings.TrimSpace(fmt.Sprintf(b.msg.PlanMore, len(left)-planLeftOuts))))
-			break
+		items[i] = pkgLine{name: x.name, from: x.from, target: x.target, reason: x.reason, leftOut: true}
+	}
+	b.packageLines(e, tagDecide, b.msg.PlanLblDecide, file, items)
+}
+
+// packageLines lists packages with their reasons, ten at most: a package with
+// a target version gets a line of its own; the packages that have no target
+// are listed under one line for their reason. Everything is recorded for the
+// fingerprint, the cut part too.
+func (b *planBuilder) packageLines(e *planEntry, tag planTag, label, file string, items []pkgLine) {
+	for _, x := range items {
+		b.detail = append(b.detail, strings.Join([]string{"package", x.name, x.from, x.target, string(x.reason), fmt.Sprint(x.unchanged), fmt.Sprint(x.leftOut), fmt.Sprint(x.inFile), strings.Join(x.lockVersions, ",")}, "\x00"))
+	}
+	shown := items
+	if len(shown) > planLeftOuts {
+		shown = shown[:planLeftOuts]
+	}
+	type bareGroup struct {
+		header  string
+		bullets []string
+	}
+	var groups []*bareGroup
+	byKey := map[string]*bareGroup{}
+	for _, x := range shown {
+		if x.target == "" {
+			key, header := string(x.reason), b.reason(x.reason)
+			bullet := fmt.Sprintf(b.msg.PlanBullet, litMrkdwn(x.name), litMrkdwn(x.from))
+			if x.reason == remediation.ReasonNotFoundInSource {
+				if !x.inFile {
+					header = fmt.Sprintf(b.msg.PlanNotInFile, litMrkdwn(file))
+				} else {
+					key += "\x00version"
+					header = fmt.Sprintf(b.msg.PlanWrongVersion, litMrkdwn(file))
+					versions := make([]string, len(x.lockVersions))
+					for i, v := range x.lockVersions {
+						versions[i] = litMrkdwn(v)
+					}
+					if len(versions) == 0 {
+						versions = []string{"-"}
+					}
+					bullet = fmt.Sprintf(b.msg.PlanBulletVersions, litMrkdwn(x.name), litMrkdwn(x.from), litMrkdwn(file), strings.Join(versions, b.msg.PlanListSep))
+				}
+			}
+			g, ok := byKey[key]
+			if !ok {
+				g = &bareGroup{header: header}
+				byKey[key] = g
+				groups = append(groups, g)
+			}
+			g.bullets = append(g.bullets, bullet)
+			continue
 		}
-		e.line(tagDecide, kv(b.msg.PlanLblDecide, fmt.Sprintf(b.msg.PlanLeftOut,
-			litMrkdwn(x.name), litMrkdwn(x.from), litMrkdwn(x.target), b.reason(x.reason))))
+		name, from, target := litMrkdwn(x.name), litMrkdwn(x.from), litMrkdwn(x.target)
+		var line string
+		switch {
+		case x.reason == remediation.ReasonTargetNotUpdated:
+			line = fmt.Sprintf(b.msg.PlanNotUpdated, name, target, from, litMrkdwn(file))
+		case x.leftOut:
+			line = fmt.Sprintf(b.msg.PlanLeftOut, name, from, target, b.reason(x.reason))
+		default:
+			note := ""
+			if x.unchanged {
+				note = b.msg.PlanLockfileUnchanged
+			}
+			line = fmt.Sprintf(b.msg.PlanPackageReason, name, from, target, b.reason(x.reason), note)
+		}
+		e.line(tag, kv(label, line))
+	}
+	for _, g := range groups {
+		e.line(tag, kv(label, g.header))
+		for _, bullet := range g.bullets {
+			e.line(tag, bullet)
+		}
+	}
+	if n := len(items) - len(shown); n > 0 {
+		e.line(tag, kv(label, strings.TrimSpace(fmt.Sprintf(b.msg.PlanMore, n))))
 	}
 }
 
@@ -636,31 +752,28 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 		if kev > 0 {
 			value += b.wrap(fmt.Sprintf(b.msg.PlanKEVClause, kev))
 		}
-		e.line(tagCandidate, file)
+		e.plain(file)
 		e.line(tagCandidate, kv(b.msg.PlanLblCandidate, value))
 	case remediation.CategoryRebuildExpected:
-		var lead *remediation.LanguagePackage
-		n := 0
-		for i := range li.Packages {
-			if li.Packages[i].Action == remediation.ActionRebuildExpected {
-				p := li.Packages[i]
+		var pkgs []remediation.LanguagePackage
+		for _, p := range li.Packages {
+			if p.Action == remediation.ActionRebuildExpected {
+				pkgs = append(pkgs, p)
 				b.detail = append(b.detail, strings.Join([]string{"rebuild", p.Name, p.Installed, p.SelectionLowerBound}, "\x00"))
-				n++
-				if lead == nil {
-					lead = &li.Packages[i]
-				}
 			}
 		}
-		if lead == nil {
+		if len(pkgs) == 0 {
 			return e
 		}
-		more := ""
-		if n > 1 {
-			more = fmt.Sprintf(b.msg.PlanMore, n-1)
+		e.plain(file)
+		for i, p := range pkgs {
+			if i == planListed {
+				e.line(tagRebuild, kv(b.msg.PlanLblRebuild, strings.TrimSpace(fmt.Sprintf(b.msg.PlanMore, len(pkgs)-planListed))))
+				break
+			}
+			e.line(tagRebuild, kv(b.msg.PlanLblRebuild, fmt.Sprintf(b.msg.PlanRebuildValue,
+				litMrkdwn(p.Name), litMrkdwn(p.Installed), litMrkdwn(p.SelectionLowerBound))))
 		}
-		e.line(tagRebuild, file)
-		e.line(tagRebuild, kv(b.msg.PlanLblRebuild, fmt.Sprintf(b.msg.PlanRebuildValue,
-			litMrkdwn(lead.Name), litMrkdwn(lead.Installed), litMrkdwn(lead.SelectionLowerBound), more)))
 	case remediation.CategoryPRCandidate:
 		var changes []string
 		for _, p := range li.Packages {
@@ -669,17 +782,17 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 			}
 		}
 		if len(changes) > 0 {
-			e.line(tagCandidate, file)
+			e.plain(file)
 			e.line(tagCandidate, kv(b.msg.PlanLblCandidate, b.joined(changes)))
 		}
-		b.leftOutLines(&e, leftOutOf(li))
+		b.leftOutLines(&e, leftOutOf(li), path.Base(languageFile(li)))
 	case remediation.CategoryManual, remediation.CategoryNotComparable, remediation.CategoryFailed, remediation.CategoryDeferred:
 		label, tag, _ := b.outcome(li.Category)
 		why := b.reason(li.Reason)
 		if x := li.RuntimeEOL; li.Reason == remediation.ReasonRuntimeEndOfLife && x != nil {
 			why = fmt.Sprintf(b.msg.PlanRuntimeEOL, litMrkdwn(x.Name), litMrkdwn(x.EOL))
 		}
-		e.line(tag, file)
+		e.plain(file)
 		if pkgs := packagesOfReason(li); len(pkgs) > 0 && li.RuntimeEOL == nil {
 			b.packageReasonLines(&e, tag, label, li, pkgs)
 		} else {
@@ -704,6 +817,19 @@ func packagesOfReason(li remediation.LanguageItem) []remediation.LanguagePackage
 	return out
 }
 
+// lockVersions are the versions the files list for a package that is listed
+// at another version than the image has (the file has occurrences of it); none
+// when the package is not in the files at all.
+func lockVersions(p remediation.LanguagePackage) []string {
+	var out []string
+	for _, o := range p.Occurrences {
+		if o.Version != "" {
+			out = appendOnce(out, o.Version)
+		}
+	}
+	return out
+}
+
 // lockfileLeftAlone matches the detail of an update that changed nothing.
 var lockfileLeftAlone = regexp.MustCompile(`^the (?:update|rewrite) left .+ unchanged$`)
 
@@ -712,22 +838,13 @@ var lockfileLeftAlone = regexp.MustCompile(`^the (?:update|rewrite) left .+ unch
 // is said not to have changed only when the detail says the update left it
 // unchanged.
 func (b *planBuilder) packageReasonLines(e *planEntry, tag planTag, label string, li remediation.LanguageItem, pkgs []remediation.LanguagePackage) {
-	for _, p := range pkgs {
-		unchanged := lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail)
-		b.detail = append(b.detail, strings.Join([]string{"package", p.Name, p.Installed, p.SelectionLowerBound, string(p.Reason), fmt.Sprint(unchanged)}, "\x00"))
-	}
+	items := make([]pkgLine, len(pkgs))
 	for i, p := range pkgs {
-		if i == planLeftOuts {
-			e.line(tag, kv(label, strings.TrimSpace(fmt.Sprintf(b.msg.PlanMore, len(pkgs)-planLeftOuts))))
-			break
-		}
-		note := ""
-		if lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail) {
-			note = b.msg.PlanLockfileUnchanged
-		}
-		e.line(tag, kv(label, fmt.Sprintf(b.msg.PlanPackageReason,
-			litMrkdwn(p.Name), litMrkdwn(p.Installed), litMrkdwn(p.SelectionLowerBound), b.reason(p.Reason), note)))
+		items[i] = pkgLine{name: p.Name, from: p.Installed, target: p.SelectionLowerBound, reason: p.Reason,
+			unchanged:    lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail),
+			lockVersions: lockVersions(p), inFile: len(p.Occurrences) > 0}
 	}
+	b.packageLines(e, tag, label, path.Base(languageFile(li)), items)
 }
 
 // --- the message ---

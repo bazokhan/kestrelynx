@@ -7,7 +7,7 @@
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0006|CVE-2031-0006> HIGH · EPSS 20% (このパッケージにほか +1件のCVE) — 修正版なし、緩和策を検討
        📎 <https://avd.example/CVE-2031-0006|アドバイザリ>
    • zlib 1.2.13 (修正版なし) (CRITICAL 0 / HIGH 1)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (実際の攻撃で悪用あり) · EPSS 50% — 上流では修正予定なし、置き換えを検討
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (実際の攻撃で悪用あり) · EPSS 50% — このOSリリースでは修正予定なし、置き換えを検討
 🚨 web:1.0
    • openssl 3.0.7 → 3.0.11 (CRITICAL 1 / HIGH 0)  🟢 アップグレード: ディストリのセキュリティパッチ — ⬆️ 今すぐ対応に優先度昇格
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0001|CVE-2031-0001> CRITICAL · CISA KEV (実際の攻撃で悪用あり) · EPSS 94% · 🧨 ランサムウェア攻撃
@@ -31,7 +31,7 @@
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0006|CVE-2031-0006> HIGH · EPSS 20% (このパッケージにほか +1件のCVE) — 修正版なし、緩和策を検討
        📎 <https://avd.example/CVE-2031-0006|アドバイザリ>
    • zlib 1.2.13 (修正版なし) (CRITICAL 0 / HIGH 1)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (実際の攻撃で悪用あり) · EPSS 50% — 上流では修正予定なし、置き換えを検討
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (実際の攻撃で悪用あり) · EPSS 50% — このOSリリースでは修正予定なし、置き換えを検討
 
 *👀 要監視 (1件) — 緊急性は低いが継続監視*
 • web:1.0

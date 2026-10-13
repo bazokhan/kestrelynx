@@ -1,0 +1,23 @@
+===== message 1/1 =====
+TEXT: KestreLynx 2026-06-24 09:00 修正計画 — 要判断 2件
+--- section ---
+*🔧 修正計画*
+要判断 2件
+--- divider ---
+--- section ---
+*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*
+修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml
+要判断: multer は脆弱性が直る 2.3.0 に上げられず、pnpm-lock.yaml では 2.1.1 のまま（上げられない原因は KestreLynx では調べていないため、multer に依存しているパッケージの版の指定を確認してください）
+--- divider ---
+--- section ---
+*イメージ: `ghcr.io/yyac-project/regfis-frontend:latest`*
+修正するファイル: YYAC-project/regfis-frontend の pnpm-lock.yaml
+要判断: pnpm-lock.yaml に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）
+  • brace-expansion 2.0.2
+  • ip-address 10.1.0
+  • pacote 19.0.2
+  • tar-fs 3.0.4
+  • semver 7.5.1
+  • zod 3.22.0
+要判断: イメージに入っている版が pnpm-lock.yaml と違うパッケージ（イメージが今の pnpm-lock.yaml から作られていない可能性があるため、作り直してから確認してください）
+  • lodash: イメージは 4.17.15、pnpm-lock.yaml は 4.17.20

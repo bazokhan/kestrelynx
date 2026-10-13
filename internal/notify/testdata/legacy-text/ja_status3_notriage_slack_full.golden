@@ -17,7 +17,7 @@ _未解決の所見の全体_
 🟠 api:2.0  CRITICAL 0 / HIGH 2
    • libxml2 2.9.14 (修正版なし) (CRITICAL 0 / HIGH 2)
 
-*🔕 上流では修正予定なし (will_not_fix)*
+*🔕 このOSリリースでは修正予定なし (will_not_fix)*
 🔴 web:1.0  CRITICAL 1 / HIGH 0
    • gcc-12-base 12.2.0-14 (修正版なし) (CRITICAL 1 / HIGH 0)
 🟠 api:2.0  CRITICAL 0 / HIGH 1

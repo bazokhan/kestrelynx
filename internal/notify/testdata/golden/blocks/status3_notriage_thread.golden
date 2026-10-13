@@ -86,13 +86,13 @@ Other CVEs: <https://nvd.nist.gov/vuln/detail/CVE-2031-0007|CVE-2031-0007>
 ⏱ open 20 day(s) · first seen 2026-06-04
 --- divider ---
 --- section ---
-*🔕 Upstream won't fix (will_not_fix)*
+*🔕 No fix planned for this OS release (will_not_fix)*
 *Image: web:1.0*
 🔴 CRITICAL 1 / HIGH 0
 --- section ---
 *◆ gcc-12-base*
 Installed: 12.2.0-14
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 1 / HIGH 0
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> · CRITICAL
@@ -105,7 +105,7 @@ Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> · CRITI
 --- section ---
 *◆ zlib*
 Installed: 1.2.13
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 0 / HIGH 1
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH

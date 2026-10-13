@@ -13,7 +13,7 @@ _Everything currently open._
 🟠 web:1.0  CRITICAL 0 / HIGH 1
    • curl 8.0.0 (no fix available) (CRITICAL 0 / HIGH 1)
 
-*🔕 Upstream won't fix (will_not_fix)*
+*🔕 No fix planned for this OS release (will_not_fix)*
 🟠 api:2.0  CRITICAL 0 / HIGH 1
    • leftpad 1.0.0 (no fix available) (CRITICAL 0 / HIGH 1) [node-pkg]
 

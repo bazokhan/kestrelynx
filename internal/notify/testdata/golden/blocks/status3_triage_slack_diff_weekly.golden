@@ -20,7 +20,7 @@ References: <https://avd.example/CVE-2031-0006|advisory>
 --- section ---
 *◆ zlib*
 Installed: 1.2.13
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 0 / HIGH 1
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · EPSS 50%
@@ -90,7 +90,7 @@ References: <https://avd.example/CVE-2031-0006|advisory>
 --- section ---
 *◆ zlib*
 Installed: 1.2.13
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 0 / HIGH 1
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · EPSS 50%

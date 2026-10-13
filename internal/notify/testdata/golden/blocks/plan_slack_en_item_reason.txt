@@ -1,10 +1,10 @@
 ===== message 1/1 =====
-TEXT: KestreLynx 2026-06-24 09:00 fix plan — Proposals: 1 need a decision
+TEXT: KestreLynx 2026-06-24 09:00 fix plan — 1 need a decision
 --- section ---
 *🔧 Fix plan*
-Proposals: 1 need a decision
+1 need a decision
 --- divider ---
 --- section ---
 *Service: api, web*
 File to change: package-lock.json in ex/app
-Needs a decision: multer 2.1.1 → 2.3.0: the package is not at the target version in the updated file (the lockfile did not change)
+Needs a decision: multer could not be raised to 2.3.0, which fixes the vulnerability, and stays at 2.1.1 in package-lock.json (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on multer)

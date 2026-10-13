@@ -13,7 +13,7 @@ _Everything currently open._
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0006|CVE-2031-0006> HIGH · EPSS 20% (+1 more CVE(s) in this package) — no fix yet, consider mitigation
        📎 <https://avd.example/CVE-2031-0006|advisory>
    • zlib 1.2.13 (no fix available) (CRITICAL 0 / HIGH 1)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (exploited in the wild) · EPSS 50% — upstream won't fix, consider replacing
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · CISA KEV (exploited in the wild) · EPSS 50% — no fix planned for this OS release, consider replacing
 
 *👀 Watch (1) — not urgent, keep an eye on*
 • web:1.0

@@ -511,7 +511,7 @@ CRITICAL and HIGH count distinct CVE IDs within each package and fix-status grou
 | `🧨 ransomware campaign` | CISA identifies known use in ransomware campaigns. |
 | `severity only (intel unavailable)` | Neither source is usable, so only severity is used. |
 | `Fixed in: none — consider mitigation` | An `affected` group has no fix, so mitigation should be considered. |
-| `Fixed in: none — upstream won't fix, consider replacing` | The group is `will_not_fix`, so replacement or another response should be considered. |
+| `Fixed in: none — no fix planned for this OS release, consider replacing` | The group is `will_not_fix`, so replacement or another response should be considered. |
 | `Fixed in: none — end-of-life: no fix planned for this release, consider a supported version` | A supported version should be considered for the EOL package. |
 | `advisory` | Trivy's primary advisory, linked on the `References:` line. |
 | `vendor advisory` | A vendor or CISA reference from KEV notes, linked on the `References:` line. |

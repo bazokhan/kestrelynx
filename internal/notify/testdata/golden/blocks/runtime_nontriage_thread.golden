@@ -49,13 +49,13 @@ Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-CURL|CVE-CURL> · HIGH
 Runtime: ▷ not observed
 --- divider ---
 --- section ---
-*🔕 Upstream won't fix (will_not_fix)*
+*🔕 No fix planned for this OS release (will_not_fix)*
 *Image: api:2.0*
 🟠 CRITICAL 0 / HIGH 1
 --- section ---
 *◆ leftpad* [node-pkg]
 Installed: 1.0.0
-Fixed in: none — upstream won't fix, consider replacing
+Fixed in: none — no fix planned for this OS release, consider replacing
 Findings: CRITICAL 0 / HIGH 1
 --- section ---
 Top CVE: <https://nvd.nist.gov/vuln/detail/CVE-LEFTPAD|CVE-LEFTPAD> · HIGH

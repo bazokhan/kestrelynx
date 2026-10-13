@@ -40,7 +40,7 @@
         "type": "section",
         "text": {
           "type": "mrkdwn",
-          "text": "*◆ zlib*\n現在: 1.2.13\n修正版: なし — 上流では修正予定なし、置き換えを検討\n検出件数: CRITICAL 0 / HIGH 1"
+          "text": "*◆ zlib*\n現在: 1.2.13\n修正版: なし — このOSリリースでは修正予定なし、置き換えを検討\n検出件数: CRITICAL 0 / HIGH 1"
         }
       },
       {

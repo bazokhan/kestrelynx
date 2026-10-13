@@ -23,7 +23,7 @@ _未解決の所見の全体_
 --- section ---
 *◆ gcc-12-base*
 現在: 12.2.0-14
-修正版: なし — 上流では修正予定なし、置き換えを検討
+修正版: なし — このOSリリースでは修正予定なし、置き換えを検討
 検出件数: CRITICAL 1 / HIGH 0
 --- section ---
 代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> · CRITICAL · 深刻度のみ (脅威情報が利用できない)

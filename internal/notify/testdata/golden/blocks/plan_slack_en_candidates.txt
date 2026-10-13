@@ -1,8 +1,8 @@
 ===== message 1/1 =====
-TEXT: KestreLynx 2026-06-24 09:00 fix plan — Proposals: 3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision · 1 not comparable · 1 failed · 2 deferred
+TEXT: KestreLynx 2026-06-24 09:00 fix plan — 3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision · 1 not comparable · 1 failed · 2 deferred
 --- section ---
 *🔧 Fix plan*
-Proposals: 3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision · 1 not comparable · 1 failed · 2 deferred
+3 update candidate(s) · 1 re-pull · 2 rebuild · 3 need a decision · 1 not comparable · 1 failed · 2 deferred
 --- divider ---
 --- section ---
 *Image: web:latest*

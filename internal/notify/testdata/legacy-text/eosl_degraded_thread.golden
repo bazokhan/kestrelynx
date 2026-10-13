@@ -10,7 +10,7 @@
        e2fsprogs: out-of-bounds write
      ⏱ open 20 day(s) — first seen 2026-06-04
    • gcc-12-base 12.2.0-14 (no fix available) (CRITICAL 1 / HIGH 0)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> CRITICAL · severity only (intel unavailable) — upstream won't fix, consider replacing
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0005|CVE-2031-0005> CRITICAL · severity only (intel unavailable) — no fix planned for this OS release, consider replacing
      ⏱ open 20 day(s) — first seen 2026-06-04
    • openssl 3.0.7 → 3.0.11 (CRITICAL 1 / HIGH 0)  🟢 upgrade: distro security patch
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0001|CVE-2031-0001> CRITICAL · severity only (intel unavailable)
@@ -30,7 +30,7 @@
      ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0008|CVE-2031-0008> HIGH · severity only (intel unavailable)
      ⏱ open 20 day(s) — first seen 2026-06-04
    • zlib 1.2.13 (no fix available) (CRITICAL 0 / HIGH 1)
-     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · severity only (intel unavailable) — upstream won't fix, consider replacing
+     ↳ <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> HIGH · severity only (intel unavailable) — no fix planned for this OS release, consider replacing
      ⏱ first seen today
 • web:1.0
    • dpkg 1.21.22 → 1.21.23 (CRITICAL 0 / HIGH 1)  🟢 upgrade: distro security patch

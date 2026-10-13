@@ -1,10 +1,10 @@
 ===== message 1/1 =====
-TEXT: KestreLynx 2026-06-24 09:00 修正計画 — 提案: 要判断 1件
+TEXT: KestreLynx 2026-06-24 09:00 修正計画 — 要判断 1件
 --- section ---
 *🔧 修正計画*
-提案: 要判断 1件
+要判断 1件
 --- divider ---
 --- section ---
 *サービス: api、web*
 修正するファイル: ex/app の package-lock.json
-要判断: multer 2.1.1 → 2.3.0 は更新しても目標の版に上がらなかった (lockfile は変わらず)
+要判断: multer は脆弱性が直る 2.3.0 に上げられず、package-lock.json では 2.1.1 のまま（上げられない原因は KestreLynx では調べていないため、multer に依存しているパッケージの版の指定を確認してください）

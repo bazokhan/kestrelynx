@@ -217,7 +217,7 @@ func TestThread_TriageOffFallback(t *testing.T) {
 		"*◆ setuptools*", // low-risk fixes are NOT collapsed in the thread
 		"*ℹ️ No fix yet (affected / waiting on upstream)*",
 		"*◆ e2fsprogs*",
-		"*🔕 Upstream won't fix (will_not_fix)*",
+		"*🔕 No fix planned for this OS release (will_not_fix)*",
 		"*◆ gcc-8-base*",
 		"⏱ open 1 day(s)",
 	}

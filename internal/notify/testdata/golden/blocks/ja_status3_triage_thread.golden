@@ -37,7 +37,7 @@ TEXT: 未解決の所見の全体 — 🚨 今すぐ対応 · web:1.0 ほか1イ
 --- section ---
 *◆ zlib*
 現在: 1.2.13
-修正版: なし — 上流では修正予定なし、置き換えを検討
+修正版: なし — このOSリリースでは修正予定なし、置き換えを検討
 検出件数: CRITICAL 0 / HIGH 1
 --- section ---
 代表CVE: <https://nvd.nist.gov/vuln/detail/CVE-2031-0009|CVE-2031-0009> · HIGH · EPSS 50%

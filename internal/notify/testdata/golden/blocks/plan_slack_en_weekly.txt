@@ -5,7 +5,7 @@ TEXT: KestreLynx 2026-06-24 09:00 fix plan — Pull requests: 2 created · 1 ope
 Pull requests: 2 created · 1 open · 1 deferred
 --- divider ---
 --- section ---
-*Image: ghcr.io/yyac-project/regfis-backend:latest*
+*Image: `ghcr.io/yyac-project/regfis-backend:latest`*
 File to change: pnpm-lock.yaml in YYAC-project/regfis-backend
 Pull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)
 Update: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0

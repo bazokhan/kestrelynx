@@ -1,5 +1,5 @@
 ===== message 1/1 =====
-TEXT: KestreLynx 2026-06-24 09:00 Everything currently open — ⛔ 1 EOL base · ✅ 3 fixable · ℹ️ 3 no fix yet · 🔕 2 upstream won't fix
+TEXT: KestreLynx 2026-06-24 09:00 Everything currently open — ⛔ 1 EOL base · ✅ 3 fixable · ℹ️ 3 no fix yet · 🔕 2 with no fix planned for this OS release
 --- section ---
 🛡️ *KestreLynx* — scan results for 2026-06-24 09:00
 3 images scanned, 2 affected
@@ -50,7 +50,7 @@ Installed: 2.9.14 · Fixed in: none
 Findings: CRITICAL 0 / HIGH 2
 --- divider ---
 --- section ---
-*🔕 Upstream won't fix (will_not_fix)*
+*🔕 No fix planned for this OS release (will_not_fix)*
 --- section ---
 *Image: web:1.0*
 🔴 CRITICAL 1 / HIGH 0
