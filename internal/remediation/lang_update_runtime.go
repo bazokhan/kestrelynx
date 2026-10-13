@@ -44,7 +44,7 @@ const (
 // DefaultRuntimeIDs are the runtimes update jobs run in, which the process
 // that starts the containers sets up a client for.
 func DefaultRuntimeIDs() []string {
-	return []string{"node22", defaultNodeRuntime, defaultPythonRuntime}
+	return []string{"node22", defaultNodeRuntime, "python3.11", "python3.12", defaultPythonRuntime, "python3.14"}
 }
 
 // runtimeIDFor is the runtime a manager's jobs run in.
@@ -55,11 +55,14 @@ func runtimeIDFor(m worker.Manager) string {
 	return defaultPythonRuntime
 }
 
-// workImagePython is the exact Python of the runtime uv locks with and pip is
-// taken from; a project whose requires-python does not admit it cannot be
-// locked there.
-func workImagePython() string {
-	spec, _ := worker.LookupRuntime(defaultPythonRuntime)
+// lockPython is the exact Python of the runtime uv locks with; a project whose
+// requires-python does not admit it cannot be locked there.
+func (r *updateRun) lockPython() string {
+	id := r.toolSpec.Runtime
+	if id == "" {
+		id = defaultPythonRuntime
+	}
+	spec, _ := worker.LookupRuntime(id)
 	return spec.Version
 }
 
@@ -244,8 +247,9 @@ func checkArtifact(art ToolArtifact, req ToolRequest) (*worker.Tool, []byte, *up
 type RuntimeEOLInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	// EOL is the date support ended, "YYYY-MM-DD".
-	EOL string `json:"eol"`
+	// EOL is the date support ended, "YYYY-MM-DD"; it is empty for a series
+	// older than every one of the runtime table.
+	EOL string `json:"eol,omitempty"`
 }
 
 func runtimeEOLInfo(spec worker.RuntimeSpec) *RuntimeEOLInfo {
@@ -255,6 +259,9 @@ func runtimeEOLInfo(spec worker.RuntimeSpec) *RuntimeEOLInfo {
 // RuntimeEndOfLifeText is the detail given when a runtime is past the end of
 // its support.
 func RuntimeEndOfLifeText(spec worker.RuntimeSpec) string {
+	if spec.EOL == "" {
+		return fmt.Sprintf("%s is past the end of its support; upgrade the runtime before updating", spec.Label())
+	}
 	return fmt.Sprintf("%s reached the end of its support on %s; upgrade the runtime before updating", spec.Label(), spec.EOL)
 }
 

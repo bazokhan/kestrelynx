@@ -790,7 +790,11 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 		label, tag, _ := b.outcome(li.Category)
 		why := b.reason(li.Reason)
 		if x := li.RuntimeEOL; li.Reason == remediation.ReasonRuntimeEndOfLife && x != nil {
-			why = fmt.Sprintf(b.msg.PlanRuntimeEOL, litMrkdwn(x.Name), litMrkdwn(x.EOL))
+			if x.EOL == "" {
+				why = fmt.Sprintf(b.msg.PlanRuntimeEOLNoDate, litMrkdwn(x.Name))
+			} else {
+				why = fmt.Sprintf(b.msg.PlanRuntimeEOL, litMrkdwn(x.Name), litMrkdwn(x.EOL))
+			}
 		}
 		e.plain(file)
 		if pkgs := packagesOfReason(li); len(pkgs) > 0 && li.RuntimeEOL == nil {

@@ -3,8 +3,10 @@ package remediation
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/toolfetch"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
@@ -144,7 +146,7 @@ func requireAdmits(spec, minor, patch string) (admits, decided bool) {
 }
 
 // pythonSeriesOf lists the Python runtimes of the table that the declarations
-// allow some version of.
+// allow some version of, lowest first.
 func pythonSeriesOf(d *pythonDecls) []string {
 	var out []string
 	for _, r := range worker.Runtimes() {
@@ -162,13 +164,108 @@ func pythonSeriesOf(d *pythonDecls) []string {
 		}
 		out = append(out, r.ID)
 	}
+	sort.SliceStable(out, func(i, j int) bool { return seriesNumber(out[i]) < seriesNumber(out[j]) })
 	return out
 }
 
-// uvVersionRE matches a requirement that fixes one exact uv version.
+// uvExactRE matches a requirement that fixes one exact uv version.
 var uvExactRE = regexp.MustCompile(`^==(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
-// resolveUvSpec resolves the declarations of a uv unit.
+// pythonPool lists the Python runtimes of the table that an update can run in
+// at the time now (they have an image and their support has not ended),
+// lowest series first.
+func pythonPool(now time.Time) []worker.RuntimeSpec {
+	var pool []worker.RuntimeSpec
+	for _, r := range worker.Runtimes() {
+		if r.Kind == worker.KindPython && r.HasImage() && !r.EndOfLife(now) {
+			pool = append(pool, r)
+		}
+	}
+	sort.SliceStable(pool, func(i, j int) bool { return seriesNumber(pool[i].ID) < seriesNumber(pool[j].ID) })
+	return pool
+}
+
+// choosePython decides the Python runtime a uv update runs in. A candidate is
+// a supported series of the table whose exact Python satisfies requires-python
+// and whose series is the one .python-version names; a difference in the patch
+// version is allowed. The lowest candidate is used, so the lock is made on a
+// Python near the bottom of what the project allows. basis says what the
+// choice rests on ("" when the project declares nothing about Python and the
+// default runtime is used), and the declarations are those it rests on.
+func choosePython(d *pythonDecls, now time.Time) (rt worker.RuntimeSpec, basis string, declared []ToolDeclaration, uerr *UnsupportedError) {
+	if !d.hasFile && !d.hasRequire {
+		rt, ok := worker.LookupRuntime(defaultPythonRuntime)
+		if !ok {
+			return rt, "", nil, unsupported(ReasonPythonSpecUnsupported, "the runtime %s is not in the runtime table", defaultPythonRuntime)
+		}
+		return rt, "", nil, nil
+	}
+	pool := pythonPool(now)
+	if len(pool) == 0 {
+		return rt, "", nil, unsupported(ReasonPythonSpecUnsupported, "no Python runtime of the runtime table is in support")
+	}
+	var series []string
+	var exactFailure *UnsupportedError
+	for _, c := range pool {
+		series = append(series, c.Series)
+		if d.hasFile && d.fileMinor != c.Series {
+			continue
+		}
+		if d.hasRequire {
+			pv, ok := parsePEP440(c.Version)
+			if !ok {
+				return rt, "", nil, unsupported(ReasonPythonSpecUnsupported, "the runtime %s has the version %q", c.ID, c.Version)
+			}
+			admits, evaluable := pySatisfies(pv, d.require)
+			if !evaluable {
+				return rt, "", nil, unsupported(ReasonPythonSpecInvalid, "requires-python %q cannot be judged", clip(d.requireRaw, 80))
+			}
+			if !admits {
+				if exactFailure == nil {
+					exactFailure = unsupported(ReasonPythonSpecUnsupported, "requires-python %s does not allow Python %s, which updates run on in the series %s", clip(d.requireRaw, 80), c.Version, c.Series)
+				}
+				continue
+			}
+		}
+		if d.hasFile {
+			declared = []ToolDeclaration{{Source: pythonVersionFileName, Value: clip(d.fileText, 100)}}
+			return c, RuntimeBasisFile, declared, nil
+		}
+		declared = []ToolDeclaration{{Source: "requires-python", Value: clip(d.requireRaw, 100)}}
+		return c, RuntimeBasisLowestInRange, declared, nil
+	}
+	switch {
+	case exactFailure != nil:
+		return rt, "", nil, exactFailure
+	case d.hasFile:
+		return rt, "", nil, unsupported(ReasonPythonSpecUnsupported, ".python-version asks for Python %s, and updates run on Python %s", d.fileText, strings.Join(series, ", "))
+	}
+	return rt, "", nil, unsupported(ReasonPythonSpecUnsupported, "requires-python %s allows none of the Python series updates run on (%s)", clip(d.requireRaw, 80), strings.Join(series, ", "))
+}
+
+// pythonExcluded lists the series that requires-python allows and that are
+// lower than the one chosen, with why each was not used.
+func pythonExcluded(requested []string, chosen worker.RuntimeSpec, now time.Time) []RuntimeExclusion {
+	var out []RuntimeExclusion
+	for _, id := range requested {
+		if seriesNumber(id) >= seriesNumber(chosen.ID) {
+			continue
+		}
+		rt, ok := worker.LookupRuntime(id)
+		if !ok {
+			continue
+		}
+		if !rt.HasImage() || rt.EndOfLife(now) {
+			out = append(out, RuntimeExclusion{ID: id, Why: ExcludedEndOfLife, EOL: rt.EOL})
+		} else {
+			out = append(out, RuntimeExclusion{ID: id, Why: ExcludedDeclarations})
+		}
+	}
+	return out
+}
+
+// resolveUvSpec resolves the declarations of a uv unit: the Python runtime the
+// lock is made with and the release of uv.
 func resolveUvSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 	spec := ToolSpec{Manager: ManagerUv, Runtime: defaultPythonRuntime}
 	if uerr := uvFetchConfigProblem(in); uerr != nil {
@@ -185,27 +282,20 @@ func resolveUvSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 	if d.hasRequire {
 		spec.Declarations = append(spec.Declarations, ToolDeclaration{Source: "requires-python", Value: clip(d.requireRaw, 100)})
 	}
-
-	rt, ok := worker.LookupRuntime(defaultPythonRuntime)
-	if !ok {
-		return spec, unsupported(ReasonPythonSpecUnsupported, "the runtime %s is not in the runtime table", defaultPythonRuntime)
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
 	}
-	if d.hasFile && d.fileMinor != rt.Series {
-		return spec, unsupported(ReasonPythonSpecUnsupported, ".python-version asks for Python %s, and updates run on Python %s so far", d.fileText, rt.Version)
+	rt, basis, declared, uerr := choosePython(d, now)
+	if uerr != nil {
+		return spec, uerr
 	}
-	if d.hasRequire {
-		pv, ok := parsePEP440(rt.Version)
-		if !ok {
-			return spec, unsupported(ReasonPythonSpecUnsupported, "the runtime %s has the version %q", rt.ID, rt.Version)
-		}
-		if admits, evaluable := pySatisfies(pv, d.require); !evaluable {
-			return spec, unsupported(ReasonPythonSpecInvalid, "requires-python %q cannot be judged", clip(d.requireRaw, 80))
-		} else if !admits {
-			return spec, unsupported(ReasonPythonSpecUnsupported, "requires-python %s does not allow Python %s, which updates run on so far", clip(d.requireRaw, 80), rt.Version)
-		}
+	spec.Runtime, spec.RuntimeBasis, spec.RuntimeDeclared = rt.ID, basis, declared
+	if basis == RuntimeBasisLowestInRange {
+		spec.RuntimeExcluded = pythonExcluded(spec.Requested, rt, now)
 	}
 
-	def := toolfetch.DefaultVersion(toolfetch.ManagerUv, defaultPythonRuntime)
+	def := toolfetch.DefaultVersion(toolfetch.ManagerUv, rt.ID)
 	spec.ToolVersion, spec.ToolSource = def, toolSourceDefault
 	tool, _ := d.py["tool"].(map[string]any)
 	uv, _ := tool["uv"].(map[string]any)
@@ -221,7 +311,7 @@ func resolveUvSpec(in ToolSpecInput) (ToolSpec, *UnsupportedError) {
 	spec.Declarations = append(spec.Declarations, ToolDeclaration{Source: "tool.uv.required-version", Value: clip(text, 100)})
 	dv, ok := parsePEP440(def)
 	if !ok {
-		return spec, unsupported(ReasonManagerSpecUnsupported, "no default version of uv is set for %s", defaultPythonRuntime)
+		return spec, unsupported(ReasonManagerSpecUnsupported, "no default version of uv is set for %s", rt.ID)
 	}
 	if uvExactRE.MatchString(norm) {
 		// The project names the release: it is the one to run, if the fetching

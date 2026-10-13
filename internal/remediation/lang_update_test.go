@@ -941,8 +941,11 @@ func TestLangUpdateUvProjectChecks(t *testing.T) {
 		cat            Category
 		reason         Reason
 	}{
-		{"requires-python excludes 3.13", `">=3.9"`, `">=3.9,<3.13"`, CategoryManual, "python_spec_unsupported"},
-		{"requires-python above", `">=3.9"`, `">=3.14"`, CategoryManual, "python_spec_unsupported"},
+		{"requires-python excludes 3.13", `">=3.9"`, `">=3.9,<3.13"`, CategoryPRCandidate, ReasonUpdateVerified},
+		{"requires-python from 3.14", `">=3.9"`, `">=3.14"`, CategoryPRCandidate, ReasonUpdateVerified},
+		{"requires-python above the table", `">=3.9"`, `">=3.15"`, CategoryManual, "python_spec_unsupported"},
+		{"requires-python needs a newer patch", `">=3.9"`, `">=3.12.99,<3.13"`, CategoryManual, "python_spec_unsupported"},
+		{"requires-python only in EOL series", `">=3.9"`, `">=3.9,<3.11"`, CategoryManual, ReasonRuntimeEndOfLife},
 		{"requires-python unreadable", `">=3.9"`, `"~3"`, CategoryManual, "python_spec_invalid"},
 		{"specifier excludes the target", `"urllib3>=1.26,<2"`, `"urllib3>=1.26,<1.26.10"`, CategoryManual, ReasonManifestEditRequired},
 		{"upper bound excludes the target", `"urllib3>=1.26,<2"`, `"urllib3<=1.26.4"`, CategoryManual, ReasonManifestEditRequired},

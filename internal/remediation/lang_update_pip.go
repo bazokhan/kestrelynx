@@ -36,6 +36,11 @@ func (r *updateRun) runPip(ctx context.Context) *updateFailure {
 	case mismatch:
 		return manualFailure(ReasonPipTargetMismatch, "%s", why)
 	}
+	// pip runs in the default Python image whatever the target is, but an
+	// update for a Python past the end of its support is not made.
+	if spec, past := pythonPastSupport(target.PythonVersion, r.u.now()); past {
+		return runtimeEOLFailure(spec)
+	}
 
 	edits, fail := r.pipEdits()
 	if fail != nil {

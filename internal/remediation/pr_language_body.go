@@ -381,26 +381,33 @@ func runtimeWhy(t *prText, r *RuntimeRecord) string {
 	for _, d := range r.Declared {
 		decls = append(decls, mdCode(d.Source)+" "+mdCode(d.Value))
 	}
+	python := strings.HasPrefix(r.ID, "python")
+	pick := func(node, py string) string {
+		if python {
+			return py
+		}
+		return node
+	}
 	var parts []string
 	switch r.Basis {
 	case RuntimeBasisFile:
-		parts = append(parts, fmt.Sprintf(t.LEnvBasisFile, strings.Join(decls, t.ListSep)))
+		parts = append(parts, fmt.Sprintf(pick(t.LEnvBasisFile, t.LEnvPyBasisFile), strings.Join(decls, t.ListSep)))
 	case RuntimeBasisLowestInRange:
-		parts = append(parts, fmt.Sprintf(t.LEnvBasisRange, strings.Join(decls, t.ListSep)))
+		parts = append(parts, fmt.Sprintf(pick(t.LEnvBasisRange, t.LEnvPyBasisRange), strings.Join(decls, t.ListSep)))
 	case RuntimeBasisDefault:
 		parts = append(parts, t.LEnvBasisDefault)
 	default:
 		return ""
 	}
 	for _, x := range r.Excluded {
-		series := strings.TrimPrefix(x.ID, "node")
+		series := strings.TrimPrefix(strings.TrimPrefix(x.ID, "node"), "python")
 		switch x.Why {
 		case ExcludedEndOfLife:
-			parts = append(parts, fmt.Sprintf(t.LEnvExcludedEOL, mdCode(series), mdCode(x.EOL)))
+			parts = append(parts, fmt.Sprintf(pick(t.LEnvExcludedEOL, t.LEnvPyExcludedEOL), mdCode(series), mdCode(x.EOL)))
 		case ExcludedManagerEngines:
 			parts = append(parts, fmt.Sprintf(t.LEnvExcludedEngines, mdCode(series), mdCode(x.Manager), mdCode(x.ManagerVersion), mdCode(x.Engines)))
 		default:
-			parts = append(parts, fmt.Sprintf(t.LEnvExcludedDecl, mdCode(series)))
+			parts = append(parts, fmt.Sprintf(pick(t.LEnvExcludedDecl, t.LEnvPyExcludedDecl), mdCode(series)))
 		}
 	}
 	return strings.Join(parts, t.LEnvWhySep)

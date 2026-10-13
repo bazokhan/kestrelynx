@@ -258,14 +258,20 @@ func TestToolSpec_PythonAndUvDeclarationsBeforeAnyRun(t *testing.T) {
 
 		{".python-version 3.9", req(">=3.9"), map[string]string{"svc/.python-version": "3.9\n"}, ReasonRuntimeEndOfLife},
 		{"requires-python allows only 3.9 and 3.10", req(">=3.9,<3.11"), nil, ReasonRuntimeEndOfLife},
-		{"requires-python allows 3.10 and 3.11", req(">=3.10,<3.12"), nil, ReasonPythonSpecUnsupported},
-		{".python-version 3.12", uvPyproject, map[string]string{"svc/.python-version": "3.12\n"}, ReasonPythonSpecUnsupported},
-		{".python-version 3.14.0", uvPyproject, map[string]string{"svc/.python-version": "3.14.0\n"}, ReasonPythonSpecUnsupported},
+		{"requires-python allows 3.10 and 3.11", req(">=3.10,<3.12"), nil, ""},
+		{".python-version 3.12", uvPyproject, map[string]string{"svc/.python-version": "3.12\n"}, ""},
+		{".python-version 3.14.0", uvPyproject, map[string]string{"svc/.python-version": "3.14.0\n"}, ""},
+		{".python-version 3.12.99 differs from the image in the patch", uvPyproject, map[string]string{"svc/.python-version": "3.12.99\n"}, ""},
+		{".python-version 3.15", uvPyproject, map[string]string{"svc/.python-version": "3.15\n"}, ReasonPythonSpecUnsupported},
+		{".python-version 3.8", req(">=3.8"), map[string]string{"svc/.python-version": "3.8\n"}, ReasonPythonSpecUnsupported},
+		{"requires-python below 3.9", req("<3.9"), nil, ReasonPythonSpecUnsupported},
+		{"requires-python needs a newer patch than the image has", req(">=3.12.99,<3.13"), nil, ReasonPythonSpecUnsupported},
 		{".python-version pypy", uvPyproject, map[string]string{"svc/.python-version": "pypy3.10\n"}, ReasonPythonSpecUnsupported},
 		{".python-version free-threaded", uvPyproject, map[string]string{"svc/.python-version": "3.13t\n"}, ReasonPythonSpecUnsupported},
 		{".python-versions", uvPyproject, map[string]string{"svc/.python-versions": "3.13\n3.12\n"}, ReasonPythonSpecUnsupported},
-		{"requires-python excludes 3.13", req(">=3.9,<3.13"), nil, ReasonPythonSpecUnsupported},
-		{"requires-python from 3.14", req(">=3.14"), nil, ReasonPythonSpecUnsupported},
+		{"requires-python excludes 3.13", req(">=3.9,<3.13"), nil, ""},
+		{"requires-python from 3.14", req(">=3.14"), nil, ""},
+		{"requires-python from 3.15", req(">=3.15"), nil, ReasonPythonSpecUnsupported},
 		{"required-version fixes 0.12.30", toolSection(`required-version = "==0.12.30"`), nil, ""},
 		{"required-version fixes 0.12.21", toolSection(`required-version = "==0.12.21"`), nil, ReasonManagerSpecUnsupported},
 		{"required-version fixes the default", toolSection(`required-version = "==0.13.0"`), nil, ""},
@@ -351,7 +357,7 @@ func TestToolSpec_ResolvedChoices(t *testing.T) {
 		t.Errorf("npm: %+v %v", spec, uerr)
 	}
 	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerUv, Manifest: []byte(uvPyproject)})
-	if uerr != nil || spec.ToolVersion != "0.13.0" || spec.ToolSource != "default" || spec.Runtime != "python3.13" {
+	if uerr != nil || spec.ToolVersion != "0.13.0" || spec.ToolSource != "default" || spec.Runtime != "python3.12" {
 		t.Errorf("uv: %+v %v", spec, uerr)
 	}
 	spec, uerr = ResolveToolSpec(ToolSpecInput{Manager: ManagerPip})

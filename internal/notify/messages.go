@@ -410,6 +410,7 @@ type messages struct {
 	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later" (name, installed, lowest fixed version)
 	PlanDockerfileRebuild string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
 	PlanRuntimeEOL        string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
+	PlanRuntimeEOLNoDate  string // the same for a runtime the table has no date for (runtime name)
 
 	// Conditions that stop pull request writes.
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
@@ -754,6 +755,7 @@ var enMessages = messages{
 	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later",
 	PlanDockerfileRebuild: "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
 	PlanRuntimeEOL:        "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
+	PlanRuntimeEOLNoDate:  "%[1]s is past the end of its support; upgrade the runtime before updating",
 
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
 	PlanPRProblemJoin:       "; ",
@@ -1094,6 +1096,7 @@ var jaMessages = messages{
 	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み",
 	PlanDockerfileRebuild: "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
 	PlanRuntimeEOL:        "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
+	PlanRuntimeEOLNoDate:  "%[1]s はサポート終了。実行環境を上げてから更新してください",
 
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
 	PlanPRProblemJoin:       "、",

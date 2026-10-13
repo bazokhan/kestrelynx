@@ -323,10 +323,11 @@ func (r *updateRun) planUvProject(ctx context.Context) *updateFailure {
 		return manualFailure(ReasonDependencyFileUnusable, "pyproject.toml cannot be read: %v", err)
 	}
 	project, _ := py["project"].(map[string]any)
+	lockPy := r.lockPython()
 	rp, present := project["requires-python"]
 	spec, isStr := rp.(string)
 	if !present || !isStr {
-		return manualFailure(ReasonRequiresPythonUnsupported, "pyproject.toml has no requires-python; uv would lock for the work image's Python %s", workImagePython())
+		return manualFailure(ReasonRequiresPythonUnsupported, "pyproject.toml has no requires-python; uv would lock for the work image's Python %s", lockPy)
 	}
 	var clauses []string
 	for _, c := range strings.Split(spec, ",") {
@@ -336,9 +337,9 @@ func (r *updateRun) planUvProject(ctx context.Context) *updateFailure {
 		}
 		clauses = append(clauses, cm[1]+cm[2])
 	}
-	pv, _ := parsePEP440(workImagePython())
+	pv, _ := parsePEP440(lockPy)
 	if ok, evaluable := pySatisfies(pv, strings.Join(clauses, ",")); !evaluable || !ok {
-		return manualFailure(ReasonRequiresPythonUnsupported, "requires-python %q does not admit the work image's Python %s", spec, workImagePython())
+		return manualFailure(ReasonRequiresPythonUnsupported, "requires-python %q does not admit the work image's Python %s", spec, lockPy)
 	}
 
 	f := &updateFailure{category: CategoryManual, reason: ReasonManifestEditRequired, pkgs: map[string]updateFailureDetail{}}

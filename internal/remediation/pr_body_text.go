@@ -83,6 +83,7 @@ type prText struct {
 	LEnvToolDeclared, LEnvToolInRange                                           string
 	LEnvRuntimeWhy, LEnvWhySep, LEnvBasisFile, LEnvBasisRange, LEnvBasisDefault string
 	LEnvExcludedEOL, LEnvExcludedEngines, LEnvExcludedDecl, LEnvFloor           string
+	LEnvPyBasisFile, LEnvPyBasisRange, LEnvPyExcludedEOL, LEnvPyExcludedDecl    string
 	LDeprecatedGained, LDeprecatedChanged, LDeprecatedLost, LDeprecatedPresent  string
 	LFollowedTitle, LFollowedLine, LFollowedMove                                string
 	LEntries, LTruncated, LTitleChanged, LTitleAdded                            string
@@ -193,6 +194,10 @@ var enPRText = prText{
 	LEnvExcludedEngines: "Node.js %[1]s is not used because %[2]s %[3]s needs Node.js %[4]s",
 	LEnvExcludedDecl:    "Node.js %s is not used because a declaration does not allow it",
 	LEnvFloor:           "- The packages the update added or changed were checked: the engines.node of each allows Node.js %s, the lowest version the declarations allow\n",
+	LEnvPyBasisFile:     "the minor version %s name(s)",
+	LEnvPyBasisRange:    "the lowest series updates run on that %s allow",
+	LEnvPyExcludedEOL:   "Python %[1]s is not used because its support ended on %[2]s",
+	LEnvPyExcludedDecl:  "Python %s is not used because a declaration does not allow the Python of that image",
 	LEnvPip:             "- pip: %s, the one in that image\n",
 	LEnvTool:            "- Package manager: %[1]s %[2]s (%[3]s), archive sha256 %[4]s\n",
 	LEnvToolDefault:     "the version this build selects when the project declares none",
@@ -325,6 +330,10 @@ var jaPRText = prText{
 	LEnvExcludedEngines: "%[2]s %[3]s が Node.js %[4]s を要求するため Node.js %[1]s は使わない",
 	LEnvExcludedDecl:    "宣言が許さないため Node.js %s は使わない",
 	LEnvFloor:           "- 更新で追加・変更したパッケージは、engines.node が宣言の許す最小の Node.js %s を許すことを確認した\n",
+	LEnvPyBasisFile:     "%s が指す小版",
+	LEnvPyBasisRange:    "%s を満たす対応イメージの中で最小の小版",
+	LEnvPyExcludedEOL:   "Python %[1]s は %[2]s にサポート終了のため使わない",
+	LEnvPyExcludedDecl:  "宣言がそのイメージの Python を許さないため Python %s は使わない",
 	LEnvPip:             "- pip: %s (そのイメージに入っているもの)\n",
 	LEnvTool:            "- パッケージマネージャー: %[1]s %[2]s (%[3]s)、アーカイブの sha256 %[4]s\n",
 	LEnvToolDefault:     "プロジェクトの指定がないときにこのビルドが選ぶ版",

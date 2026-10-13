@@ -30,6 +30,22 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			f["package.json"] = strings.Replace(f["package.json"], "{", "{\n  "+members+",", 1)
 		}
 	}
+	// requires changes requires-python in the pyproject.toml and the uv.lock of
+	// the uv fixture alike, so that the lockfile still matches the project.
+	requires := func(spec string) func(map[string]string) {
+		return func(f map[string]string) {
+			f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], `requires-python = ">=3.9"`, `requires-python = "`+spec+`"`, 1)
+			f["uv.lock"] = strings.Replace(f["uv.lock"], `requires-python = ">=3.9"`, `requires-python = "`+spec+`"`, 1)
+		}
+	}
+	withFile := func(name, content string, rest func(map[string]string)) func(map[string]string) {
+		return func(f map[string]string) {
+			f[name] = content
+			if rest != nil {
+				rest(f)
+			}
+		}
+	}
 	cases := []struct {
 		name    string
 		manager DependencyManager
@@ -133,6 +149,19 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			func(f map[string]string) { f[".nvmrc"] = "22\n" }, "", "", "", ""},
 		{"pnpm_node22_from_engine_ranges", ManagerPnpm, "pnpm", []string{"package.json", "pnpm-lock.yaml"}, minimist, "minimist",
 			declare(`"engines": {"node": ">=20", "pnpm": ">=11"}`), "", "", itDefaultToolVersions[ManagerPnpm], "default_in_range"},
+		// The Python the project declares chooses the image uv locks in; the
+		// fixture's own requires-python (">=3.9") runs in the lowest series in
+		// support.
+		{"uv_python312_from_file", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			withFile(".python-version", "3.12\n", nil), "", "", "", ""},
+		{"uv_python313_from_file", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			withFile(".python-version", "3.13.5\n", nil), "", "", "", ""},
+		{"uv_python314_from_file", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			withFile(".python-version", "cpython-3.14\n", nil), "", "", "", ""},
+		{"uv_python312_from_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			requires(">=3.12"), "", "", "", ""},
+		{"uv_python314_from_range", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
+			requires(">=3.14"), "", "", "", ""},
 		{"uv_declared", ManagerUv, "uv", []string{"pyproject.toml", "uv.lock"}, urllib3, "urllib3",
 			func(f map[string]string) {
 				f["pyproject.toml"] = strings.Replace(f["pyproject.toml"], "[tool.uv]", "[tool.uv]\nrequired-version = \"==0.12.24\"", 1)
@@ -182,8 +211,16 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			}
 			// What the update ran in and with is on record.
 			wantRuntime := map[DependencyManager]string{ManagerNpm: "node24", ManagerPnpm: "node24", ManagerUv: "python3.13", ManagerPip: "python3.13"}[c.manager]
+			if c.manager == ManagerUv {
+				wantRuntime = "python3.11"
+			}
 			if strings.Contains(c.name, "node22") {
 				wantRuntime = "node22"
+			}
+			for _, minor := range []string{"12", "13", "14"} {
+				if strings.Contains(c.name, "python3"+minor) {
+					wantRuntime = "python3." + minor
+				}
 			}
 			if rt := got.Update.Runtime; rt == nil || rt.ID != wantRuntime || rt.Version == "" || rt.Digest == "" {
 				t.Errorf("runtime record = %+v, want %s", rt, wantRuntime)

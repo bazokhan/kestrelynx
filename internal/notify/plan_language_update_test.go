@@ -83,6 +83,17 @@ func TestPlan_LanguageRuntimeEndOfLife(t *testing.T) {
 		t.Error("an item without the reason carries runtime_eol")
 	}
 
+	// A series the table has no date for is told without one.
+	li.RuntimeEOL = &remediation.RuntimeEOLInfo{ID: "python3.8", Name: "Python 3.8"}
+	for lang, want := range map[Language]string{
+		LanguageEN: "Python 3.8 is past the end of its support; upgrade the runtime before updating",
+		LanguageJA: "Python 3.8 はサポート終了。実行環境を上げてから更新してください",
+	} {
+		if got := slackPlanText(r, info, lang); !strings.Contains(got, want) {
+			t.Errorf("%s: the line without a date is missing:\n%s", lang, got)
+		}
+	}
+
 	// Without the structured value the line falls back to the reason's sentence.
 	li.RuntimeEOL = nil
 	got := slackPlanText(r, info, LanguageEN)

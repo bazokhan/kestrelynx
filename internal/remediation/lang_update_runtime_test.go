@@ -35,6 +35,11 @@ func TestLangUpdateJobCarriesRuntimeToolAndProgram(t *testing.T) {
 			if name == "uv" || name == "pip" {
 				wantRuntime = "python3.13"
 			}
+			if name == "uv" {
+				// The fixture's requires-python is ">=3.9", so the update runs in
+				// the lowest series that is still supported.
+				wantRuntime = "python3.11"
+			}
 			for _, spec := range sw.specs {
 				if spec.Runtime != wantRuntime {
 					t.Errorf("spec runtime = %q, want %q", spec.Runtime, wantRuntime)
@@ -95,8 +100,9 @@ func TestLangUpdateRuntimeEndOfLifeIsManual(t *testing.T) {
 		text          string
 	}{
 		{"node", "npm", time.Date(2028, 5, 1, 0, 0, 0, 0, time.UTC), "Node.js 24 reached the end of its support on 2028-04-30; upgrade the runtime before updating"},
-		{"python", "uv", time.Date(2029, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.13 reached the end of its support on 2029-10-01; upgrade the runtime before updating"},
-		{"python pip", "pip", time.Date(2029, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.13 reached the end of its support on 2029-10-01; upgrade the runtime before updating"},
+		{"python", "uv", time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC), "Python 3.9 reached the end of its support on 2025-10-31; upgrade the runtime before updating"},
+		// pip is judged by the Python of the scanned image (3.12 here).
+		{"python pip", "pip", time.Date(2029, 11, 1, 0, 0, 0, 0, time.UTC), "Python 3.12 reached the end of its support on 2028-10-01; upgrade the runtime before updating"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, c.manager)

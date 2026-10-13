@@ -82,7 +82,8 @@ type ToolSpec struct {
 	// RuntimeBasis says why Runtime was chosen (the RuntimeBasis values), and
 	// RuntimeDeclared are the declarations about the language it rests on.
 	// RuntimeExcluded are the lower series that the declarations allow and
-	// that were not used. They are empty for the Python runtimes.
+	// that were not used. For Python the basis is a .python-version file or
+	// requires-python alone.
 	RuntimeBasis    string
 	RuntimeDeclared []ToolDeclaration
 	RuntimeExcluded []RuntimeExclusion
@@ -98,12 +99,12 @@ const toolSourceDeclared = "declared"
 // the package manager release the update runs with. A problem is returned as
 // an *UnsupportedError, which makes the unit a manual one before anything runs:
 //   - a declaration that cannot be read, or that contradicts another;
-//   - one the update cannot run with: the runtime is the default Node.js
-//     with npm or pnpm and the default Python with uv (and pip), so a
-//     declaration about the runtime that does not hold there, a manager
-//     version outside the supported range or one that is a pre-release, and
-//     version ranges the build's default manager version is outside of; a
-//     project never gets another manager version than the one it declares;
+//   - one the update cannot run with: no supported series of the runtime
+//     table fits the declarations about Node.js (npm, pnpm) or Python (uv), a
+//     manager version outside the supported range or one that is a
+//     pre-release, and version ranges the build's default manager version is
+//     outside of; a project never gets another manager version than the one it
+//     declares; pip runs in the default Python image and declares nothing;
 //   - a setting that makes the manager fetch a tool or a runtime itself.
 //
 // Mistakes in the input itself (a lockfile that is not the manager's) are not
