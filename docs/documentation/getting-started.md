@@ -49,23 +49,20 @@ docker run -d --name kestrelynx \
   ghcr.io/kitsunetrail/kestrelynx:latest
 ```
 
-!!! warning "Docker socket access"
-
-    Enabling remediation pull requests lets KestreLynx create, start, and remove
-    Docker work containers for language-package updates. The socket's `:ro`
-    mount does not restrict Docker API operations and does not need to change
-    to `:rw`.
+See [Enabling fix pull requests](remediation-setup.md#enable-pull-requests) for Docker socket permissions when enabling fix pull requests.
 
 On Docker, an optional Sensor (experimental) marks findings for packages in use and puts them
 first within the same priority, without changing priority. Setup and observation
 limits are described in [Runtime usage](runtime-usage.md).
 
-### Remediation plans and pull requests
+### Remediation plans and pull requests {#remediation}
 
-On Docker, you can also enable remediation plans and optional GitHub pull
-requests. Both are disabled by default and do not require a Sensor.
-See [Remediation plans and pull requests (experimental)](remediation.md) for
-setup, notification meanings, and the checks to review before merging.
+See the [remediation overview](remediation.md#overview) for an overview of the Docker feature.
+
+| Action | Instructions |
+| --- | --- |
+| Enable update candidate planning | [Enabling remediation plans](remediation-setup.md#enable-fix-plans) |
+| Enable GitHub PR creation | [Enabling fix pull requests](remediation-setup.md#enable-pull-requests) |
 
 ## Run on Kubernetes
 

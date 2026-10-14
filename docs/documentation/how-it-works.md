@@ -37,17 +37,12 @@ Compare with persisted state to detect changes (Chapter 4)
     │
     ├── Slack summary: changes since the previous scan (Chapters 5 and 6)
     ├── Slack thread: current unresolved findings (Chapter 6)
+    ├── Slack remediation plan: display changes and weekly checks (Chapters 5 and 6)
     └── Generic webhook: structured current state and diff (Chapter 7)
 ```
 
-[Remediation plans and pull requests (experimental)](remediation.md) cover
-published image tags, Dockerfile base images, and language packages managed
-with npm, pnpm, pip, or uv. Both are disabled by default and work without a
-Sensor. Planning reads sources and compares image scans under matching
-conditions; it does not write to GitHub or start work containers. With pull
-requests enabled, language updates run in work containers and their output
-and before/after dependency-file scans are checked before proposing a PR.
-Candidate comparisons and PR creation do not resolve findings in the running-image report.
+Remediation plans and optional PR processing propose updates based on scan results.
+See [Processing flow](remediation-logic.md#processing-flow) for scope and order, and [Accepting update results](remediation-logic.md#update-method-and-partial-pull-requests) for candidate acceptance conditions.
 
 ## 1. Scan cycle
 
@@ -198,15 +193,11 @@ Limited source availability is handled as follows.
 
 During degraded triage, nothing is classified as Low, and ordinary and EOL priority-escalation notifications are suppressed.
 
-When `triage.discussion_links` is enabled, Hacker News discussions are added for Act now CVEs. A discussion must match the CVE ID and have at least 20 points. Set `triage.discussion_links: false` to stop sending CVE IDs for discussion searches.
+When `triage.discussion_links` is enabled, Hacker News discussions are added for Act now CVEs.
+A discussion must match the CVE ID and have at least 20 points.
 
-Feed matching does not send the host's complete CVE list to external services.
-
-??? note "Technical details"
-
-    - KEV and EPSS are downloaded in bulk, and CVE IDs are matched locally.
-    - Normal triage evaluates the priority table from top to bottom.
-    - Discussion searches send only Act now CVE IDs to the Hacker News search API.
+Normal triage evaluates the priority table from top to bottom.
+See [Outbound communication](#outbound-communication) for feed sources and data sent during searches.
 
 ## 4. Diff state and change detection
 
@@ -282,7 +273,7 @@ The first run, a missing or corrupt state file, or a state-format version mismat
     - Retention caused by fully or partially failed scans or unconfirmed Kubernetes identities takes precedence over transitions between ordinary and EOL state.
     - State is written to a temporary file and then replaced atomically.
 
-## 5. Notification conditions
+## 5. Notification conditions {#notification-conditions}
 
 The default `notify.mode: diff` reports changes and current unresolved counts. `notify_on_clean` (`notify.notify_on_clean`) controls whether cycles without vulnerabilities also send notifications.
 
@@ -299,18 +290,43 @@ On the weekday selected by `notify.full_report_day`, a full Slack report is adde
 
 With `notify.mode: full`, diff state is not used, and every cycle with findings or scan failures sends the current report. Without either, `notify_on_clean: true` or the remediation conditions below can trigger a report.
 
-With remediation enabled, both notification modes also report changes from the
-last successfully delivered plan, including changes in plan availability or
-saving failures. Generation timestamps alone do not count as changes.
-Undelivered PR operation events and problems that block PR writes also trigger
-delivery; blocking problems are reported each cycle while they persist.
-Delivery failures leave the plan and operation events pending, so notifications
-can repeat without repeating a successful PR creation.
+### Slack delivery conditions for remediation plans {#remediation-slack-delivery}
 
-See [Remediation plans and pull requests (experimental)](remediation.md) for
-notification meanings and the checks described in pull requests.
+Slack remediation plans are sent by comparing their display content with the last delivered display.
 
-## 6. Slack presentation
+- Send when the display content changes
+- In diff mode, also send on the weekly report day if there is content to display
+- For weekly notifications with unchanged content, exclude merged and closed PRs and skip delivery if nothing remains to display
+- Do not send for changes to the plan generation time alone
+
+See [Remediation plans in Slack](remediation-results.md#reading-results-in-slack-and-webhooks) for how to read the display.
+
+### Webhook delivery conditions for remediation plans {#remediation-webhook-delivery}
+
+Webhook remediation plans are compared with the last delivery record independently of the Slack display.
+
+- Send when the plan content, plan availability, or save-failure status changes
+- Send when there are undelivered PR operations
+- Send every cycle while problems that block PR writes persist
+- Do not send for changes to the plan generation time alone
+- Include the current remediation plan when sending an ordinary scan notification or a Slack remediation plan, even if the plan has not changed
+
+See [Common remediation plan fields](#remediation-fields) for the data format.
+
+### Remediation plan redelivery {#remediation-redelivery}
+
+Delivery results are saved in delivery records and used to decide whether to send next time.
+
+- Plans and PR operations whose delivery failed are eligible for redelivery
+- The same notification may also be resent if the delivery record could not be saved
+- Record a completed Slack remediation plan delivery even if other notifications fail
+- Resending a notification does not repeat a successful PR creation
+
+See [Stored files](remediation-reference.md#stored-records) for saved contents and [Matching existing PRs](remediation-logic.md#existing-pr-matching) for PR matching.
+
+## 6. Slack presentation {#slack-display}
+
+See [Remediation plans in Slack](remediation-results.md#reading-results-in-slack-and-webhooks) for the remediation plan display.
 
 In diff mode, Slack channels show changes; in full mode, they show current unresolved findings. Bot threads show the current unresolved findings under `Everything open now`. Empty sections are omitted, and Low remains count-only even in a full report. The generic webhook provides the complete per-CVE data.
 
@@ -325,16 +341,18 @@ Times use the process's local timezone, configured through `TZ` in a container. 
 
 ### Notification language {#notification-language}
 
-`notify.language` accepts `en` (default) or `ja`; other values are configuration
-errors. `notify.language: ja` translates all fixed text in Slack channel
-messages and threads: headings, section descriptions, upgrade-risk labels,
-change types, Open now, warnings, runtime usage, muting, thread structure,
-and guidance lines.
+`notify.language` applies to Slack notifications and PR bodies; generic webhook JSON remains in English.
+See "Notification destinations" in [Configuration](configuration.md) for values and an example.
 
-CVE IDs, package names and versions, image names, severity words such as
-CRITICAL and HIGH, Trivy CVE descriptions (Title), scan-failure error messages,
-and Hacker News discussion link names remain unchanged. Generic webhook JSON
-remains in English regardless of this setting.
+| Content | Display with `notify.language: ja` |
+| --- | --- |
+| Slack channel messages and threads | Fixed text for headings, sections, upgrade risk, changes, warnings, usage, muting, and guidance is displayed in Japanese. |
+| Slack remediation plans | Fixed text for headings, categories, and reasons is displayed in Japanese. |
+| PR bodies | Fixed text for summaries, changes, and check results is displayed in Japanese. |
+| PR titles | Remain in English. |
+| CVE IDs, package names and versions, paths, commands, image names, and severity words | Keep their original form. |
+| Trivy CVE descriptions, scan-failure error messages, and Hacker News discussion link names | Are not translated. |
+| Generic webhook | Keys and descriptions remain in English. |
 
 | English | Japanese notification |
 | --- | --- |
@@ -362,22 +380,22 @@ remains in English regardless of this setting.
 | Change | 変化 |
 | Image | イメージ |
 
-An excerpt from a Japanese diff notification showing a priority escalation:
+An excerpt from an English diff notification showing a priority escalation:
 
 ```text
 ───
-イメージ: web:1.0
+Image: web:1.0
 
 ◆ openssl
-変化: ⬆️ 今すぐ対応に優先度昇格
-現在: 3.0.7
-修正版: 3.0.11
-更新の注意度: 🟢 ディストリのセキュリティパッチ
-検出件数: CRITICAL 1 / HIGH 0
+Change: ⬆️ escalated to ACT NOW
+Installed: 3.0.7
+Fixed in: 3.0.11
+Upgrade risk: 🟢 distro security patch
+Findings: CRITICAL 1 / HIGH 0
 
-代表CVE: CVE-2031-0001 · CRITICAL · EPSS 94%
-悪用情報: CISA KEV (実際の攻撃で悪用あり) · 🧨 ランサムウェア攻撃
-参照: アドバイザリ · ベンダーのアドバイザリ
+Top CVE: CVE-2031-0001 · CRITICAL · EPSS 94%
+Exploitation: CISA KEV (exploited in the wild) · 🧨 ransomware campaign
+References: advisory · vendor advisory
 ```
 
 ### Section order
@@ -694,7 +712,7 @@ An unchanged-day Open now excerpt is:
     - If delivery fails partway through, already posted messages remain, the saved thread reference is not updated, and the next notification attempt posts the report again.
     - Slack's Block Kit presentation leaves the generic webhook JSON payload unchanged.
 
-## 7. Generic webhook
+## 7. Generic webhook {#generic-webhook}
 
 The generic webhook provides the complete current report as structured JSON. It sends to `notify.generic_webhook_url` only when a cycle meets the notification conditions and includes changes in `diff` mode.
 
@@ -725,14 +743,12 @@ Top-level fields provide the scan time, environment, findings by fix status, fai
 | `runtime` | object | Optional Sensor status and usage counts when `runtime.enabled` is true. |
 | `remediation` | object | Remediation plan and optional PR results; omitted when remediation is disabled. |
 
-### Remediation plans and pull requests
+### Common remediation plan fields {#remediation-fields}
 
-The `remediation` object is independent of the Sensor and is included in both
-full and diff payloads when enabled. It describes the current plan and PR
-operation events awaiting delivery, without changing the meaning of ordinary
-findings or `diff.resolved`.
+Field names in the following sections are relative to `remediation`.
+When remediation plans are enabled, this object is included in both full and diff payloads.
 
-| `remediation` field | Type | Meaning |
+| Field | Type | Meaning and omission conditions |
 | --- | --- | --- |
 | `schema_version` | integer | Format version of this object, currently `1`. |
 | `status` | string | `ok` when a plan was produced, or `unavailable`. |
@@ -742,23 +758,158 @@ findings or `diff.resolved`.
 | `conditions` | object | Comparison scan conditions, including `trivy_version` and `severities` when available. |
 | `limits` | object | Planning limits named `max_candidate_scans`, `max_baseline_rescans`, and `max_tag_pages`. |
 | `usage` | object | Work counts named `candidate_scans`, `baseline_rescans`, `tag_pages`, and `registry_requests`. |
-| `summary` / `items` | object / array | Published-image category counts and items with `current`, optional `candidate`, and comparison results. |
+
+See [Plan category values](remediation-reference.md#category-values) for each item's `category` and [Reason codes](remediation-reference.md#reason-codes) for `reason`.
+The `reason` and supplementary `detail` fields are omitted when unavailable.
+
+### Published image fields {#remediation-image-fields}
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
+| `summary` | object | Published-image category counts; omitted when there is no plan. |
+| `items` | array | Published-image items; `[]` when there are no applicable items. |
+| `items[].current` | object | Current image reference and any available identity, tag, digest, and platform. |
+| `items[].candidate` | object | Candidate image reference and identity information; omitted when there is no candidate. |
+| `items[].comparison` | object | Comparability, target count, counts such as resolved, remaining, and new findings, and the decision; omitted when no comparison result is available. |
+| `items[].scans` | array | Roles, targets, and verification results of scans used for comparison; omitted when no records are available. |
+
+See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for comparison conditions.
+
+### Base image fields {#remediation-dockerfile-fields}
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
 | `dockerfile_summary` / `dockerfile_items` | object / array | Base-image category counts and items, when present. |
+| `dockerfile_items[].source` | object | Dockerfile source information. |
+| `dockerfile_items[].candidate` | object | Candidate base image; omitted when there is no candidate. |
+| `dockerfile_items[].entities` | array | Base matching and comparison results for each running image; omitted when unavailable. |
+| `dockerfile_items[].final_image_verified` | boolean | Whether the rebuilt application image has been verified; always `false`. |
+
+See [Verification scope by target](remediation-logic.md#verification-scope) for the scope of checks.
+
+### Language package fields {#remediation-language-fields}
+
+Optional fields are omitted when their information is unavailable.
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
 | `language_summary` / `language_items` | object / array | Language-package category counts and items, when present. |
+| `language_items[].packages[].name` / `ecosystem` / `installed` | string | Package name, ecosystem, and installed version. |
+| `language_items[].packages[].selection_lower_bound` / `adopted_version` | string | Update-target lower bound and adopted version; omitted when unavailable. |
+| `language_items[].update_executed` | boolean | Whether the dependency update ran in this cycle. |
+| `language_items[].post_update_check_executed` | boolean | Whether the post-update check ran in this cycle. |
+| `language_items[].packages[].action` / `reason` / `detail` | string | Per-package action, reason, and details. |
+| `language_items[].packages[].left_out` | boolean | `true` when excluded from the planned update; omitted otherwise. |
+| `language_items[].runtime_eol` | object | `id` and `name` of a runtime requiring manual action because support has ended, plus `eol` when the end date is known. |
+| `language_items[].update.runtime` | object | Runtime `id` and `version`, plus optional `pip`, `image`, `platform`, `digest`, `support`, and `eol`. |
+| `language_items[].update.runtime.basis` / `declared` / `excluded` / `engines_floor` | string / array / array / string | Selection basis, version declarations, excluded version series and reasons, and the lowest Node.js version checked for dependency compatibility, when recorded. |
+| `language_items[].update.tool` | object | Tool `name`, `version`, `source`, and `sha256`, plus optional `format`, `size`, `sha512`, `published_at`, `registry_digest`, and `spec_hash`. |
+| `language_items[].update.manifest_edits[]` | object | `file`, `section`, `name`, `from`, and `to` for manifest changes, plus optional `major_change`. |
+| `language_items[].update.deprecated_changed` | integer | Number of lockfile entries with added, removed, or changed deprecation notes; omitted when `0`. |
+| `language_items[].update.diff.followed[]` | object | `entry` and `moves[]` containing `name`, `from`, and `to` for dependencies whose versions changed as a consequence of the update. |
+| `language_items[].source_check` | object | Dependency-file scan results before and after the update. |
+| `language_items[].artifacts[]` | object | Paths, hashes, and sizes of updated files, excluding their contents. |
+
+See [Package action values](remediation-reference.md#action-values) for `action` and [Tool version selection](remediation-logic.md#tool-version-selection) for the selection basis in `update.tool.source`.
+
+The webhook includes the count of changed deprecation notes, but not the names of affected entries.
+The PR body lists those names and whether notes were added, removed, or changed.
+
+### PR processing fields {#remediation-pr-fields}
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
 | `pull_request_summary` / `pull_requests` | object / array | PR processing status counts and units, when present. |
-| `operations` | array | Undelivered PR operation events with `phase`, `kind`, `repo`, and optional `result` and `error`. |
-| `problems` | array | Problems blocking PR writes, with `code` and optional `reason` and `detail`. |
+| `pull_requests[].status` | string | PR processing status. |
+| `pull_requests[].reason` / `detail` | string | Processing reason and additional details; omitted when unavailable. |
+| `pull_requests[].number` / `url` / `state` | integer / string / string | PR number, URL, and state on GitHub; omitted when unavailable. |
+| `dockerfile_items[].pull_request` | object | Matching PR processing `status` and optional reason, number, URL, and state; omitted when there is no matching operation. |
+| `language_items[].pull_request` | object | Matching PR processing `status` and optional fields such as reason, number, URL, and state. |
+| `pull_requests[].language.remaining[]` | object | `name`, `ecosystem`, `from`, `target`, and `reason` for packages excluded from the PR, plus optional `relation` and `detail`. |
 
-Items use `category` and optional `reason` and `detail` to explain outcomes.
-`dockerfile_items[].final_image_verified` is `false`: comparing base images
-does not verify a rebuilt application image. Language items distinguish
-`update_executed` and `post_update_check_executed` and can include `update`,
-`source_check`, `artifacts`, and `pull_request`.
-Manifest changes appear in `language_items[].update.manifest_edits`, with
-`file`, `section`, `name`, `from`, `to`, and optional `major_change`.
+`language_items[].pull_request` is also omitted when there is no matching PR operation, and `language.remaining` is omitted when there is no exclusion information.
+See [PR status values](remediation-reference.md#pr-status-values) for status definitions.
 
-See [Remediation plans and pull requests (experimental)](remediation.md) for
-how to read notifications, PR checks, and their limits.
+Even when a cycle matches an existing PR without rerunning the update, exclusion information is supplemented from the PR's `language.remaining`.
+The affected packages reflect `left_out`, `action`, and `reason` even if `update_executed` and `post_update_check_executed` are `false` in that cycle.
+
+### PR operation event fields {#remediation-operation-fields}
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
+| `operations` | array | Undelivered PR operation events; omitted when there are no applicable events. |
+| `operations[].seq` / `id` / `at` | integer / string / string | Event sequence number, operation identifier, and RFC 3339 timestamp. |
+| `operations[].phase` / `kind` / `repo` | string | Operation phase, kind, and target repository. |
+| `operations[].attempt_key` / `number` | string / integer | Attempt identifier and PR number; omitted when unavailable. |
+| `operations[].result` / `error` | string | Operation result and error; omitted when unavailable. |
+
+See [Remediation plan redelivery](#remediation-redelivery) for redelivery behavior.
+
+### Write-blocking problem fields {#remediation-problem-fields}
+
+| Field | Type | Meaning and omission conditions |
+| --- | --- | --- |
+| `problems` | array | Problems that block PR writes; omitted when there are no applicable problems. |
+| `problems[].code` | string | Problem classification code. |
+| `problems[].repo` / `target` | string | Target repository and update-target identifier; omitted when unavailable. |
+| `problems[].reason` / `detail` | string | Reason and additional details; omitted when unavailable. |
+
+See [Stopping writes](remediation-logic.md#write-stops) for stop conditions and [Reason codes](remediation-reference.md#reason-codes) for reasons.
+
+### Remediation plan JSON example {#remediation-json-example}
+
+This excerpt shows only the main fields from a payload containing a partial PR.
+
+```json
+{
+  "remediation": {
+    "language_items": [
+      {
+        "category": "pr_candidate",
+        "update_executed": true,
+        "post_update_check_executed": true,
+        "packages": [
+          {
+            "name": "example-a",
+            "ecosystem": "node-pkg",
+            "installed": "1.0.0",
+            "adopted_version": "1.0.1",
+            "action": "update",
+            "reason": "update_verified"
+          },
+          {
+            "name": "example-b",
+            "ecosystem": "node-pkg",
+            "installed": "2.0.0",
+            "selection_lower_bound": "2.0.1",
+            "action": "manual",
+            "reason": "target_not_updated",
+            "left_out": true
+          }
+        ]
+      }
+    ],
+    "pull_requests": [
+      {
+        "kind": "language",
+        "language": {
+          "remaining": [
+            {
+              "name": "example-b",
+              "ecosystem": "node-pkg",
+              "from": "2.0.0",
+              "target": "2.0.1",
+              "reason": "target_not_updated"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+See [Partial PR acceptance conditions](remediation-logic.md#partial-pr-selection) for acceptance conditions and [Partial PRs](remediation-results.md#partial-pull-requests) for how to read the display.
 
 ### Summary
 
@@ -1061,3 +1212,120 @@ New, New CVEs, Now fixable, Unmuted, Resolved, newly detected EOL, new EOL CVEs,
 
 In the full view, the line grouping low-risk fixes includes
 `— full list in the generic webhook payload` only when a generic webhook is configured.
+
+## 9. Outbound communication {#outbound-communication}
+
+### KEV downloads {#kev-download}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `www.cisa.gov` by default | Bulk download of the KEV feed | Triage is enabled and the feed needs to be downloaded or refreshed. |
+
+CVE IDs are matched locally; the list of detected CVEs is not sent.
+See `triage.kev_url` in [Configuration](configuration.md) to change the source, and "Feeds and degraded operation" in Chapter 3 for download failures.
+
+### EPSS downloads {#epss-download}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `epss.empiricalsecurity.com` by default | Bulk download of the EPSS feed | Triage is enabled and the feed needs to be downloaded or refreshed. |
+
+CVE IDs are matched locally; the list of detected CVEs is not sent.
+See `triage.epss_url` in [Configuration](configuration.md) to change the source, and "Feeds and degraded operation" in Chapter 3 for download failures.
+
+### Hacker News searches {#hacker-news-search}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `hn.algolia.com` | Send Act now CVE IDs as search queries and retrieve discussion links | Triage and discussion links are enabled and an eligible CVE is searched. |
+
+See `triage.discussion_links` in [Configuration](configuration.md) to enable searches.
+[Notification delivery](#notification-delivery) continues when searches are disabled.
+
+### Trivy downloads {#trivy-downloads}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| Trivy | Vulnerability database distribution registries | Download databases required for scanning | Databases need to be prepared for ordinary or comparison scans. |
+| Trivy | Target image registries and download destinations | Download images for scanning or comparison | Images required for scanning need to be downloaded. |
+
+See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for comparison conditions.
+
+### GitHub communication {#github-communication}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `api.github.com` | Read mapped repositories, branches, and source files | Remediation planning checks sources. |
+| KestreLynx | `api.github.com` | Match existing PRs and past operation results | PR processing is enabled. |
+| KestreLynx | `api.github.com` | Create commits, branches, PRs, and replacement comments, and close eligible older PRs | PR processing is enabled and write conditions are met. |
+
+PRs may contain image references and digests, workload names, repository names, source paths, changes, package names and versions, vulnerability IDs, comparison results, and processing reasons.
+
+See [PR management](remediation-logic.md#pr-management) for management conditions and [Enabling PR creation](remediation-setup.md#enable-pr-creation) for workflows triggered by PRs.
+
+### Image candidate downloads {#candidate-registry-communication}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | Public image registries or registries with configured authentication | Retrieve tag lists, manifests, configs, and other image identity information | Looking for published-image or base-image candidates. |
+
+See [Image registry authentication](configuration.md#remediation-registries) for authentication settings and [Image candidate selection](remediation-logic.md#image-selection) for candidate discovery.
+
+### Work image downloads {#worker-image-downloads}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| Docker | Docker Hub or the configured mirror | Download official Node.js and Python work images | An image required for a language-package update is not available locally. |
+
+See [Work image source](configuration.md#remediation-worker-registry) for mirror settings and [Pinning official images](remediation-logic.md#worker-images) for pinning and handling unavailable images.
+
+### Tool downloads {#tool-downloads}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `registry.npmjs.org` | Retrieve npm and pnpm version information and distributions | Tool version information needs to be checked or distributions downloaded. |
+| KestreLynx | `pypi.org` and `files.pythonhosted.org` | Retrieve uv version information and distributions | Tool version information needs to be checked or distributions downloaded. |
+
+Tool download requests and redirects are restricted to HTTPS on the hosts in this table.
+See [Tool downloads and verification](remediation-logic.md#tool-verification) for retrieval and verification, and [Tool cache reuse](remediation-logic.md#tool-cache) for reuse.
+
+### Dependency downloads {#dependency-downloads}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `registry.npmjs.org` | Retrieve dependency versions, dependency relationships, and other metadata | Checking Node.js compatibility requirements or update results. |
+| KestreLynx | `pypi.org` and `files.pythonhosted.org` | Retrieve Python package metadata and distributions | Checking Python update results. |
+| Work container | Public npm registry, PyPI, and distribution download destinations | Retrieve metadata and distributions for dependency resolution, lockfile generation, and checks | Running language-package dependency updates. |
+
+See [Update processing by package manager](remediation-logic.md#manager-update-methods) for update processing.
+
+### Notification delivery {#notification-delivery}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | Configured Slack and generic webhook destinations | Send findings, plans, reasons, PR links, and operation results | The delivery conditions for each notification are met. |
+
+Notifications may contain image references and digests, workload names, repository names, source paths, package names and versions, vulnerability IDs, and comparison results.
+Configure destinations according to the information you can share.
+
+See [Notification conditions](#notification-conditions) for delivery conditions and [Generic webhook](#generic-webhook) for JSON contents.
+
+### Credential destinations {#credential-destinations}
+
+| Credentials | Destinations and restrictions |
+| --- | --- |
+| GitHub token | Sent only to `api.github.com` over HTTPS; redirects to other hosts are rejected. |
+| Image registry credentials | Sent over HTTPS only to the configured registry and token services on the same host or allowed by `token_hosts`. |
+| Credentials in KestreLynx image-registry requests | Not forwarded to redirect destinations. |
+| Credentials in Trivy image-registry requests | May be included in redirects within the same host, but are not forwarded to other hosts. |
+| GitHub token and image registry credentials | Not passed to work containers. |
+
+Registries without configured authentication are accessed anonymously.
+See [GitHub access](configuration.md#remediation-github) and [Image registry authentication](configuration.md#remediation-registries) for configuration formats.
+
+### Work container network {#worker-network}
+
+Work containers use Docker bridge networking.
+Destinations are not restricted by a network allowlist.
+
+See [Runtime restrictions](remediation-logic.md#worker-restrictions) for restrictions other than networking.

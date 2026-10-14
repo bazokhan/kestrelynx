@@ -37,16 +37,12 @@ CISA KEVとEPSSで優先度を判定する（3章）
     │
     ├── Slackサマリー：前回からの変化（5・6章）
     ├── Slackスレッド：現在の未解決項目（6章）
+    ├── Slack修正計画：表示内容の変化と週次の確認（5・6章）
     └── 汎用Webhook：現在の状態と差分の構造化データ（7章）
 ```
 
-[修正計画と修正PR（実験的）](remediation.md)は、配布イメージのタグ、Dockerfileの
-ベースイメージ、npm・pnpm・pip・uvで管理する言語パッケージを対象にします。
-どちらも既定で無効で、Sensorなしで利用できます。計画ではソースを読み、条件をそろえて
-イメージのスキャン結果を比較しますが、GitHubへの書き込みや作業用コンテナの起動は行いません。
-PR有効時は言語パッケージを作業用コンテナで更新し、その出力と更新前後の依存ファイルの
-スキャン結果を検査してからPRを提案します。
-候補の比較やPRの作成によって、稼働イメージのレポートの所見が解消になることはありません。
+修正計画と任意のPR処理は、スキャン結果を基に更新を提案します。
+処理の範囲と順序は[処理の流れ](remediation-logic.md#processing-flow)、候補の採用条件は[更新結果の採用](remediation-logic.md#update-method-and-partial-pull-requests)を参照してください。
 
 ## 1. スキャンの流れ
 
@@ -197,15 +193,10 @@ EPSSスコアがない場合は0として扱わず、EPSS条件を判定から�
 
 縮退中はLowへ分類せず、通常とEOLの優先度昇格通知を抑止する。
 
-`triage.discussion_links`が有効なら、Act nowのCVEに関するHacker Newsの議論を追加する。対象はCVE IDが一致する20ポイント以上の議論であり、議論検索のCVE ID送信は`triage.discussion_links: false`で止められる。
+`triage.discussion_links`が有効なら、Act nowのCVEに関するHacker Newsの議論を追加する。対象はCVE IDが一致する20ポイント以上の議論とする。
 
-フィード照合でホストの全CVE一覧を外部送信することはない。
-
-??? note "技術的な詳細"
-
-    - KEVとEPSSは一括取得し、CVE IDとの照合はローカルで行う
-    - 通常のトリアージは、優先度の表を上から順に判定する
-    - 議論検索では、Act nowのCVE IDだけをHacker News検索APIへ送る
+通常のトリアージは、優先度の表を上から順に判定する。
+フィードの取得先と検索時の送信内容は[外向きの通信](#outbound-communication)を参照してください。
 
 ## 4. 差分状態と変化の判定
 
@@ -281,7 +272,7 @@ EOLパッケージの変化は、通常側とは独立して通知する。
     - 全面・一部スキャン失敗やKubernetesの実体未確認による保持は、通常側とEOL側の移動処理より優先する
     - 状態は一時ファイルへ書いたあとアトミックに置き換える
 
-## 5. 通知を送る条件
+## 5. 通知を送る条件 {#notification-conditions}
 
 既定の`notify.mode: diff`では、変化と現在の未解決件数を通知する。脆弱性がない回も通知するかどうかは、`notify_on_clean`（`notify.notify_on_clean`）で指定する。
 
@@ -299,16 +290,43 @@ Kubernetesの実体未確認で以前のパッケージ検出結果を保持中�
 `notify.mode: full`では差分状態を使わず、検出項目かスキャン失敗があれば毎回現在のレポートを送ります。
 どちらもない場合は、`notify_on_clean: true`または以下の修正計画の条件で通知します。
 
-修正計画が有効な場合、どちらの通知モードでも、最後に配信に成功した計画からの変化を
-通知し、計画の利用可否や保存失敗の状態の変化も含みます。生成時刻だけの変化は対象にしません。
-未配信のPR操作のイベントと、PRの書き込みを止める問題も通知の条件になり、
-書き込みを止める問題は継続する間、毎回通知します。
-送信に失敗した計画や操作のイベントは未配信のまま残るため、
-成功したPR作成を繰り返さずに同じ通知が再送される場合があります。
+### 修正計画のSlack送信条件 {#remediation-slack-delivery}
 
-通知の意味とPRに記載する検査内容は[修正計画と修正PR（実験的）](remediation.md)に記載しています。
+Slackの修正計画は、最後に配信した表示内容と比較して送信します。
 
-## 6. Slackでの表示
+- 表示内容が変わった場合に送る
+- diffモードでは、週次レポートの曜日に表示する内容がある場合も送る
+- 表示が変わらない週次通知ではマージ済み・クローズ済みのPRを除き、表示する内容がなければ送らない
+- 計画の生成時刻だけの変化では送らない
+
+表示の読み方は[Slackの修正計画](remediation-results.md#reading-results-in-slack-and-webhooks)を参照してください。
+
+### 修正計画のWebhook送信条件 {#remediation-webhook-delivery}
+
+Webhookの修正計画は、Slackの表示内容とは別に最後の配信記録と比較します。
+
+- 計画内容・計画の利用可否・保存失敗の状態が変わった場合に送る
+- 未配信のPR操作がある場合に送る
+- PRの書き込みを止める問題が続く間は毎回送る
+- 計画の生成時刻だけの変化では送らない
+- 通常のスキャン通知またはSlackの修正計画を送る回には、計画の変化がなくても現在の修正計画を含める
+
+データ形式は[修正計画の共通フィールド](#remediation-fields)を参照してください。
+
+### 修正計画の再送 {#remediation-redelivery}
+
+送信結果を配信記録に反映し、次回の送信判定に使います。
+
+- 送信に失敗した計画やPR操作は再送の対象になる
+- 配信記録を保存できなかった場合も、同じ通知が再送されることがある
+- 他の通知が失敗しても、Slackの修正計画の送信が完了した場合はその配信を記録する
+- 通知の再送に伴って、成功したPR作成を繰り返すことはない
+
+保存内容は[保存ファイル](remediation-reference.md#stored-records)、PRの照合は[既存PRとの照合](remediation-logic.md#existing-pr-matching)を参照してください。
+
+## 6. Slackでの表示 {#slack-display}
+
+修正計画の表示は[Slackの修正計画](remediation-results.md#reading-results-in-slack-and-webhooks)を参照してください。
 
 Slackのチャンネルでは、diffモードは変化を、fullモードは現在の未解決の所見を表示する。Botのスレッドは`Everything open now`（未解決の所見の全体）として現在の未解決の所見を表示する。空の区分は表示せず、完全レポートでもLowは件数だけを示す。CVEごとの全データは汎用Webhookで確認する。
 
@@ -323,15 +341,18 @@ Slackのチャンネルでは、diffモードは変化を、fullモードは現�
 
 ### 通知の言語 {#notification-language}
 
-`notify.language`は`en`（既定）か`ja`を指定し、それ以外は設定エラーになる。
-`notify.language: ja`では、Slackのチャンネル本文とスレッドの定型文すべてを日本語で表示する。
-対象は、見出し、区分の説明、アップグレードの注意度、変化の種類、Open now、警告、
-稼働時の使用状況の文言、通知オフの文言、スレッドの構成、案内の行である。
+`notify.language`はSlack通知とPR本文に適用し、汎用WebhookのJSONは英語のままとする。
+設定値と設定例は[設定](configuration.md)の「通知先」を参照してください。
 
-CVEの番号、パッケージ名・版・イメージ名、深刻度の語（CRITICAL・HIGHなど）、
-Trivyが出すCVEの説明文（Title）、スキャン失敗のエラーメッセージ、
-Hacker Newsの議論のリンク名は英語のまま残る。
-汎用WebhookのJSONも、言語の設定に関係なく英語のままである。
+| 対象 | `notify.language: ja`での表示 |
+| --- | --- |
+| Slackのチャンネル本文・スレッド | 見出し、区分、注意度、変化、警告、使用状況、通知オフ、案内などの定型文を日本語で表示 |
+| Slackの修正計画 | 見出し、分類、理由などの定型文を日本語で表示 |
+| PR本文 | 概要、変更内容、検査結果などの定型文を日本語で表示 |
+| PRタイトル | 英語のまま |
+| CVEの番号、パッケージ名・版・パス・コマンド・イメージ名、深刻度の語 | 元の表記のまま |
+| TrivyのCVE説明文、スキャン失敗のエラーメッセージ、Hacker Newsの議論のリンク名 | 翻訳しない |
+| 汎用Webhook | キーや説明は英語のまま |
 
 | 英語 | 日本語の通知 |
 | --- | --- |
@@ -689,7 +710,7 @@ Botは変化があった日と週次レポートの日に現在状態をスレ�
     - 途中で送信に失敗した場合は投稿済みのメッセージを残し、保存済みのスレッド参照を更新せず、次回の通知の試行でレポートを改めて投稿する
     - SlackのBlock Kit表示は汎用WebhookのJSON payloadを変更しない
 
-## 7. 汎用Webhook
+## 7. 汎用Webhook {#generic-webhook}
 
 汎用Webhookでは、現在の完全なレポートを構造化JSONで取得できる。`notify.generic_webhook_url`へ通知条件を満たした回だけ送り、`diff`モードでは差分も含める。
 
@@ -720,13 +741,12 @@ Low、通知オフの所見、Slackで畳み込むEOLパッケージ、コンテ
 | `runtime` | object | `runtime.enabled`がtrueの場合のSensorの状態と使用状況の件数で、省略可能 |
 | `remediation` | object | 修正計画と任意のPR処理の結果で、修正計画が無効なら省略 |
 
-### 修正計画と修正PR
+### 修正計画の共通フィールド {#remediation-fields}
 
-`remediation`はSensorとは独立したオブジェクトで、有効時はfull・diffの両方の
-ペイロードに含めます。現在の計画と配信待ちのPR操作のイベントを表し、
-通常の所見や`diff.resolved`の意味は変えません。
+以下の各節のフィールド名は、`remediation`からの相対パスです。
+修正計画が有効な場合、full・diffの両方のペイロードに含めます。
 
-| `remediation`のフィールド名 | 型 | 意味 |
+| フィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
 | `schema_version` | integer | このオブジェクトの形式の版で、現在は`1` |
 | `status` | string | 計画を作成できた場合は`ok`、それ以外は`unavailable` |
@@ -736,22 +756,158 @@ Low、通知オフの所見、Slackで畳み込むEOLパッケージ、コンテ
 | `conditions` | object | 比較スキャンの条件で、取得できた場合の`trivy_version`や`severities`など |
 | `limits` | object | 計画の上限で、`max_candidate_scans`、`max_baseline_rescans`、`max_tag_pages` |
 | `usage` | object | 処理件数で、`candidate_scans`、`baseline_rescans`、`tag_pages`、`registry_requests` |
-| `summary` / `items` | object / 配列 | 配布イメージの分類別件数と、`current`、任意の`candidate`、比較結果を含む項目 |
+
+各項目の`category`の定義は[計画の分類値](remediation-reference.md#category-values)、`reason`の定義は[理由コード](remediation-reference.md#reason-codes)を参照してください。
+`reason`と補足の`detail`は、情報がない場合に省略します。
+
+### 配布イメージのフィールド {#remediation-image-fields}
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `summary` | object | 配布イメージの分類別件数で、計画がない場合は省略 |
+| `items` | 配列 | 配布イメージの項目で、該当項目がない場合は`[]` |
+| `items[].current` | object | 現在のイメージ参照と、取得できた実体・タグ・digest・platform |
+| `items[].candidate` | object | 候補のイメージ参照と実体情報で、候補がない場合は省略 |
+| `items[].comparison` | object | 比較可否、対象数、解消・残存・新規などの件数と判定で、比較結果がない場合は省略 |
+| `items[].scans` | 配列 | 比較に使ったスキャンの役割・対象・確認結果で、記録がない場合は省略 |
+
+比較条件は[スキャンの比較条件](remediation-logic.md#comparison-conditions)を参照してください。
+
+### ベースイメージのフィールド {#remediation-dockerfile-fields}
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
 | `dockerfile_summary` / `dockerfile_items` | object / 配列 | 該当項目がある場合のベースイメージの分類別件数と項目 |
+| `dockerfile_items[].source` | object | Dockerfileのソース情報 |
+| `dockerfile_items[].candidate` | object | 候補のベースイメージで、候補がない場合は省略 |
+| `dockerfile_items[].entities` | 配列 | 稼働イメージごとのベースとの照合と比較結果で、情報がない場合は省略 |
+| `dockerfile_items[].final_image_verified` | boolean | 再ビルド後のアプリケーションイメージの検証有無で、常に`false` |
+
+検査の範囲は[対象別の検証範囲](remediation-logic.md#verification-scope)を参照してください。
+
+### 言語パッケージのフィールド {#remediation-language-fields}
+
+情報がない任意のフィールドは省略します。
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
 | `language_summary` / `language_items` | object / 配列 | 該当項目がある場合の言語パッケージの分類別件数と項目 |
+| `language_items[].packages[].name` / `ecosystem` / `installed` | string | パッケージ名、エコシステム、稼働版 |
+| `language_items[].packages[].selection_lower_bound` / `adopted_version` | string | 更新目標の下限と採用版で、情報がない場合は省略 |
+| `language_items[].update_executed` | boolean | この回に依存更新を実行したか |
+| `language_items[].post_update_check_executed` | boolean | この回に更新後の検査を実行したか |
+| `language_items[].packages[].action` / `reason` / `detail` | string | パッケージごとの対応と理由・詳細 |
+| `language_items[].packages[].left_out` | boolean | 計画した更新から除外された場合は`true`、それ以外は省略 |
+| `language_items[].runtime_eol` | object | サポート終了により手動対応となる実行環境の`id`・`name`と、分かる場合の終了日`eol` |
+| `language_items[].update.runtime` | object | 実行環境の`id`・`version`と、任意の`pip`・`image`・`platform`・`digest`・`support`・`eol` |
+| `language_items[].update.runtime.basis` / `declared` / `excluded` / `engines_floor` | string / 配列 / 配列 / string | 記録がある場合の選定根拠、版宣言、選ばなかった系列と理由、依存の互換性を確認した最低Node.js版 |
+| `language_items[].update.tool` | object | ツールの`name`・`version`・`source`・`sha256`と、任意の`format`・`size`・`sha512`・`published_at`・`registry_digest`・`spec_hash` |
+| `language_items[].update.manifest_edits[]` | object | manifestの変更箇所の`file`・`section`・`name`・`from`・`to`と、任意の`major_change` |
+| `language_items[].update.deprecated_changed` | integer | 非推奨注記が追加・削除・変更されたlockfile項目の件数で、`0`なら省略 |
+| `language_items[].update.diff.followed[]` | object | 更新に伴って依存先の版が変わった項目の`entry`と、`name`・`from`・`to`を持つ`moves[]` |
+| `language_items[].source_check` | object | 更新前後の依存ファイルのスキャン結果 |
+| `language_items[].artifacts[]` | object | 更新したファイルのパス・ハッシュ・サイズで、ファイルの内容は含まない |
+
+`action`の定義は[パッケージの処理値](remediation-reference.md#action-values)、`update.tool.source`の選定根拠は[ツール版の選定](remediation-logic.md#tool-version-selection)を参照してください。
+
+非推奨注記の変更件数はWebhookに含めますが、対象名の一覧は含めません。
+対象名と注記の追加・削除・変更はPR本文で確認します。
+
+### PR処理のフィールド {#remediation-pr-fields}
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
 | `pull_request_summary` / `pull_requests` | object / 配列 | 該当項目がある場合のPR処理の状態別件数と処理単位 |
-| `operations` | 配列 | `phase`、`kind`、`repo`と、任意の`result`、`error`を含む未配信のPR操作のイベント |
-| `problems` | 配列 | `code`と任意の`reason`、`detail`を含む、PRの書き込みを止める問題 |
+| `pull_requests[].status` | string | PR処理の状態 |
+| `pull_requests[].reason` / `detail` | string | 処理の理由と補足で、情報がない場合は省略 |
+| `pull_requests[].number` / `url` / `state` | integer / string / string | PRの番号・URL・GitHub上の状態で、情報がない場合は省略 |
+| `dockerfile_items[].pull_request` | object | 対応するPR処理の`status`と、任意の理由・番号・URL・状態で、対応する処理がない場合は省略 |
+| `language_items[].pull_request` | object | 対応するPR処理の`status`と、任意の理由・番号・URL・状態など |
+| `pull_requests[].language.remaining[]` | object | PRに含めなかったパッケージの`name`・`ecosystem`・`from`・`target`・`reason`と、任意の`relation`・`detail` |
 
-各項目の結果は`category`と任意の`reason`、`detail`で説明します。
-`dockerfile_items[].final_image_verified`は`false`で、ベースイメージの比較は
-再ビルド後のアプリケーションイメージの検証ではありません。
-言語パッケージの項目は`update_executed`と`post_update_check_executed`を分け、
-`update`、`source_check`、`artifacts`、`pull_request`を含む場合があります。
-manifestの変更は`language_items[].update.manifest_edits`に、
-`file`、`section`、`name`、`from`、`to`と任意の`major_change`で記録します。
+`language_items[].pull_request`も対応するPR処理がない場合は省略し、`language.remaining`は除外情報がない場合に省略します。
+状態の定義は[PRの状態値](remediation-reference.md#pr-status-values)を参照してください。
 
-通知の読み方、PRの検査とその限界は[修正計画と修正PR（実験的）](remediation.md)に記載しています。
+既存PRに対応付けて更新を再実行しなかった回も、PR側の`language.remaining`から除外情報を補います。
+その回の`update_executed`・`post_update_check_executed`が`false`でも、該当パッケージには`left_out`・`action`・`reason`を反映します。
+
+### PR操作イベントのフィールド {#remediation-operation-fields}
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `operations` | 配列 | 未配信のPR操作イベントで、該当イベントがない場合は省略 |
+| `operations[].seq` / `id` / `at` | integer / string / string | イベントの連番、操作の識別子、RFC 3339形式の時刻 |
+| `operations[].phase` / `kind` / `repo` | string | 操作の段階、種類、対象リポジトリ |
+| `operations[].attempt_key` / `number` | string / integer | 試行の識別子とPR番号で、情報がない場合は省略 |
+| `operations[].result` / `error` | string | 操作結果とエラーで、情報がない場合は省略 |
+
+再送は[修正計画の再送](#remediation-redelivery)を参照してください。
+
+### 書き込み停止のフィールド {#remediation-problem-fields}
+
+| フィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `problems` | 配列 | PRの書き込みを止める問題で、該当する問題がない場合は省略 |
+| `problems[].code` | string | 問題の分類コード |
+| `problems[].repo` / `target` | string | 対象のリポジトリと更新対象の識別子で、情報がない場合は省略 |
+| `problems[].reason` / `detail` | string | 理由と補足で、情報がない場合は省略 |
+
+停止条件は[書き込みの停止](remediation-logic.md#write-stops)、理由は[理由コード](remediation-reference.md#reason-codes)を参照してください。
+
+### 修正計画のJSON例 {#remediation-json-example}
+
+部分PRを含むペイロードから、主要フィールドだけを抜粋した例です。
+
+```json
+{
+  "remediation": {
+    "language_items": [
+      {
+        "category": "pr_candidate",
+        "update_executed": true,
+        "post_update_check_executed": true,
+        "packages": [
+          {
+            "name": "example-a",
+            "ecosystem": "node-pkg",
+            "installed": "1.0.0",
+            "adopted_version": "1.0.1",
+            "action": "update",
+            "reason": "update_verified"
+          },
+          {
+            "name": "example-b",
+            "ecosystem": "node-pkg",
+            "installed": "2.0.0",
+            "selection_lower_bound": "2.0.1",
+            "action": "manual",
+            "reason": "target_not_updated",
+            "left_out": true
+          }
+        ]
+      }
+    ],
+    "pull_requests": [
+      {
+        "kind": "language",
+        "language": {
+          "remaining": [
+            {
+              "name": "example-b",
+              "ecosystem": "node-pkg",
+              "from": "2.0.0",
+              "target": "2.0.1",
+              "reason": "target_not_updated"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+成立条件は[部分PRの成立条件](remediation-logic.md#partial-pr-selection)、表示の読み方は[部分PR](remediation-results.md#partial-pull-requests)を参照してください。
 
 ### サマリー
 
@@ -1053,3 +1209,120 @@ Open nowは、保持中の記録を含むEOL件数を先に表示する。続く
 
 全量ビューで低リスクの修正をまとめる行には、汎用Webhookを設定しているときだけ
 `— full list in the generic webhook payload`を付ける。
+
+## 9. 外向きの通信 {#outbound-communication}
+
+### KEVの取得 {#kev-download}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 既定は`www.cisa.gov` | KEVフィードを一括取得 | トリアージが有効で、フィードの取得・更新が必要な場合 |
+
+CVE IDとの照合はローカルで行い、検出したCVE一覧は送信しません。
+取得先の変更は[設定](configuration.md)の`triage.kev_url`、取得失敗時の扱いは第3章の「フィードと縮退動作」を参照してください。
+
+### EPSSの取得 {#epss-download}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 既定は`epss.empiricalsecurity.com` | EPSSフィードを一括取得 | トリアージが有効で、フィードの取得・更新が必要な場合 |
+
+CVE IDとの照合はローカルで行い、検出したCVE一覧は送信しません。
+取得先の変更は[設定](configuration.md)の`triage.epss_url`、取得失敗時の扱いは第3章の「フィードと縮退動作」を参照してください。
+
+### Hacker Newsの検索 {#hacker-news-search}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | `hn.algolia.com` | Act nowのCVE IDを検索クエリとして送り、議論のリンクを取得 | トリアージと議論リンクが有効で、対象のCVEを検索する場合 |
+
+検索の有効化は[設定](configuration.md)の`triage.discussion_links`を参照してください。
+検索を無効にしても、[通知先への送信](#notification-delivery)は継続します。
+
+### Trivyの取得通信 {#trivy-downloads}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| Trivy | 脆弱性データベースの配布レジストリ | スキャンに必要なデータベースを取得 | 通常のスキャンや比較スキャンでDBの準備が必要な場合 |
+| Trivy | 対象イメージのレジストリと取得先 | スキャン対象または比較用のイメージを取得 | スキャンに必要なイメージを取得する場合 |
+
+比較に使う条件は[スキャンの比較条件](remediation-logic.md#comparison-conditions)を参照してください。
+
+### GitHubへの通信 {#github-communication}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | `api.github.com` | 対応付けたリポジトリ・ブランチ・ソースファイルの読み取り | 修正計画でソースを確認する場合 |
+| KestreLynx | `api.github.com` | 既存PRと過去の操作結果の照合 | PR処理が有効な場合 |
+| KestreLynx | `api.github.com` | コミット・ブランチ・PR・置き換えコメントの作成、条件を満たした古いPRのクローズ | PR処理が有効で、書き込みの条件を満たした場合 |
+
+PRにはイメージ参照とdigest、Workload名、リポジトリ名、ソースのパス、変更内容、パッケージ名と版、脆弱性ID、比較結果、処理の理由などが含まれることがあります。
+
+管理の条件は[PRの管理](remediation-logic.md#pr-management)、PRによるワークフローの起動は[PR作成の有効化](remediation-setup.md#enable-pr-creation)を参照してください。
+
+### イメージ候補の取得 {#candidate-registry-communication}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 公開または認証設定済みのイメージレジストリ | タグ一覧、manifest、configなど、イメージの実体確認に使う情報を取得 | 配布イメージやベースイメージの候補を調べる場合 |
+
+認証の設定は[イメージレジストリの認証](configuration.md#remediation-registries)、候補の探索は[イメージ候補の選定](remediation-logic.md#image-selection)を参照してください。
+
+### 作業用イメージの取得 {#worker-image-downloads}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| Docker | Docker Hubまたは設定したミラー | 作業用の公式Node.js・Pythonイメージを取得 | 言語パッケージの更新に必要なイメージがローカルにない場合 |
+
+ミラーの設定は[作業用イメージの取得先](configuration.md#remediation-worker-registry)、固定と取得不能時の扱いは[公式イメージの固定](remediation-logic.md#worker-images)を参照してください。
+
+### ツールの取得 {#tool-downloads}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | `registry.npmjs.org` | npm・pnpmの版情報と配布物を取得 | ツールの版情報の確認や配布物の取得が必要な場合 |
+| KestreLynx | `pypi.org`・`files.pythonhosted.org` | uvの版情報と配布物を取得 | ツールの版情報の確認や配布物の取得が必要な場合 |
+
+ツール取得の要求とリダイレクトは、この表のホストへのHTTPS通信に制限します。
+取得・照合は[ツールの取得と照合](remediation-logic.md#tool-verification)、再利用は[ツールキャッシュの再利用](remediation-logic.md#tool-cache)を参照してください。
+
+### 依存パッケージの取得 {#dependency-downloads}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | `registry.npmjs.org` | 依存パッケージの版・依存関係などの情報を取得 | Node.jsの互換条件や更新結果を照合する場合 |
+| KestreLynx | `pypi.org`・`files.pythonhosted.org` | Pythonパッケージの情報・配布物を取得 | Pythonの更新結果を照合する場合 |
+| 作業用コンテナ | 公開npmレジストリ・PyPIと配布物の取得先 | 依存解決、lockfile生成、検査に必要な情報・配布物を取得 | 言語パッケージの依存更新を実行する場合 |
+
+更新処理は[マネージャー別の更新処理](remediation-logic.md#manager-update-methods)を参照してください。
+
+### 通知先への送信 {#notification-delivery}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 設定したSlack・汎用Webhook | 所見、計画、理由、PRのリンクや操作結果を送信 | 各通知の送信条件を満たした場合 |
+
+通知にはイメージ参照とdigest、Workload名、リポジトリ名、ソースのパス、パッケージ名と版、脆弱性ID、比較結果などが含まれることがあります。
+共有できる範囲に合わせて通知先を設定してください。
+
+送信条件は[通知を送る条件](#notification-conditions)、JSONの内容は[汎用Webhook](#generic-webhook)を参照してください。
+
+### 認証情報の送付範囲 {#credential-destinations}
+
+| 認証情報 | 送付先・制限 |
+| --- | --- |
+| GitHub token | HTTPSの`api.github.com`だけに送り、別ホストへのリダイレクトは拒否 |
+| イメージレジストリの認証情報 | HTTPSで設定したレジストリ自身と、同じホストまたは`token_hosts`で許可したtoken serviceだけに送付 |
+| KestreLynxによるイメージレジストリへの要求の認証情報 | リダイレクト先へ引き継がない |
+| Trivyによるイメージレジストリへの要求の認証情報 | 同じホスト内のリダイレクトには付く場合があるが、別ホストへは引き継がない |
+| GitHub token・イメージレジストリの認証情報 | 作業用コンテナへ渡さない |
+
+認証を設定していないレジストリには匿名でアクセスします。
+設定形式は[GitHubアクセス](configuration.md#remediation-github)と[イメージレジストリの認証](configuration.md#remediation-registries)を参照してください。
+
+### 作業用コンテナのネットワーク {#worker-network}
+
+作業用コンテナはDockerのbridgeネットワークを使います。
+通信先をネットワークの許可リストで制限する構成ではありません。
+
+ネットワーク以外の制限は[実行時の制限](remediation-logic.md#worker-restrictions)を参照してください。

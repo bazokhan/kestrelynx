@@ -34,7 +34,7 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 | `notify.slack_bot_token` | 空 | `chat:write`権限を持つSlack Bot Tokenです。`slack_channel`と一緒に設定します。 |
 | `notify.slack_channel` | 空 | Botで通知するSlackチャンネルIDです。 |
 | `notify.generic_webhook_url` | 空 | 構造化JSONを受け取るエンドポイントです。 |
-| `notify.language` | `en` | Slack通知の言語です。`en`か`ja`を指定し、それ以外は設定エラーです。汎用WebhookのJSONは英語のままです。 |
+| `notify.language` | `en` | Slack通知とPR本文の言語です。`en`か`ja`を指定し、それ以外は設定エラーです。汎用WebhookのJSONは英語のままです。 |
 | `notify.notify_on_clean` | `false` | 脆弱性がない場合にも通知します。 |
 
 `slack_webhook_url`とBot Tokenの組み合わせを同時には設定できません。
@@ -80,84 +80,151 @@ diffモードでは、新規検出、解消、修正可能化、優先度昇格�
 永続化してください。脅威情報フィードのキャッシュは、`state.path`と同じディレクトリ内の
 `intel`ディレクトリに保存します。既定のパスは`/var/lib/kestrelynx/intel`です。
 
-## 修正計画と修正PR
+## 修正計画と修正PR {#remediation}
 
-[修正計画と修正PR（実験的）](remediation.md)はDocker向けの機能で、Composeのソースを
-対応付けて利用できます。2つの有効化設定は、どちらも既定で`false`です。
+機能の入口は[修正計画の案内](remediation.md#contents)、有効化は[有効化の手順](remediation-setup.md)を参照してください。
+
+### 有効化設定 {#remediation-enablement}
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `remediation.enabled` | `false` | 候補の選定、スキャン結果の比較、読み取りだけの修正計画の通知を行い、GitHubへの書き込みや作業用コンテナは使いません。 |
-| `remediation.pull_requests.enabled` | `false` | 検査した変更からGitHubにPRを作成し、言語パッケージの更新にはDockerの作業用コンテナを使います。 |
-| `remediation.github.token` | 空 | 対応付けたリポジトリ用のGitHub tokenで、PRには必須です。 |
-| `remediation.mappings` | `[]` | 稼働中のComposeワークロードとGitHub上のソースファイルを対応付けます。 |
-| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | 計画、配信記録、PR記録を保存する絶対パスのディレクトリです。 |
-| `remediation.worker.image` | 空 | リリースに対応する作業用イメージを、digest付きの参照で上書きします。 |
+| `remediation.enabled` | `false` | 修正計画を有効にします。 |
+| `remediation.pull_requests.enabled` | `false` | 修正PRを有効にします。修正計画の有効化とGitHub tokenが必要です。 |
 
-tokenが空の場合、計画では公開リポジトリを匿名で読み取れます。
-非公開リポジトリには、対象リポジトリに限定し、Contentsの読み取り権限を持つ
-fine-grained tokenを使います。PRにはContentsとPull requestsのRead and write権限が
-必要です。設定ファイルは所有者だけが読めるようにしてください。
-tokenは作業用コンテナへ渡しません。PRの作成でリポジトリのCIが起動する場合があります。
+各設定で行う処理は[計画とPRの実行範囲](remediation-logic.md#plan-and-pr-execution)を参照してください。
 
-コンテナを作り直しても`remediation.storage_dir`を保持してください。
-既定では同梱の状態保存用ボリューム内にありますが、`state.path`を変えてもこの保存先は変わりません。
+### GitHubアクセス {#remediation-github}
 
-### ソースの対応付け
+| 設定項目 | 既定値 | 形式・必須条件 |
+| --- | --- | --- |
+| `remediation.github.token` | 空 | 空白・制御文字を含まないGitHub tokenで、PRを有効にする場合は必須です。 |
 
-`remediation.mappings`の各項目に、`workload`、`repository`、`base_branch`と、
-ちょうど1種類のソースを設定します。
-
-| 対応付け内のフィールド | 説明 |
+| 用途 | 必要な権限 |
 | --- | --- |
-| `workload` | 稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`です。 |
-| `repository` | `owner/name`形式のGitHubリポジトリです。 |
-| `base_branch` | ソースの取得元とPRの宛先に使うブランチです。 |
-| `compose.path` / `compose.service` | リポジトリ相対のComposeファイルと、イメージ参照を編集するサービスです。 |
-| `dockerfile.path` / `dockerfile.target` | リポジトリ相対のDockerfileと任意のビルド対象ステージで、targetを省略すると最後のステージを使います。 |
-| `dependencies.directory` | npm・pnpm・pip・uvの依存ファイルを含むディレクトリで、`.`はリポジトリのルートです。 |
+| 公開リポジトリの計画 | tokenなしで匿名の読み取りが可能 |
+| 非公開リポジトリの計画 | 対象リポジトリに限定したfine-grained tokenのContents: Read |
+| PRの作成・管理 | 対象リポジトリに限定したfine-grained tokenのContentsとPull requests: Read and write |
 
-パスはリポジトリ内の正規化したパスとし、先頭の`/`、`./`、`..`、
-バックスラッシュは使えません。同じワークロードには、ソースの種類ごとに1件ずつ、
-別の項目で対応付けを設定できます。共有する依存ディレクトリやDockerfileは
-同じbase branchを指定し、同じComposeファイルのサービスを複数のワークロードに対応付けることはできません。
+設定ファイルは所有者だけが読めるようにしてください。
+tokenの送付先は[認証情報の送付範囲](how-it-works.md#credential-destinations)を参照してください。
 
-Composeサービスの`build`が対応する静的な形式なら、別のDockerfileの対応付けなしで
-パスとtargetを取得できます。両方を設定する場合は、一致している必要があります。
+### 保存先 {#remediation-storage}
 
-### 処理の上限
+| 設定項目 | 既定値 | 形式・説明 |
+| --- | --- | --- |
+| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | 計画、配信記録、PR記録、ツールキャッシュを保存する絶対パスのディレクトリです。 |
+
+`state.path`を変えても、この保存先は変わりません。
+内容は[保存ファイル](remediation-reference.md#stored-records)を参照してください。
+
+### イメージレジストリの認証 {#remediation-registries}
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `remediation.registries` | `[]` | 非公開イメージの候補選定と比較スキャンに使う、ホストごとの認証設定です。 |
+
+| フィールド | 既定値・必須条件 | 形式・検証条件 |
+| --- | --- | --- |
+| `host` | 必須 | イメージ参照に書くホスト名またはIPv4アドレスと任意のポートで、scheme・パス・ユーザー情報は含めません。ポートは`1`〜`65535`です。 |
+| `username` | 必須 | 空白・制御文字・`:`を含まない、空でない文字列です。 |
+| `password` | 必須 | 空白・制御文字を含まない、空でないパスワードまたはアクセストークンです。 |
+| `token_hosts` | `[]` | 認証情報を送ってよい追加のtoken serviceのホスト一覧で、各値の形式は`host`と同じです。 |
+
+- ホスト名は大文字・小文字を区別せず、`docker.io`・`index.docker.io`・`registry-1.docker.io`は同じホストとして扱う
+- 正規化後に同じ`host`となる認証設定は重複して指定できない
+- Docker Hubの認証には`host: docker.io`と`token_hosts: [auth.docker.io]`を指定する
+
+送付先とリダイレクトの制限は[認証情報の送付範囲](how-it-works.md#credential-destinations)、設定手順は[非公開イメージの認証](remediation-setup.md#configure-registry-auth)を参照してください。
+
+### ソースの対応付け {#remediation-mappings}
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `remediation.mappings` | `[]` | 稼働中のComposeワークロードとGitHub上のソースファイルを対応付けます。 |
+
+各項目に`workload`、`repository`、`base_branch`と、ちょうど1種類のソースを設定します。
+
+| 対応付け内のフィールド | 必須条件・形式 |
+| --- | --- |
+| `workload` | 必須で、稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`です。 |
+| `repository` | 必須で、`owner/name`形式のGitHubリポジトリです。 |
+| `base_branch` | 必須で、ソースの取得元とPRの宛先に使う有効なGitブランチ名です。 |
+| `compose.path` / `compose.service` | Composeの対応付けで必須の、リポジトリ相対のComposeファイルとサービス名です。 |
+| `dockerfile.path` | Dockerfileの対応付けで必須の、リポジトリ相対のDockerfileです。 |
+| `dockerfile.target` | 任意のビルド対象ステージで、省略すると最後のステージを使います。英字で始まる128バイト以内の英数字・`_`・`.`・`-`です。 |
+| `dependencies.directory` | 依存ファイルの対応付けで必須のディレクトリで、`.`はリポジトリのルートです。 |
+
+- パスはリポジトリ内の正規化したパスとし、先頭の`/`、`./`、`..`、バックスラッシュを使わない
+- 同じワークロードには、ソースの種類ごとに1件ずつ、別の項目で対応付ける
+- 共有する依存ディレクトリやDockerfileには同じbase branchを指定する
+- 同じリポジトリの同じComposeファイルのサービスを複数のワークロードに対応付けない
+- リポジトリ名の重複判定では大文字・小文字を区別しない
+
+Composeの`build`からの特定と明示したDockerfileとの照合は[ベースイメージの特定](remediation-logic.md#base-image-selection)、入力の対応範囲は[対応する入力形式](remediation-reference.md#supported-inputs)を参照してください。
+
+### 処理の上限 {#remediation-limits}
 
 次の設定は`remediation.limits`配下に指定します。
-上限を超えた処理は、候補なしではなく延期として通知します。
 
-| 設定項目 | 既定値 | 説明 |
+| 設定項目 | 既定値 | 単位・指定範囲 |
 | --- | --- | --- |
-| `candidate_scans_per_cycle` | `10` | 1サイクルの候補イメージのスキャン上限です。 |
-| `baseline_rescans_per_cycle` | `10` | 比較条件をそろえるために行う、1サイクルの比較元の再スキャン上限です。 |
-| `registry_requests_per_cycle` | `200` | token交換を含む、1サイクルのイメージレジストリへのHTTP要求の上限です。 |
-| `tag_pages_per_repository` | `20` | イメージリポジトリごとのタグ一覧のページ上限です。 |
-| `cycle_timeout` | `30m` | 計画、依存更新、PR処理の期限で、通常の稼働イメージのスキャンは含みません。 |
-| `new_prs_per_cycle` | `3` | 1サイクルで新しく作成するPRの上限です。 |
-| `open_prs` | `10` | 設定したリポジトリ全体で開いているKestreLynxのPRの上限です。 |
-| `dependency_jobs_per_cycle` | `3` | 1サイクルで試みる依存更新の単位数の上限です（パッケージ数やコンテナ数ではありません）。pipの単位やmanifestを編集する単位など、1つの単位で複数のコンテナを使うことがあります。 |
-| `job_timeout` | `6m` | 各作業用コンテナの作成・実行・結果回収の期限で、`1m`〜`60m30s`を指定でき、内部のジョブには30秒短い期限を渡します。後片付けには別途30秒の期限を使います。 |
+| `candidate_scans_per_cycle` | `10` | 1サイクルの候補イメージのスキャン数で、正の整数です。 |
+| `baseline_rescans_per_cycle` | `10` | 比較条件をそろえるための1サイクルの比較元の再スキャン数で、正の整数です。 |
+| `registry_requests_per_cycle` | `200` | token交換を含む1サイクルのイメージレジストリへのHTTP要求数で、正の整数です。 |
+| `tag_pages_per_repository` | `20` | イメージリポジトリごとのタグ一覧取得の要求数で、対象系列を探索する要求も含む正の整数です。 |
+| `cycle_timeout` | `30m` | 計画、依存更新、PR処理の期限で、正の期間です。通常の稼働イメージのスキャンは含みません。 |
+| `new_prs_per_cycle` | `3` | PR有効時の1サイクルの新規PR数で、正の整数です。 |
+| `open_prs` | `10` | PR有効時の設定したリポジトリ全体で開いているKestreLynxのPR数で、正の整数です。 |
+| `dependency_jobs_per_cycle` | `3` | 1サイクルで試みる依存更新の単位数で、正の整数です。パッケージ数やコンテナ数ではありません。 |
+| `job_timeout` | `6m` | 各作業用コンテナの作成・実行・結果回収の期限で、`1m`〜`60m30s`です。 |
 
-PRの上限はPR有効時に適用します。`open_prs`の枠を空けるためだけに
-既存PRを閉じることはありません。
+上限による結果は[理由コード](remediation-reference.md#reason-codes)、PRの扱いは[PRの管理](remediation-logic.md#pr-management)、実行期限と後処理は[作業用コンテナの実行](remediation-logic.md#worker-execution)を参照してください。
 
-### 作業用イメージと起動時の検証
+### 作業用イメージの取得先 {#remediation-worker-registry}
 
-本体のリリースごとに、`ghcr.io/kitsunetrail/kestrelynx-worker`のイメージをdigestで
-固定しています。`worker.image`を空にするとそのイメージを使い、ミラーや検証用の
-作業用イメージには`repository@sha256:<小文字の16進数64桁>`を指定できます。
-初めて必要になったときに取得します。取得できない場合や、独自ビルドに既定イメージがなく
-上書きも指定していない場合は、言語パッケージの更新を延期し、本体のコンテナ内で
-パッケージマネージャーを代わりに実行することはありません。
+| 設定項目 | 既定値 | 形式・検証条件 |
+| --- | --- | --- |
+| `remediation.worker.registry` | 空 | Docker Hubミラーの`host[:port][/path]`を小文字で指定します。空の場合はDocker Hubを使います。 |
 
-`remediation.enabled`やtokenなしでPRだけを有効にした場合と、
-`kubernetes.enabled: true`で修正計画を有効にした場合は起動時にエラーになります。
-保存先、対応付け、上限が正の値であること、`job_timeout`の範囲、
-作業用イメージの上書きの形式は、機能が無効でも検証します。
+- scheme・タグ・digest・`//`・`..`を含めない
+- パスには小文字英数字と区切りの`.`・`_`・`-`を使う
+- ミラーには指定したホストとパスの下に、公式イメージと同じ内容の`library/node`・`library/python`を配置する
+
+固定と取得不能時の扱いは[公式イメージの固定](remediation-logic.md#worker-images)、系列は[対応する実行環境](remediation-reference.md#supported-runtimes)、通信先は[作業用イメージの取得](how-it-works.md#worker-image-downloads)を参照してください。
+
+### ツールの公開後待機時間 {#remediation-tool-release-age}
+
+| 設定項目 | 既定値 | 形式・指定範囲 |
+| --- | --- | --- |
+| `remediation.worker.tool_versions.min_release_age` | `72h` | npm・pnpm・uvの公開から使用までの最小待機時間で、`72h`や`30m`のような正の期間です。`0`や負の値は指定できません。 |
+
+判定は[ツール公開後の待機](remediation-logic.md#tool-release-age)、取得時の検査は[ツールの取得と照合](remediation-logic.md#tool-verification)を参照してください。
+
+### ツールキャッシュの容量 {#remediation-tool-cache}
+
+| 設定項目 | 既定値 | 形式・指定範囲 |
+| --- | --- | --- |
+| `remediation.worker.tool_versions.cache_max_size` | `1GiB` | npm・pnpm・uvのキャッシュ容量の上限です。整数のバイト数、または整数に`B`・`KiB`・`MiB`・`GiB`を付け、最低`128MiB`を指定します。 |
+
+再利用時の検査と容量不足時の扱いは[ツールキャッシュの再利用](remediation-logic.md#tool-cache)を参照してください。
+
+### 作業プログラムの配置先 {#remediation-worker-program}
+
+| 設定項目 | 既定値 | 形式・適用範囲 |
+| --- | --- | --- |
+| `remediation.worker.program_dir` | 空 | 空または絶対パスで、開発用の作業プログラムを置くディレクトリです。通常の配布版では指定不要です。 |
+
+作業用コンテナに渡す際の検査は[コンテナへの入力](remediation-logic.md#worker-inputs)を参照してください。
+
+### 起動時の検証 {#remediation-validation}
+
+次の組み合わせは起動時にエラーになります。
+
+- `remediation.enabled`を有効にせず、PRだけを有効にした場合
+- `remediation.github.token`なしでPRを有効にした場合
+- `kubernetes.enabled: true`で修正計画を有効にした場合
+
+機能が無効でも、tokenの形式、保存先、対応付け、処理上限、レジストリ認証、作業用コンテナの設定を検証します。
 この設定の検証だけで、リモートのリポジトリやイメージにアクセスできることは確認しません。
 
 ## 稼働時の使用状況
@@ -239,11 +306,7 @@ Pod、ReplicaSet、Jobの一覧はnamespaceごとに個別に取得します。N
 | `triage.epss_url` | 空 | EPSSフィードのURLを、ローカルミラーなどへ変更します。 |
 | `triage.discussion_links` | `true` | act-now CVEに関するHacker Newsの議論を検索します。 |
 
-KEVとEPSSのフィードは一括でダウンロードされ、CVE IDとの照合はローカルで行われます。
-ホストの完全なCVE一覧が外部サービスへアップロードされることはありません。
-議論リンクを有効にしている場合、act-now CVEのIDは検索クエリとして
-`hn.algolia.com`へ送信されます。この送信を防ぐには`discussion_links: false`、
-追加の脅威情報フィードへの通信も止めるにはtriage自体を無効にしてください。
+通信先と送信内容は[外向きの通信](how-it-works.md#outbound-communication)を参照してください。
 
 しきい値は次の条件を満たす必要があります。
 

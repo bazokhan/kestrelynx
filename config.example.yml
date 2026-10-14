@@ -34,10 +34,8 @@ notify:
   # In diff mode, the weekday to send the complete report as a weekly digest,
   # so details are never more than a week away. Set to "never" to disable.
   full_report_day: "monday"
-  # Wording language for the Slack channel message and thread report. "en"
-  # (default) or "ja". The generic webhook payload is always English (it's
-  # consumed programmatically, not read in Slack) and is never affected by
-  # this setting.
+  # Wording language for Slack messages, thread reports, fix plans and PR
+  # bodies: "en" (default) or "ja". The generic webhook stays in English.
   language: "en"
 
 docker:
@@ -132,18 +130,32 @@ runtime:
   mute_unfixable_not_in_use: false
 
 # Fix plan (experimental). Docker only (including Compose source mappings);
-# enabling it with kubernetes.enabled is a configuration error. Both plans
-# and pull requests are disabled by default. Plans select update candidates
-# for published images, Dockerfile base images and npm/pnpm/pip/uv packages,
-# compare image scans under the same databases and settings, and report in
-# Slack and the generic webhook's remediation object. Planning does not write
-# to GitHub or use work containers; it does save local records and scan caches.
+# enabling it with kubernetes.enabled is a configuration error.
+#
+# Both plans and pull requests are disabled by default. Plans select candidates
+# for published images, Dockerfile base images and npm/pnpm/pip/uv packages.
+#
+# Image scans are compared under the same databases and settings; results
+# appear in a separate Slack message and the generic webhook's remediation object.
+#
+# Slack fix plans are sent when their displayed content changes, and on the
+# weekly report day in diff mode when there is something to show.
+#
+# Planning does not write to GitHub or use work containers; it saves local
+# records and scan caches.
+#
 # Pull requests additionally allow GitHub writes and Docker work containers
-# for language-package updates. A candidate or PR does not mean a running
-# image is fixed, and KestreLynx does not merge or deploy it.
-# Planning needs outbound HTTPS to public image registries, GitHub for mapped
-# sources, and Trivy database downloads; language updates also use public npm
-# and PyPI and require the Docker daemon to fetch the work image.
+# for language-package updates.
+#
+# A candidate or PR does not mean a running image is fixed, and KestreLynx
+# does not merge or deploy it.
+#
+# KestreLynx uses HTTPS to public or configured private image registries and
+# GitHub for mapped sources; Trivy downloads databases and comparison images.
+#
+# Language updates use public npm and PyPI; Docker fetches official Node.js
+# and Python images from Docker Hub or the configured mirror.
+#
 # With remediation disabled, scans and notifications are unchanged.
 #
 # remediation:
@@ -221,35 +233,63 @@ runtime:
 #   # and suggests rebuilding with `docker compose build --pull` if it does not.
 #   #
 #   # A dependencies mapping selects npm, pnpm, pip or uv files in one source
-#   # directory. With PRs enabled, npm/pnpm/uv update lockfiles in work
-#   # containers; pip validates the original and updated requirements.txt in
-#   # separate containers. Selection uses running-image findings with scan
-#   # status fixed and reported fixed versions, excluding findings without
-#   # fixed-version information. For each finding, take the lowest reported
-#   # fix newer than the installed version, then use the highest of those
-#   # versions as the package's update lower bound. This selection does not
-#   # verify resolution; with PRs enabled, updated dependency files are checked
-#   # separately, including before/after scans. Updates may cross a major
-#   # version; PR bodies and notifications call out major changes.
-#   # If a direct dependency's range excludes a fixed version, only the
-#   # version part of a supported manifest specifier is edited: X.Y.Z,
-#   # =X.Y.Z, ^X.Y.Z or ~X.Y.Z for npm/pnpm, and == or ~= for uv.
-#   # Transitive updates must stay within existing dependency constraints.
-#   # Workspaces, Git/URL/local dependencies and dependencies requiring source
-#   # builds need manual handling; npm packages that bundle dependencies or
-#   # carry shrinkwrap, and packages nested under them, are also restricted.
-#   # uv requires revision 5 of uv.lock and a requires-python constraint that
-#   # admits the work image's Python 3.13.16.
-#   # Work containers receive no GitHub token, main configuration or Docker
-#   # socket; they run as non-root with all capabilities dropped,
-#   # no-new-privileges and resource/time limits. With the distributed work
-#   # image, ownership and permissions restrict writes to size-capped tmpfs.
-#   # Override images must preserve the same ownership and permission
-#   # restrictions; reference and digest checks do not inspect all image file
-#   # permissions at runtime.
-#   # The main process creates, starts and removes them through Docker API.
-#   # A :ro socket mount does not limit these API operations and need not
-#   # change to :rw.
+#   # directory.
+#   #
+#   # 1. Select findings with scan status fixed and reported fixed versions
+#   # 2. For each finding, take the lowest reported fix newer than the installed version
+#   # 3. Use the highest of those versions as the package's update lower bound
+#   #
+#   # Selection alone does not verify resolution; with PRs enabled, updated
+#   # dependency files are checked separately, including before/after scans.
+#   #
+#   # npm and pnpm remove the targeted lockfile entries and regenerate the
+#   # lockfile with install --package-lock-only or install --lockfile-only.
+#   #
+#   # uv uses lock --upgrade-package name==version; pip validates the original
+#   # and updated requirements.txt in separate containers.
+#   #
+#   # npm, pnpm and uv may leave packages out and create a partial PR with
+#   # verified updates; the omitted packages still need manual action.
+#   #
+#   # pip does not create partial updates. Updates may cross a major version;
+#   # PR bodies and notifications call out major changes.
+#   #
+#   # If a direct dependency's range excludes a fix, supported specifiers are
+#   # X.Y.Z, =X.Y.Z, ^X.Y.Z or ~X.Y.Z for npm/pnpm, and == or ~= for uv.
+#   #
+#   # Only the version part is edited; transitive updates must stay within
+#   # existing dependency constraints.
+#   #
+#   # - Workspaces, Git/URL/local dependencies and source builds need manual handling
+#   # - npm packages with bundled dependencies or shrinkwrap and their nested packages are restricted
+#   # - pnpm 12 needs manual handling
+#   #
+#   # A pnpm-workspace.yaml with only allowBuilds, onlyBuiltDependencies,
+#   # ignoredBuiltDependencies, neverBuiltDependencies or supportedArchitectures is supported.
+#   #
+#   # A packages key, unsupported keys or an ancestor pnpm-workspace.yaml
+#   # require manual handling.
+#   #
+#   # Node.js is selected using the project's version files, runtime declarations
+#   # and package manager requirements.
+#   #
+#   # uv requires revision 5 of uv.lock. Python is selected from the supported
+#   # table using .python-version and requires-python.
+#   #
+#   # pip runs in the default Python image but resolves for the running
+#   # image's environment; an end-of-life target requires manual handling.
+#   #
+#   # Work containers receive no GitHub token, registry credentials, KestreLynx
+#   # configuration or Docker socket.
+#   #
+#   # They run as non-root with all capabilities dropped, no-new-privileges
+#   # and resource/time limits; writable areas use size-capped tmpfs.
+#   #
+#   # KestreLynx supplies the work program and checked tools to the official
+#   # images and checks the container environment before running updates.
+#   #
+#   # KestreLynx creates, starts and removes work containers through Docker API.
+#   # A :ro socket mount does not restrict these API operations.
 #   mappings:
 #     - workload: compose/example/web
 #       repository: example/deployment
@@ -296,25 +336,36 @@ runtime:
 #     # job's deadline for startup and reporting (internal maximum: 60m).
 #     dependency_jobs_per_cycle: 3
 #     job_timeout: 6m
-#   # Language package updates run in throwaway containers of the official
-#   # Node.js (npm, pnpm) and Python (uv, pip) images that each main release
-#   # pins by digest. The package manager itself is fetched from the public
-#   # registry by KestreLynx, checked, cached under storage_dir and handed to
-#   # the container; the Docker daemon pulls the images when first needed.
-#   # An unavailable image or package manager defers language updates;
-#   # package managers are never run in the main container instead.
-#   # The settings below are validated at startup even when remediation is
-#   # disabled.
+#   # Language updates use official Docker Hub Node.js and Python images,
+#   # pinned by digest in a table bundled with KestreLynx.
+#   #
+#   # Supported series in that table are Node.js 22, 24 and 26 and Python
+#   # 3.11 through 3.15; end-of-life series require manual handling.
+#   #
+#   # KestreLynx fetches npm, pnpm and uv from public registries, checks them
+#   # and caches them under storage_dir; pip comes with the Python image.
+#   #
+#   # Cached tools are checked again before reuse and passed to work
+#   # containers; Docker pulls the images when first needed.
+#   #
+#   # An unavailable image or tool defers language updates; package managers
+#   # are never run in the KestreLynx container instead.
+#   #
+#   # These settings are validated at startup even when remediation is disabled.
 #   # worker:
-#   #   # A Docker Hub mirror, as host[:port][/path]. It replaces the host and
-#   #   # path the official images are pulled from; the digests stay those of
-#   #   # the release, so a mirror that alters an image is refused.
+#   #   # Optional Docker Hub mirror: lowercase host[:port][/path], with no
+#   #   # scheme, tag or digest; empty uses Docker Hub.
 #   #   registry: registry.example.com:5000/dockerhub
+#   #   # The mirror serves library/node and library/python under this path,
+#   #   # with the same digests; a mirror that changes an image is refused.
 #   #   tool_versions:
-#   #     # A package manager release is used only once it has been published
-#   #     # this long.
+#   #     # Positive duration since publication before npm, pnpm or uv is
+#   #     # used; defaults to 72h, and zero or negative values are invalid.
 #   #     min_release_age: 72h
-#   #     # Capacity of the cache of package manager releases.
+#   #     # Integer bytes or an integer with B, KiB, MiB or GiB; defaults to
+#   #     # 1GiB, with a minimum of 128MiB.
 #   #     cache_max_size: 1GiB
-#   #   # The old "image" key was removed. While it is set, language package
-#   #   # updates stay off.
+#   #   # Development only: absolute directory of work programs; normally unset.
+#   #   program_dir: ""
+#   #   # When set, each program is checked against the hash recorded at
+#   #   # startup whenever it is passed to a container.

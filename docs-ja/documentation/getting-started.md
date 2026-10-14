@@ -51,21 +51,20 @@ docker run -d --name kestrelynx \
   ghcr.io/kitsunetrail/kestrelynx:latest
 ```
 
-!!! warning "Docker socketの権限"
-
-    修正PRを有効にすると、KestreLynxは言語パッケージの更新用にDockerの作業用コンテナを
-    作成・起動・削除します。ソケットの`:ro`マウントはDocker APIの操作を制限しないため、
-    `:rw`へ変更する必要はありません。
+修正PRを有効にする場合のDockerソケットの権限は、[修正PRの有効化](remediation-setup.md#enable-pull-requests)を参照してください。
 
 Dockerでは、任意のSensor（実験的）を追加すると使用中のパッケージの所見に印が付き、
 優先度を変えずに同じ区分内で先に並びます。導入手順と観測の限界は
 [稼働時の使用状況](runtime-usage.md)に記載しています。
 
-### 修正計画と修正PR
+### 修正計画と修正PR {#remediation}
 
-Dockerでは、修正計画と任意のGitHubのPR作成も利用できます。
-どちらも既定では無効で、Sensorは不要です。設定方法、通知の意味、マージ前に確認する内容は
-[修正計画と修正PR（実験的）](remediation.md)に記載しています。
+Docker向けの機能の概要は[修正計画の案内](remediation.md#overview)を参照してください。
+
+| 操作 | 手順 |
+| --- | --- |
+| 更新候補の計画を有効にする | [修正計画の有効化](remediation-setup.md#enable-fix-plans) |
+| GitHubへのPR作成を有効にする | [修正PRの有効化](remediation-setup.md#enable-pull-requests) |
 
 ## Kubernetesで実行
 

@@ -21,7 +21,6 @@
 - **Unpatched vulnerabilities**: inclusion of findings without available fixes
 - **Base-OS and package EOL**: prominent reporting at the top, separately from CVE priority, of unsupported base operating systems (EOL base) and packages with CVEs reported by vendors as out of support for this release (EOL package)
 - **Change tracking**: new findings, added CVEs, newly available fixes, priority escalations, and resolutions
-- **Japanese Slack notifications**: `notify.language: ja` for channel and thread text; generic webhook JSON remains in English
 - **Environment identification**: optional environment name in Slack headers
 - **Container identification**: container names, Compose project/service, and Kubernetes workload information in the generic webhook
 - **Running-image verification**: scan pinning to observed identifiers such as digests, with identity matching
@@ -101,67 +100,20 @@ Long notifications continue in additional messages with repeated section and ima
 
 ## Remediation plans and pull requests (experimental)
 
-### Supported targets
+- Propose image and dependency updates for Docker and Compose
+- Remediation plans and optional GitHub PR creation are both disabled by default
+- Users check changes, merge, deploy, and verify after deployment
 
-For Docker and Compose, KestreLynx can propose the following updates.
-
-- **Published images**
-    - Tag updates
-- **Dockerfile**
-    - Base image tag updates
-- **Language packages**
-    - Dependency updates managed with npm, pnpm, pip, or uv
-
-### Plan and pull request settings
-
-Both remediation plans and pull requests are disabled by default.
-
-| Setting | Behavior when enabled |
+| Topic | Detailed page |
 | --- | --- |
-| `remediation.enabled` | Selects candidates, compares scans, and adds a plan to notifications, without GitHub writes or work containers |
-| `remediation.pull_requests.enabled` | When enabled alongside plans, creates GitHub PRs and uses Docker work containers for language-package updates |
-
-### Required permissions and configuration errors
-
-- **GitHub authentication**
-    - Use a fine-grained token limited to the mapped repositories
-    - Set Contents and Pull requests to Read and write
-- **Configuration errors**
-    - Enabling PRs without plans
-    - Enabling remediation plans in Kubernetes mode
-
-### Language package update selection
-
-KestreLynx selects a lower bound for each package's update target from running-image findings.
-
-- **Eligible findings**
-    - Findings with scan status `fixed` and reported fixed versions
-    - Findings without fixed-version information are excluded
-- **Lower-bound selection**
-    1. For each finding, take the lowest reported fix newer than the installed version
-    2. Use the highest of those versions as the lower bound for the package's update target
-- **Checks after selection**
-    - Selecting this lower bound does not verify that the vulnerabilities are resolved
-    - With PRs enabled, the updated dependency files are checked separately, including before/after scans
-
-### PR limitations and checks before merging
-
-- **Changes an update may require**
-    - A major version change or an edit to a direct dependency's manifest constraint
-    - Major version changes are flagged in the PR body and notifications
-- **PR limitations**
-    - A PR does not mean the running image is fixed
-    - Application compatibility and tests are not checked
-    - Dockerfile and dependency changes are not rebuilt into an image
-- **Dependency-file checks**
-    - Checks only partly verify that dependency combinations agree with registry declarations and use formats accepted by installers
-
-Run CI that installs from the lockfile before merging.
-
-### Details
-
-See [Remediation plans and pull requests (experimental)](docs/documentation/remediation.md)
-for notification meanings, PR checks, and permissions.
+| Find the page for your task | [Overview](docs/documentation/remediation.md) |
+| Enable remediation plans and fix pull requests | [Enabling remediation](docs/documentation/remediation-setup.md) |
+| Diagnose missing candidates or PRs | [When no candidate or pull request appears](docs/documentation/remediation-troubleshooting.md) |
+| Read Slack and PR contents | [Reading the results](docs/documentation/remediation-results.md) |
+| Understand candidate selection and PR processing | [How candidates and pull requests are decided](docs/documentation/remediation-logic.md) |
+| Look up supported inputs and reason codes | [Supported inputs and reason codes](docs/documentation/remediation-reference.md) |
+| Look up settings and required permissions | [Configuration reference](docs/documentation/configuration.md) |
+| Check notification conditions, webhook specifications, and outbound communication | [How KestreLynx works](docs/documentation/how-it-works.md) |
 
 ## Quick start: Docker
 
@@ -247,7 +199,7 @@ See [config.example.yml](config.example.yml) for all configuration options and t
 | `schedule.daily_at` | Daily scan time (`09:00` in the example; 24-hour interval if omitted or empty) |
 | `schedule.run_on_start` | Startup scan (default: `true`) |
 | `scan.severity` | Included severities (default: `[HIGH, CRITICAL]`) |
-| `notify.language` | Slack notification language: `en` (default) or `ja`; other values are configuration errors |
+| `notify.language` | Language for Slack notifications and PR bodies: `en` (default) or `ja`; other values are configuration errors, and the generic webhook remains in English |
 | `notify.mode` | `diff`: change notifications (default); `full`: full report every scan |
 | `notify.full_report_day` | Weekly report day in diff mode (default: `monday`; disabled: `never`) |
 | `notify.notify_on_clean` | Notifications with no issues or changes (default: `false`) |
@@ -256,38 +208,11 @@ See [config.example.yml](config.example.yml) for all configuration options and t
 | `triage.enabled` | `true`: KEV/EPSS prioritization (default); `false`: severity-based notifications |
 | `triage.act_now_epss` / `triage.watch_epss` | EPSS thresholds (defaults: `0.10` / `0.01`) |
 | `triage.discussion_links` | Hacker News discussion lookup (default: `true`) |
-| `remediation.enabled` | Read-only remediation plans (default: `false`; Docker only) |
-| `remediation.pull_requests.enabled` | GitHub PRs and work containers for language updates (default: `false`; requires plans and a token) |
-| `remediation.github.token` | Token limited to the mapped GitHub repositories (default: empty) |
-| `remediation.mappings` | Compose workload to repository, base branch, and Compose / Dockerfile / dependency source mappings |
-| `remediation.storage_dir` | Persistent remediation records (default: `/var/lib/kestrelynx/remediation`) |
-| `remediation.limits` | Scan, registry, PR, dependency-update, and time limits described in the configuration reference |
-| `remediation.worker.image` | Digest-pinned work-image override (default: the image specified by the main release) |
 
 - **Environment-name characters**: lowercase alphanumerics and hyphens, with alphanumeric first and last characters
 - **Environment-name length**: 1–63 characters, or empty
 - **Multiple environments**: separate environment names and state storage per instance
 - **History continuity after rebuilds or migrations**: retention of the environment name and state
-
-## Network access and interpreting results
-
-- **Intel matching**: bulk KEV/EPSS downloads and local joins, without transmitting detected CVE lists
-- **Default intel sources**: `www.cisa.gov` and `epss.empiricalsecurity.com`
-- **Discussion search endpoint**: `hn.algolia.com`
-- **Search data**: CVE IDs qualifying as act-now based on exploitation signals
-- **Search opt-out**: `triage.discussion_links: false`, with CVE delivery to notification targets still enabled
-- **Other traffic**: vulnerability database and image retrieval by Trivy, plus results sent to configured notification targets
-- **Remediation planning**: HTTPS to public image registries and GitHub (`api.github.com`) for configured sources, plus Trivy database and candidate-image downloads
-- **Language-package updates**: HTTPS to the public npm registry (`registry.npmjs.org`) and PyPI (`pypi.org` and `files.pythonhosted.org`) for package metadata and distributions
-- **Work-image retrieval**: Docker daemon access to `ghcr.io/kitsunetrail/kestrelynx-worker` at the digest specified by the main release, or the registry in `remediation.worker.image`, when first needed
-- **Unavailable work image**: deferred language-package updates, without running package managers in the main container
-- **GitHub writes**: PRs only when separately enabled, potentially triggering the repository's CI
-- **Work-container network**: Docker bridge networking without strict destination filtering
-- **Failed scans or unconfirmed identity**: retention of previous findings, without resolution based on that cycle's results
-- **Resolution meaning**: disappearance from the current monitored scope, including stopped containers or scope changes
-- **Upgrade-risk annotations**: indicators such as version-change size, without compatibility or safety guarantees
-
-A resolved finding is not proof of patch application. See [How KestreLynx works](docs/documentation/how-it-works.md) for notification rules and output details.
 
 ## Development
 

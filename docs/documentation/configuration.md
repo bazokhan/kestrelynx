@@ -34,7 +34,7 @@ At least one destination is required.
 | `notify.slack_bot_token` | empty | Slack bot token with `chat:write`. Set together with `slack_channel`. |
 | `notify.slack_channel` | empty | Destination Slack channel ID for bot delivery. |
 | `notify.generic_webhook_url` | empty | Endpoint that receives structured JSON. |
-| `notify.language` | `en` | Slack notification language: `en` or `ja`. Any other value is a configuration error. Generic webhook JSON remains in English. |
+| `notify.language` | `en` | Language for Slack notifications and PR bodies: `en` or `ja`; other values are configuration errors. Generic webhook JSON remains in English. |
 | `notify.notify_on_clean` | `false` | Send a notification when no vulnerabilities are found. |
 
 Configure either `slack_webhook_url` or the bot-token pair, not both. A generic
@@ -81,89 +81,152 @@ Persist the directory containing `state.path` with a Docker volume, or a
 persistent volume in Kubernetes. The intel feed cache lives in an `intel`
 directory beside `state.path`, by default `/var/lib/kestrelynx/intel`.
 
-## Remediation plans and pull requests
+## Remediation plans and pull requests {#remediation}
 
-[Remediation plans and pull requests (experimental)](remediation.md) are available
-for Docker, including Compose source mappings. Both switches default to `false`.
+See the [remediation overview](remediation.md#contents) for an entry point and [Enabling remediation](remediation-setup.md) for setup instructions.
+
+### Enablement settings {#remediation-enablement}
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `remediation.enabled` | `false` | Select candidates, compare scans, and notify a read-only remediation plan without GitHub writes or work containers. |
-| `remediation.pull_requests.enabled` | `false` | Create GitHub pull requests from checked changes and use Docker work containers for language-package updates. |
-| `remediation.github.token` | empty | GitHub token for the mapped repositories; required for pull requests. |
-| `remediation.mappings` | `[]` | Map running Compose workloads to their GitHub source files. |
-| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | Absolute directory for plans, delivery records, and pull request records. |
-| `remediation.worker.image` | empty | Override the release's work image with a digest-pinned reference. |
+| `remediation.enabled` | `false` | Enable remediation plans. |
+| `remediation.pull_requests.enabled` | `false` | Enable fix pull requests; requires remediation plans and a GitHub token. |
 
-An empty token allows anonymous reads of public repositories for plans.
-For private repositories, use a fine-grained token limited to the configured
-repositories with Contents read access. Pull requests require Contents and
-Pull requests permissions set to Read and write. Restrict the configuration
-file to its owner; the token is not passed to work containers. Creating a pull
-request may start the repository's CI.
+See [Plan and PR execution scope](remediation-logic.md#plan-and-pr-execution) for the processing enabled by each setting.
 
-Persist `remediation.storage_dir` across container recreation. Its default is
-inside the supplied state volume; changing `state.path` does not move it.
+### GitHub access {#remediation-github}
 
-### Source mappings
+| Option | Default | Format and requirements |
+| --- | --- | --- |
+| `remediation.github.token` | empty | GitHub token without whitespace or control characters; required when pull requests are enabled. |
 
-Each entry in `remediation.mappings` sets `workload`, `repository`, and
-`base_branch`, plus exactly one source type.
-
-| Field within a mapping | Description |
+| Purpose | Required permissions |
 | --- | --- |
-| `workload` | `compose/<project>/<service>`, matching the running workload's Compose labels. |
-| `repository` | GitHub repository in `owner/name` form. |
-| `base_branch` | Branch used to read source files and as the pull request base. |
-| `compose.path` / `compose.service` | Repository-relative Compose file and service whose image reference can be edited. |
-| `dockerfile.path` / `dockerfile.target` | Repository-relative Dockerfile and optional build stage; omitting the target selects the last stage. |
-| `dependencies.directory` | Directory containing the dependency files for npm, pnpm, pip, or uv; `.` means the repository root. |
+| Plans for public repositories | Anonymous reads without a token |
+| Plans for private repositories | Contents: Read on a fine-grained token limited to the target repositories |
+| Creating and managing PRs | Contents and Pull requests: Read and write on a fine-grained token limited to the target repositories |
 
-Paths must be normalized and stay inside the repository, without a leading
-`/`, `./`, `..`, or backslashes. A workload can have one mapping of each
-source type in separate entries. Shared dependency directories or Dockerfiles
-must use the same base branch, and a Compose file's service cannot belong to
-multiple workload mappings.
+Restrict the configuration file to its owner.
+See [Credential destinations](how-it-works.md#credential-destinations) for where the token is sent.
 
-A Compose service with a supported static `build` section can supply its
-Dockerfile path and target without a separate Dockerfile mapping. If both
-are configured, they must agree.
+### Storage location {#remediation-storage}
 
-### Processing limits
+| Option | Default | Format and description |
+| --- | --- | --- |
+| `remediation.storage_dir` | `/var/lib/kestrelynx/remediation` | Absolute directory for plans, delivery records, PR records, and the tool cache. |
 
-The following options are under `remediation.limits`. Work beyond a limit is
-reported as deferred, rather than as having no candidate.
+Changing `state.path` does not change this location.
+See [Stored files](remediation-reference.md#stored-records) for its contents.
+
+### Image registry authentication {#remediation-registries}
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `candidate_scans_per_cycle` | `10` | Maximum candidate-image scans per cycle. |
-| `baseline_rescans_per_cycle` | `10` | Maximum baseline rescans needed to match comparison conditions per cycle. |
-| `registry_requests_per_cycle` | `200` | Maximum image-registry HTTP requests per cycle, including token exchanges. |
-| `tag_pages_per_repository` | `20` | Maximum tag-list pages for each image repository. |
-| `cycle_timeout` | `30m` | Deadline for planning, dependency updates, and pull request processing, excluding ordinary running-image scans. |
-| `new_prs_per_cycle` | `3` | Maximum new pull requests per cycle. |
-| `open_prs` | `10` | Maximum open KestreLynx pull requests across the configured repositories. |
-| `dependency_jobs_per_cycle` | `3` | Maximum dependency update units attempted per cycle (not packages or containers); one unit can use multiple containers, as with pip or manifest edits. |
-| `job_timeout` | `6m` | Deadline for each work container's creation, execution, and result collection, from `1m` to `60m30s`; the job inside receives 30 seconds less, and cleanup has a separate 30-second deadline. |
+| `remediation.registries` | `[]` | Per-host credentials for private-image candidate selection and comparison scans. |
 
-Pull request limits apply when pull requests are enabled. Existing pull requests
-are not closed merely to make room below `open_prs`.
+| Field | Default or requirement | Format and validation |
+| --- | --- | --- |
+| `host` | required | Hostname or IPv4 address as used in image references, with an optional port from `1` to `65535`; no scheme, path, or user information. |
+| `username` | required | Nonempty string without whitespace, control characters, or `:`. |
+| `password` | required | Nonempty password or access token without whitespace or control characters. |
+| `token_hosts` | `[]` | Additional token service hosts allowed to receive credentials; each value uses the same format as `host`. |
 
-### Work image and startup validation
+- Hostnames are case-insensitive, and `docker.io`, `index.docker.io`, and `registry-1.docker.io` are treated as the same host
+- Credential entries must not have duplicate `host` values after normalization
+- For Docker Hub authentication, set `host: docker.io` and `token_hosts: [auth.docker.io]`
 
-Each main release specifies a digest-pinned
-`ghcr.io/kitsunetrail/kestrelynx-worker` image. Leave `worker.image` empty to
-use it, or set `repository@sha256:<64 lowercase hex digits>` for a mirror or a
-work image you are verifying. The image is fetched when first needed.
-If it cannot be fetched, or a custom build has no default image and no override,
-language-package updates are deferred; package managers are never run in the
-main container as a fallback.
+See [Credential destinations](how-it-works.md#credential-destinations) for destination and redirect restrictions, and [Private image authentication](remediation-setup.md#configure-registry-auth) for setup instructions.
 
-Startup rejects pull requests without `remediation.enabled` or a token, and
-rejects remediation with `kubernetes.enabled: true`. Storage paths, mappings,
-positive limits, the `job_timeout` range, and any work-image override are
-validated even when remediation is disabled. These configuration checks do
-not establish that a remote repository or image is accessible.
+### Source mappings {#remediation-mappings}
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `remediation.mappings` | `[]` | Map running Compose workloads to their GitHub source files. |
+
+Each entry sets `workload`, `repository`, and `base_branch`, plus exactly one source type.
+
+| Field within a mapping | Requirements and format |
+| --- | --- |
+| `workload` | Required; `compose/<project>/<service>`, matching the running workload's Compose labels. |
+| `repository` | Required; GitHub repository in `owner/name` form. |
+| `base_branch` | Required; valid Git branch name used to read sources and as the PR base. |
+| `compose.path` / `compose.service` | Required for Compose mappings; repository-relative Compose file and service name. |
+| `dockerfile.path` | Required for Dockerfile mappings; repository-relative Dockerfile. |
+| `dockerfile.target` | Optional build stage; omitting it selects the last stage; at most 128 bytes of letters, digits, `_`, `.`, or `-`, starting with a letter. |
+| `dependencies.directory` | Required for dependency-file mappings; dependency directory, with `.` representing the repository root. |
+
+- Paths must be normalized within the repository, without a leading `/`, `./`, `..`, or backslashes
+- A workload can have one mapping of each source type in separate entries
+- Shared dependency directories or Dockerfiles must use the same base branch
+- A service in the same Compose file in the same repository must not be mapped to multiple workloads
+- Repository names are case-insensitive when checking for duplicates
+
+See [Base image identification](remediation-logic.md#base-image-selection) for discovery from Compose `build` and matching against an explicit Dockerfile, and [Supported input formats](remediation-reference.md#supported-inputs) for supported inputs.
+
+### Processing limits {#remediation-limits}
+
+The following options are under `remediation.limits`.
+
+| Option | Default | Units and allowed range |
+| --- | --- | --- |
+| `candidate_scans_per_cycle` | `10` | Candidate-image scans per cycle; positive integer. |
+| `baseline_rescans_per_cycle` | `10` | Baseline rescans per cycle to match comparison conditions; positive integer. |
+| `registry_requests_per_cycle` | `200` | Image-registry HTTP requests per cycle, including token exchanges; positive integer. |
+| `tag_pages_per_repository` | `20` | Tag-list requests per image repository, including requests to find the target version series; positive integer. |
+| `cycle_timeout` | `30m` | Deadline for planning, dependency updates, and PR processing; positive duration, excluding ordinary running-image scans. |
+| `new_prs_per_cycle` | `3` | New PRs per cycle when PRs are enabled; positive integer. |
+| `open_prs` | `10` | Open KestreLynx PRs across all configured repositories when PRs are enabled; positive integer. |
+| `dependency_jobs_per_cycle` | `3` | Dependency update units attempted per cycle; positive integer, not a count of packages or containers. |
+| `job_timeout` | `6m` | Deadline for each work container's creation, execution, and result collection; from `1m` to `60m30s`. |
+
+See [Reason codes](remediation-reference.md#reason-codes) for outcomes caused by limits, [PR management](remediation-logic.md#pr-management) for PR handling, and [Work container execution](remediation-logic.md#worker-execution) for execution deadlines and cleanup.
+
+### Work image source {#remediation-worker-registry}
+
+| Option | Default | Format and validation |
+| --- | --- | --- |
+| `remediation.worker.registry` | empty | Docker Hub mirror in lowercase `host[:port][/path]` form; empty uses Docker Hub. |
+
+- Do not include a scheme, tag, digest, `//`, or `..`
+- Paths use lowercase letters, digits, and the separators `.`, `_`, and `-`
+- The mirror must serve `library/node` and `library/python` with the same contents as the official images under the specified host and path
+
+See [Pinning official images](remediation-logic.md#worker-images) for pinning and handling unavailable images, [Supported runtimes](remediation-reference.md#supported-runtimes) for version series, and [Work image downloads](how-it-works.md#worker-image-downloads) for network destinations.
+
+### Minimum tool release age {#remediation-tool-release-age}
+
+| Option | Default | Format and allowed range |
+| --- | --- | --- |
+| `remediation.worker.tool_versions.min_release_age` | `72h` | Minimum wait between publication and use of npm, pnpm, or uv; positive duration such as `72h` or `30m`, excluding `0` and negative values. |
+
+See [Waiting after tool publication](remediation-logic.md#tool-release-age) for the decision rules and [Tool downloads and verification](remediation-logic.md#tool-verification) for download checks.
+
+### Tool cache capacity {#remediation-tool-cache}
+
+| Option | Default | Format and allowed range |
+| --- | --- | --- |
+| `remediation.worker.tool_versions.cache_max_size` | `1GiB` | Maximum npm, pnpm, and uv cache size; integer bytes or an integer followed by `B`, `KiB`, `MiB`, or `GiB`, with a minimum of `128MiB`. |
+
+See [Tool cache reuse](remediation-logic.md#tool-cache) for checks before reuse and handling insufficient capacity.
+
+### Worker program location {#remediation-worker-program}
+
+| Option | Default | Format and scope |
+| --- | --- | --- |
+| `remediation.worker.program_dir` | empty | Empty or an absolute directory containing a worker program for development; not required for standard releases. |
+
+See [Container inputs](remediation-logic.md#worker-inputs) for checks when passing the program to a work container.
+
+### Startup validation {#remediation-validation}
+
+The following combinations cause startup errors.
+
+- Enabling PRs without `remediation.enabled`
+- Enabling PRs without `remediation.github.token`
+- Enabling remediation plans with `kubernetes.enabled: true`
+
+Token format, storage, mappings, processing limits, registry credentials, and work container settings are validated even when the feature is disabled.
+These configuration checks do not establish that a remote repository or image is accessible.
 
 ## Runtime usage
 
@@ -248,11 +311,7 @@ re-notify existing findings.
 | `triage.epss_url` | empty | Override the EPSS feed URL, for example with a local mirror. |
 | `triage.discussion_links` | `true` | Look up Hacker News discussions for act-now CVEs. |
 
-KEV and EPSS feeds are downloaded in bulk and joined locally by CVE ID. The
-host's complete CVE list is not uploaded to an external service. When discussion
-links are enabled, act-now CVE IDs are sent as search queries to
-`hn.algolia.com`. Set `discussion_links: false` to prevent that CVE egress, or
-disable triage entirely to stop the additional intelligence-feed downloads.
+See [Outbound communication](how-it-works.md#outbound-communication) for where KestreLynx connects and what it sends.
 
 Thresholds must satisfy:
 

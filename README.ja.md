@@ -21,7 +21,6 @@
 - **未修正の脆弱性**：修正版がない項目も通知対象
 - **ベースOS・パッケージのEOL**：サポート終了したベースOS（EOL base）と、ベンダーがこのリリースではサポート対象外と報告したCVEを持つパッケージ（EOL package）を、CVEの優先度とは別に最上部で強調して通知
 - **差分通知**：新規検出・CVE追加・修正版公開・優先度昇格・解消
-- **日本語のSlack通知**：`notify.language: ja`でチャンネル本文とスレッドの定型文を日本語表示（汎用WebhookのJSONは英語のまま）
 - **環境の識別**：Slack見出しへの任意の環境名の表示
 - **対象コンテナの識別**：汎用Webhookへのコンテナ名・Composeプロジェクト／サービス・Kubernetes Workload情報の付加
 - **稼働イメージの検証**：digestなどによるスキャン対象の固定と実体の一致確認
@@ -101,66 +100,20 @@
 
 ## 修正計画と修正PR（実験的）
 
-### 対象
+- Docker・Compose向けに、イメージと依存パッケージの更新を提案する
+- 修正計画と任意のGitHub PR作成は、どちらも既定で無効
+- 利用者が変更を確認し、マージ、配置、配置後の確認を行う
 
-Docker・Compose向けに、次の更新を提案できます。
-
-- **配布イメージ**
-    - タグの更新
-- **Dockerfile**
-    - ベースイメージのタグの更新
-- **言語パッケージ**
-    - npm・pnpm・pip・uvで管理する依存の更新
-
-### 修正計画と修正PRの設定
-
-修正計画と修正PRはどちらも既定で無効です。
-
-| 設定 | 有効にしたときの動作 |
+| 知りたいこと | 詳細ページ |
 | --- | --- |
-| `remediation.enabled` | 候補の選定・スキャン結果の比較・計画の通知を行います（GitHubへの書き込み・作業用コンテナの使用なし）。 |
-| `remediation.pull_requests.enabled` | 修正計画に追加で有効にするとGitHubにPRを作成し、言語パッケージの更新にはDockerの作業用コンテナを使用します。 |
-
-### 必要な権限と設定エラー
-
-- **GitHubの認証**
-    - 対応付けたリポジトリに限定したfine-grained tokenを使用
-    - ContentsとPull requestsをRead and writeに設定
-- **設定エラーになる組み合わせ**
-    - 計画なしでPRだけを有効にした場合
-    - Kubernetesモードで修正計画を有効にした場合
-
-### 言語パッケージの更新先の決め方
-
-稼働イメージの所見から、パッケージの更新目標の下限を選びます。
-
-- **選定対象**
-    - スキャンの状態が`fixed`で修正版情報がある所見
-    - 修正版情報のない所見は対象外
-- **下限の決め方**
-    1. 各所見について、稼働版より新しい最小の報告修正版を求める
-    2. その最大値をパッケージの更新目標の下限にする
-- **選定後の検査**
-    - 下限の選定だけでは脆弱性の解消確認にはならない
-    - PR有効時に、更新前後のスキャンを含めて依存ファイルを別途検査する
-
-### PRの注意点とマージ前の確認
-
-- **更新に伴う変更**
-    - メジャー版の変更や、直接依存のmanifestの版指定の編集が必要になる場合がある
-    - メジャー版の変更はPR本文と通知で注意を表示
-- **PRで確認・実行しないこと**
-    - PRがあることは、稼働イメージが修正済みであることを意味しない
-    - 互換性やテストは確認しない
-    - Dockerfileや依存ファイルの変更からイメージを再ビルドしない
-- **検査の範囲**
-    - 依存の組み合わせがレジストリの宣言と一致するか、インストーラが受け付ける形式かは、可能な範囲だけの検査
-
-マージ前に、lockfileからインストールするCIを実行してください。
-
-### 詳細
-
-通知の意味、PRの検査、権限は[修正計画と修正PR（実験的）](docs-ja/documentation/remediation.md)を参照してください。
+| 目的に合うページを探す | [修正計画の案内](docs-ja/documentation/remediation.md) |
+| 修正計画と修正PRを有効にする | [有効化の手順](docs-ja/documentation/remediation-setup.md) |
+| 候補やPRが出ない原因を切り分ける | [候補やPRが出ない場合](docs-ja/documentation/remediation-troubleshooting.md) |
+| SlackやPRの内容を読む | [結果の読み方](docs-ja/documentation/remediation-results.md) |
+| 候補の選定とPRの処理を確認する | [候補選定とPR処理の仕組み](docs-ja/documentation/remediation-logic.md) |
+| 対応する入力と理由コードを調べる | [対応形式と理由コード](docs-ja/documentation/remediation-reference.md) |
+| 設定値と必要な権限を調べる | [設定リファレンス](docs-ja/documentation/configuration.md) |
+| 通知条件、Webhook仕様、外向きの通信を確認する | [KestreLynxの仕組み](docs-ja/documentation/how-it-works.md) |
 
 ## クイックスタート：Docker
 
@@ -246,7 +199,7 @@ kubectl logs -n kestrelynx deployment/kestrelynx -f
 | `schedule.daily_at` | 毎日の実行時刻（設定例：`09:00`、省略・空文字列：24時間間隔） |
 | `schedule.run_on_start` | 起動直後のスキャン（既定：`true`） |
 | `scan.severity` | 対象の深刻度（既定：`[HIGH, CRITICAL]`） |
-| `notify.language` | Slack通知の言語：`en`（既定）または`ja`、それ以外は設定エラー |
+| `notify.language` | Slack通知とPR本文の言語：`en`（既定）または`ja`、それ以外は設定エラーで、汎用Webhookは英語のまま |
 | `notify.mode` | `diff`：差分通知（既定）、`full`：毎回全体レポート |
 | `notify.full_report_day` | diffモードの週次レポートの曜日（既定：`monday`、無効化：`never`） |
 | `notify.notify_on_clean` | 問題・変更のない場合の通知（既定：`false`） |
@@ -255,38 +208,11 @@ kubectl logs -n kestrelynx deployment/kestrelynx -f
 | `triage.enabled` | `true`：KEV／EPSSによる優先順位付け（既定）、`false`：深刻度に基づく通知 |
 | `triage.act_now_epss` / `triage.watch_epss` | EPSSの判定しきい値（既定：`0.10`／`0.01`） |
 | `triage.discussion_links` | Hacker Newsの議論リンク検索（既定：`true`） |
-| `remediation.enabled` | 読み取りだけの修正計画（既定：`false`、Dockerのみ） |
-| `remediation.pull_requests.enabled` | GitHubのPRと、言語パッケージ更新用の作業用コンテナ（既定：`false`、計画とtokenが必要） |
-| `remediation.github.token` | 対応付けたGitHubリポジトリに限定したtoken（既定：空） |
-| `remediation.mappings` | Composeワークロードとリポジトリ・base branch・Compose／Dockerfile／依存ファイルの対応付け |
-| `remediation.storage_dir` | 修正処理の記録の永続化先（既定：`/var/lib/kestrelynx/remediation`） |
-| `remediation.limits` | スキャン・レジストリ・PR・依存更新・時間の上限で、詳細は設定リファレンスを参照 |
-| `remediation.worker.image` | digest付きの作業用イメージの上書き（既定：本体のリリースで指定したイメージ） |
 
 - **環境名の文字種**：小文字英数字・ハイフン、先頭と末尾は英数字
 - **環境名の長さ**：1〜63文字、未設定も可
 - **複数環境への配置**：インスタンスごとに異なる環境名・履歴保存先
 - **再構築・移行時の履歴継続**：環境名とstateの引き継ぎ
-
-## 通信と結果の見方
-
-- **脅威情報の照合**：KEV／EPSSの一括取得とローカル照合（検出CVE一覧の送信なし）
-- **脅威情報の取得先**：`www.cisa.gov`・`epss.empiricalsecurity.com`（既定）
-- **議論リンクの検索先**：`hn.algolia.com`
-- **検索時の送信内容**：悪用情報に基づき「今すぐ対応」となるCVEのID
-- **検索の無効化**：`triage.discussion_links: false`（通知先へのCVE情報の送信は継続）
-- **その他の通信**：Trivyによる脆弱性DB・イメージの取得、設定した通知先への結果送信
-- **修正計画**：公開イメージレジストリと対応付けたソースのGitHub（`api.github.com`）へのHTTPS通信、およびTrivyのDBと候補イメージの取得
-- **言語パッケージの更新**：メタデータと配布ファイルを取得するための公開npmレジストリ（`registry.npmjs.org`）とPyPI（`pypi.org`・`files.pythonhosted.org`）へのHTTPS通信
-- **作業用イメージの取得**：初めて必要になったときに、Dockerデーモンが本体のリリースで指定したdigestの`ghcr.io/kitsunetrail/kestrelynx-worker`、または`remediation.worker.image`のレジストリへ接続
-- **作業用イメージを取得できない場合**：言語パッケージの更新を延期し、本体のコンテナ内でパッケージマネージャーを代わりに実行しない
-- **GitHubへの書き込み**：別途有効にした場合だけPRを作成し、リポジトリのCIが起動する場合がある
-- **作業用コンテナの通信**：Dockerのbridgeネットワークを使い、厳密な通信先制限は行わない
-- **スキャン失敗・実体未確認**：過去の検出結果の保持、その回の結果による解消判定の保留
-- **「解消」の意味**：現在の監視対象からの検出項目の消失（コンテナ停止・対象変更を含む）
-- **アップグレード時の注意度**：バージョン変更の大きさなどの目安（互換性・安全性の保証なし）
-
-「解消」はパッチ適用の証明ではありません。通知の判定と出力の詳細は[KestreLynxの仕組み](docs-ja/documentation/how-it-works.md)を参照してください。
 
 ## 開発
 

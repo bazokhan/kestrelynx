@@ -21,7 +21,13 @@ nav:
       - 概要: documentation/index.md
       - セットアップ: documentation/getting-started.md
       - 設定: documentation/configuration.md
-      - 修正計画と修正PR（実験的）: documentation/remediation.md
+      - 修正計画と修正PR（実験的）:
+          - 案内: documentation/remediation.md
+          - 有効化の手順: documentation/remediation-setup.md
+          - 候補やPRが出ない場合: documentation/remediation-troubleshooting.md
+          - 結果の読み方: documentation/remediation-results.md
+          - 候補選定とPR処理の仕組み: documentation/remediation-logic.md
+          - 対応形式と理由コード: documentation/remediation-reference.md
       - 稼働時の使用状況（実験的）: documentation/runtime-usage.md
       - 仕組み: documentation/how-it-works.md
   - 開発ログ:
