@@ -2,7 +2,7 @@
 
 - **Status:** Implemented and operationally validated
 - **Started:** September 25, 2026
-- **Last updated:** October 8, 2026
+- **Last updated:** October 15, 2026
 
 ## Purpose
 
@@ -152,6 +152,21 @@ Changes in whether a package is in use do not trigger diff notifications.
     - The increase in Sensor memory during the first week may reflect bounded records still accumulating, including records of ended containers retained for seven days
         - Trends from the second week onward will be checked to verify this explanation
 
+## Cause and Fix for Gaps in Elasticsearch Observation (October 15, 2026) {#results-2026-10-15}
+
+- **Cause**
+    - When another container opened large numbers of files, entries needed for startup observation were displaced from the shared path mapping
+    - Paths could not be recovered for short-lived processes after they exited, leaving persistent observation gaps
+- **Fix**
+    - Changed the mapping to discard old, unused entries first without changing its entry limit
+    - If no such entries exist, discard old entries from the container with the most entries
+- **Validation**
+    - Confirmed in reproduction tests and the deployment environment that Elasticsearch had no observation gaps after the fix
+    - Under the tested load, entries needed for startup observation were protected from large volumes of file reads by another container without increasing the entry limit
+- **Remaining operational observations**
+    - Access controls sometimes deny reads needed for observation during Elasticsearch health checks, and this remains unresolved
+    - The memory increase appears to be due to retained records of ended containers, but this will be checked against trends after the update
+
 ## Next Steps
 
 The order of the following work has not been decided.
@@ -160,8 +175,8 @@ The order of the following work has not been decided.
     - Implement [short-lived container scanning](short-lived-containers.md)
     - Continue [Kubernetes Sensor Feasibility](kubernetes-runtime-sensor.md) with implementation and validation of the Sensor for Kubernetes
 - **Check continued operation**
-    - Investigate why part of the Elasticsearch container's observation remains unverified
-    - Check Sensor memory trends from the second week onward
+    - Work on addressing cases where AppArmor denies Sensor reads at the moment of an Elasticsearch health check
+    - Check whether Sensor memory growth levels off by observing trends after the Sensor update on October 15, 2026
 
 ## Change log
 
@@ -172,6 +187,10 @@ The order of the following work has not been decided.
 ### October 8, 2026 {#2026-10-08}
 
 - Recorded implementation and operational results
+
+### October 15, 2026 {#2026-10-15}
+
+- Recorded the cause and fix for gaps in Elasticsearch observation
 
 ---
 
