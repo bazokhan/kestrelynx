@@ -2,6 +2,7 @@ package worker
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -292,11 +293,21 @@ func TestPnpmToolFormats(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	// pnpm 12 gets the setting that keeps its lockfile one document.
+	// pnpm 12 gets the setting that keeps its lockfile one document, and its
+	// relock resolves again the entries taken out of the lockfile.
 	j := pnpmJob("12.11.2", exe)
 	argv, err := Argv(j, Step{ID: "r", Op: OpPnpmRelock})
-	if err != nil || argv[len(argv)-1] != "--config.pmOnFail=ignore" {
+	if err != nil || len(argv) < 2 || argv[len(argv)-2] != "--config.pmOnFail=ignore" || argv[len(argv)-1] != "--fix-lockfile" {
 		t.Errorf("argv %q: %v", argv, err)
+	}
+	argv, err = Argv(j, Step{ID: "f", Op: OpPnpmFrozen})
+	if err != nil || argv[len(argv)-1] != "--config.pmOnFail=ignore" || slices.Contains(argv, "--fix-lockfile") {
+		t.Errorf("frozen argv %q: %v", argv, err)
+	}
+	j = pnpmJob("11.28.5", nil)
+	argv, err = Argv(j, Step{ID: "r", Op: OpPnpmRelock})
+	if err != nil || slices.Contains(argv, "--fix-lockfile") {
+		t.Errorf("pnpm 11 argv %q: %v", argv, err)
 	}
 	j = pnpmJob("10.34.4", nil)
 	argv, err = Argv(j, Step{ID: "r", Op: OpPnpmRelock})

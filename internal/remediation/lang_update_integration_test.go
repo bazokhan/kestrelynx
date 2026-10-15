@@ -276,14 +276,6 @@ func TestIntegrationLangUpdate(t *testing.T) {
 			if got.Update != nil {
 				t.Logf("steps=%+v notes=%v diff=%+v", got.Update.Steps, got.Update.Notes, got.Update.Diff)
 			}
-			if c.manager == ManagerPnpm && strings.HasSuffix(c.name, "declared_12") {
-				// A lockfile with entries taken out cannot be made again by pnpm 12, so
-				// the unit is left to a person before anything runs.
-				if got.Category != CategoryManual || got.Reason != ReasonPnpm12RemovalUnsupported || use.Jobs != 1 {
-					t.Fatalf("category = %s (%s: %s), want manual / %s", got.Category, got.Reason, got.Detail, ReasonPnpm12RemovalUnsupported)
-				}
-				return
-			}
 			if got.Category != CategoryPRCandidate {
 				for _, p := range got.Packages {
 					t.Logf("package %s: %s %s %s", p.Name, p.Action, p.Reason, p.Detail)

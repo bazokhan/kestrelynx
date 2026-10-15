@@ -262,7 +262,7 @@ runtime:
 #   #
 #   # - Workspaces, Git/URL/local dependencies and source builds need manual handling
 #   # - npm packages with bundled dependencies or shrinkwrap and their nested packages are restricted
-#   # - pnpm 12 needs manual handling
+#   # - pnpm 12 releases before 12.10.0 need manual handling
 #   #
 #   # A pnpm-workspace.yaml with only allowBuilds, onlyBuiltDependencies,
 #   # ignoredBuiltDependencies, neverBuiltDependencies or supportedArchitectures is supported.

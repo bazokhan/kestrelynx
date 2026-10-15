@@ -34,7 +34,9 @@ func (r *updateRun) run(ctx context.Context) *updateFailure {
 		}
 		r.toolSpec = ts
 		if r.it.Manager == ManagerPnpm && strings.HasPrefix(ts.ToolVersion, "12.") {
-			return manualFailure(ReasonPnpm12RemovalUnsupported, "the project runs pnpm %s, and pnpm 12 does not make a lockfile again from one with entries taken out, which is how pnpm lockfiles are updated here", ts.ToolVersion)
+			if c, ok := compareVersions(schemeSemver, ts.ToolVersion, minPnpm12Removal); !ok || c < 0 {
+				return manualFailure(ReasonPnpm12RemovalUnsupported, "the project runs pnpm %s; pnpm 12 before %s does not make a lockfile again from one with entries taken out, which is how pnpm lockfiles are updated here", ts.ToolVersion, minPnpm12Removal)
+			}
 		}
 	}
 	// Only a lockfile tells where each package ended up; a pip update pins its

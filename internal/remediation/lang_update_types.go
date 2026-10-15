@@ -46,10 +46,17 @@ const (
 	// than the packages being updated, that can be taken out of the lockfile to
 	// make pnpm resolve again.
 	ReasonNoReresolveTrigger Reason = "no_reresolve_trigger"
-	// ReasonPnpm12RemovalUnsupported: the project runs pnpm 12, which takes a
-	// lockfile with entries missing that other entries refer to as broken or
-	// as complete, so the update by taking entries out cannot be made with it.
+	// ReasonPnpm12RemovalUnsupported: the project runs a pnpm 12 release
+	// before minPnpm12Removal. Those releases either lack --fix-lockfile, stop
+	// on a lockfile with entries missing that other entries refer to, or write
+	// the lockfile as two documents, so the update by taking entries out
+	// cannot be made with them.
 	ReasonPnpm12RemovalUnsupported Reason = "pnpm12_removal_unsupported"
+
+	// minPnpm12Removal is the first pnpm 12 release that, given
+	// --fix-lockfile, resolves again the entries taken out of its lockfile and
+	// keeps the lockfile one document.
+	minPnpm12Removal = "12.10.0"
 
 	// Manual: what the job did.
 	ReasonUpdateStepFailed       Reason = "update_step_failed"

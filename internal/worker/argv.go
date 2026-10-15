@@ -65,6 +65,13 @@ func Argv(j Job, s Step) ([]string, error) {
 	case OpPnpmRelock:
 		a = []string{"pnpm", "install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"}
 		a = append(a, pnpmCfg...)
+		// pnpm 12 stops on a lockfile with the update targets taken out
+		// (ERR_PNPM_LOCKFILE_MISSING_DEPENDENCY) unless it is told to resolve
+		// the missing entries again; on a lockfile with nothing missing the
+		// flag changes nothing.
+		if strings.HasPrefix(j.Tool.Version, "12.") {
+			a = append(a, "--fix-lockfile")
+		}
 	case OpUvCheck:
 		a = []string{"uv", "lock", "--check", "--no-build", "--no-config", "--no-python-downloads", "--python", python}
 	case OpUvUpgrade:

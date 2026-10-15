@@ -265,9 +265,23 @@ The results for all four package managers and QEMU with the previous job image d
     - For a backend without a Node.js version declaration, selected the default Node.js 24 (LTS) and ran the update with the declared pnpm 10.34.4
     - Confirmed in actual use that multiple supported series were loaded and that, without a runtime declaration, the latest LTS was selected and the update ran with the specified package manager
 
+### Dependency updates with pnpm 12.10.0 and later
+
+- **Automatically update dependencies with pnpm 12.10.0 and later by specifying `--fix-lockfile` when regenerating the lockfile**
+    - For npm and pnpm, remove entries for the update targets before regenerating the lockfile
+    - pnpm 12 otherwise rejects the lockfile with those entries removed and stops with an error, so add `--fix-lockfile` when regenerating it to resolve the removed entries again
+    - With pnpm 12.10.0, 12.11.0, 12.11.2, and 12.13.0, confirmed that only entries for the update targets and their referencing parents changed, and that frozen-lockfile checks passed
+    - Require manual action for pnpm 12 versions earlier than 12.10.0, because some lack the option, some fail even with it, and some change the lockfile format
+- **Verified that changes stay within the targeted updates with dependency sets comparable to those in real projects**
+    - With a lockfile of about 2,000 lines, tested transitive dependencies, dependencies with peer suffixes, direct dependencies, and multiple simultaneous updates, confirming that only entries for the update targets and their referencing parents changed in every case
+    - Specifying `--fix-lockfile` for a lockfile with no entries removed produced no changes
+- **Verified that updates became PR candidates in job containers using official images**
+    - In integration tests with pnpm 12.11.2 and Node.js 24 and 26, the update from minimist 1.2.5 to 1.2.8 became a PR candidate
+
 ## Unverified areas and next steps
 
 - Verify execution environments and limits
+    - Updates with pnpm 12 in actual projects running in production remain unverified
     - Updates in actual projects remain unverified for Node.js series other than 24 and for each supported Python series
     - Execution on physical arm64 hardware and rootless Docker, which runs Docker itself without administrator privileges, remain unverified with the current approach
     - Measurements supporting the default limits on update counts, execution time, and similar constraints remain unverified
@@ -288,6 +302,7 @@ The results for all four package managers and QEMU with the previous job image d
 
 - Documented Node.js and Python runtime selection and supported series.
 - Recorded verification results in actual use and the remaining unverified scope.
+- Documented support for automatic updates with pnpm 12.10.0 and later and verification results.
 
 ### October 13, 2026
 

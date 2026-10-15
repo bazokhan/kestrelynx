@@ -88,7 +88,7 @@ See [Base image selection](remediation-logic.md#base-image-selection) for determ
 | Sources other than the public npm registry | Unsupported for automatic updates of target packages |
 | Lockfiles recording automatic runtime downloads | Unsupported |
 | `resolutions`, `configDependencies`, `executionEnv`, and similar settings | Unsupported settings that alter resolution or additional downloads |
-| pnpm 12 | Requires manual handling because the current lockfile regeneration method cannot update it |
+| pnpm 12 | Supported from 12.10.0; 12.x releases before 12.10.0 require manual handling |
 
 A `pnpm-workspace.yaml` in the same directory can be read if it contains only the following settings.
 The file's presence alone does not establish a workspace.
@@ -475,7 +475,7 @@ The following tables give each code's meaning and related decision rules or chec
 | `update_set_not_applied` | Another package in the same update set could not be updated | [Partial PR conditions](remediation-logic.md#partial-pr-selection) |
 | `target_not_in_lockfile` | The target package has no entry in the lockfile | [Update methods by package manager](remediation-logic.md#manager-update-methods) |
 | `no_reresolve_trigger` | No dependency can be temporarily removed to trigger resolution | [Update methods by package manager](remediation-logic.md#manager-update-methods) |
-| `pnpm12_removal_unsupported` | The current update method cannot be used with pnpm 12 | [Update methods by package manager](remediation-logic.md#manager-update-methods) |
+| `pnpm12_removal_unsupported` | The current update method cannot be used with pnpm 12 releases before 12.10.0 | [Update methods by package manager](remediation-logic.md#manager-update-methods) |
 | `update_step_failed` | A step of the update failed | [Update methods by package manager](remediation-logic.md#manager-update-methods) |
 | `post_update_check_failed` | The check after the update failed | [Checking related changes](remediation-logic.md#change-validation) |
 | `unexpected_files` | The update changed unexpected files | [Checking related changes](remediation-logic.md#change-validation) |

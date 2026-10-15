@@ -88,7 +88,7 @@
 | 公開npmレジストリ以外の取得元 | 対象パッケージの自動更新では未対応 |
 | runtimeの自動取得を記録したlockfile | 未対応 |
 | `resolutions`・`configDependencies`・`executionEnv`など | 解決方法や追加取得を変える未対応設定 |
-| pnpm 12 | 現在のlockfile再生成方法では更新できないため手動対応 |
+| pnpm 12 | 12.10.0以上に対応。12.10.0より前の12.xは手動対応 |
 
 同じディレクトリの`pnpm-workspace.yaml`は、次の設定だけを持つ場合に読み取れます。
 ファイルがあるだけでworkspaceとは判断しません。
@@ -475,7 +475,7 @@ PR記録の`state`には、次の値があります。
 | `update_set_not_applied` | 同時に更新する別のパッケージを更新できなかった | [部分PRの成立条件](remediation-logic.md#partial-pr-selection) |
 | `target_not_in_lockfile` | 更新対象のパッケージがlockfileに載っていない | [マネージャー別の更新処理](remediation-logic.md#manager-update-methods) |
 | `no_reresolve_trigger` | 再解決のきっかけとして一時的に外せる依存がない | [マネージャー別の更新処理](remediation-logic.md#manager-update-methods) |
-| `pnpm12_removal_unsupported` | pnpm 12では現在の更新方法を使えない | [マネージャー別の更新処理](remediation-logic.md#manager-update-methods) |
+| `pnpm12_removal_unsupported` | 12.10.0より前のpnpm 12では、現在の更新方法を使えない | [マネージャー別の更新処理](remediation-logic.md#manager-update-methods) |
 | `update_step_failed` | 更新中の処理に失敗した | [マネージャー別の更新処理](remediation-logic.md#manager-update-methods) |
 | `post_update_check_failed` | 更新後の検査に失敗した | [付随変更の検査](remediation-logic.md#change-validation) |
 | `unexpected_files` | 更新で想定外のファイルが変更された | [付随変更の検査](remediation-logic.md#change-validation) |

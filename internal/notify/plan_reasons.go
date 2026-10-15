@@ -184,7 +184,7 @@ var planReasonTexts = map[string]struct{ en, ja string }{
 	"update_set_not_applied":            {"another package updated together with it could not be updated", "同時に更新する他のパッケージが更新できなかった"},
 	"target_not_in_lockfile":            {"the package has no entry in the lockfile", "パッケージが lockfile に載っていない"},
 	"no_reresolve_trigger":              {"no dependency can be taken out of the lockfile to make the manager resolve again", "再解決のきっかけにできる依存がない"},
-	"pnpm12_removal_unsupported":        {"the project runs pnpm 12, which this update cannot work with yet", "pnpm 12 を使うプロジェクトのため、まだ更新できない"},
+	"pnpm12_removal_unsupported":        {"the project runs a pnpm 12 release before 12.10.0, which this update cannot work with", "12.10.0 より前の pnpm 12 を使うプロジェクトのため、更新できない"},
 	"update_step_failed":                {"a step of the update failed", "更新の途中の手順が失敗した"},
 	"post_update_check_failed":          {"the check after the update failed", "更新後の検査に失敗した"},
 	"unexpected_files":                  {"the update changed files it should not touch", "更新が想定外のファイルを変更した"},

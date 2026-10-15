@@ -355,7 +355,7 @@ After rechecking the update inputs, KestreLynx edits direct dependency version s
 | Manager | Update method | Consistency checks |
 | --- | --- | --- |
 | npm | Removes target entries from a working copy of the lockfile and regenerates it. | Checks that regenerating the original input preserves the package set, then checks the update result. |
-| pnpm | Removes target entries from a working copy of the lockfile and regenerates it without freezing the lockfile. | Checks dependency consistency with the lockfile frozen before and after the update. |
+| pnpm | Removes target entries from a working copy of the lockfile and regenerates it without freezing the lockfile. With pnpm 12, it also passes `--fix-lockfile` so the removed entries are resolved again. | Checks dependency consistency with the lockfile frozen before and after the update. |
 | uv | Updates the lockfile with a specified target version for each target package. | Checks consistency between the lockfile and project declarations before and after the update. |
 | pip | Rewrites pinned versions and updates existing hashes from PyPI wheel information. | Checks dependency resolution before and after the update using dry runs targeting the running image's environment. |
 

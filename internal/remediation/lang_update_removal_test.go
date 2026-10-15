@@ -325,19 +325,42 @@ func withManifestField(manifest, field string) string {
 	return strings.Replace(manifest, "{", "{"+field+",", 1)
 }
 
-func TestLangUpdatePnpm12IsLeftToAPersonWithItsOwnReason(t *testing.T) {
-	h := newHarness(t, "pnpm")
-	h.files["package.json"] = withManifestField(h.files["package.json"], `"packageManager":"pnpm@12.11.2"`)
-	h.gh = ghFor(h.files)
-	h.cfg.GitHub = h.gh
-	h.item = itemFor(t, h.fx.mgr, h.files, h.fx.group())
-	it, _ := h.run()
-	wantCategory(t, it, CategoryManual, ReasonPnpm12RemovalUnsupported)
-	if h.work.calls != 0 || len(h.cfg.Tools.(*fakeTools).reqs) != 0 {
-		t.Error("a job ran or a release was asked for")
+func TestLangUpdatePnpm12BeforeTheFixingReleaseIsLeftToAPerson(t *testing.T) {
+	for _, v := range []string{"12.0.0", "12.9.1"} {
+		t.Run(v, func(t *testing.T) {
+			h := newHarness(t, "pnpm")
+			h.files["package.json"] = withManifestField(h.files["package.json"], `"packageManager":"pnpm@`+v+`"`)
+			h.gh = ghFor(h.files)
+			h.cfg.GitHub = h.gh
+			h.item = itemFor(t, h.fx.mgr, h.files, h.fx.group())
+			it, _ := h.run()
+			wantCategory(t, it, CategoryManual, ReasonPnpm12RemovalUnsupported)
+			if h.work.calls != 0 || len(h.cfg.Tools.(*fakeTools).reqs) != 0 {
+				t.Error("a job ran or a release was asked for")
+			}
+			if !strings.Contains(it.Detail, v) || !strings.Contains(it.Detail, minPnpm12Removal) {
+				t.Errorf("detail = %q", it.Detail)
+			}
+		})
 	}
-	if !strings.Contains(it.Detail, "12.11.2") {
-		t.Errorf("detail = %q", it.Detail)
+}
+
+func TestLangUpdatePnpm12FromTheFixingReleaseRuns(t *testing.T) {
+	for _, v := range []string{minPnpm12Removal, "12.11.2"} {
+		t.Run(v, func(t *testing.T) {
+			h := newHarness(t, "pnpm")
+			h.files["package.json"] = withManifestField(h.files["package.json"], `"packageManager":"pnpm@`+v+`"`)
+			h.gh = ghFor(h.files)
+			h.cfg.GitHub = h.gh
+			h.item = itemFor(t, h.fx.mgr, h.files, h.fx.group())
+			it, _ := h.run()
+			if it.Reason == ReasonPnpm12RemovalUnsupported {
+				t.Fatalf("pnpm %s was left to a person: %s", v, it.Detail)
+			}
+			if h.work.calls == 0 {
+				t.Errorf("no job ran for pnpm %s (category/reason = %s/%s)", v, it.Category, it.Reason)
+			}
+		})
 	}
 }
 
