@@ -185,7 +185,7 @@ See [Python selection for uv](remediation-logic.md#uv-python-selection) for decl
 | Tool | Supported versions | Default version |
 | --- | --- | --- |
 | npm | Versions in series 9–12 compatible with the selected Node.js version | `11.21.0` |
-| pnpm | Versions in series 9–11 compatible with the selected Node.js version | `11.28.5` |
+| pnpm | Versions in series 9–12 compatible with the selected Node.js version (12.x: 12.10.0 or later) | `11.28.5` |
 | uv | Supported stable versions at or above `0.12.22` | `0.13.0` |
 | pip | Version included in the official Python work image | `26.2.1` in the Python 3.13 work image |
 

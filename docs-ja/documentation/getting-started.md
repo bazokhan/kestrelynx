@@ -19,6 +19,8 @@ Webhookへ送信します。
 リポジトリをダウンロードまたはcloneし、ローカル設定ファイルを作成します。
 
 ```bash
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
 ```
 

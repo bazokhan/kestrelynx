@@ -13,7 +13,7 @@
 
 ## What it does
 
-- **Image scanning**: HIGH / CRITICAL detection with [Trivy](https://github.com/aquasecurity/trivy) by default
+- **Image scanning**: HIGH / CRITICAL detection by default for OS and language packages identified by [Trivy](https://github.com/aquasecurity/trivy) image scanning, with language-package update PRs limited to npm / pnpm / pip / uv
 - **Scan deduplication**: shared results for images confirmed to be identical
 - **Prioritization**: act now / watch / low, based on severity, CISA KEV, and EPSS
 - **Runtime usage (experimental)**: optional Docker Sensor marks findings for packages in use and puts them first within the same priority, without changing priority; see [Runtime usage](docs/documentation/runtime-usage.md)
@@ -120,9 +120,11 @@ Long notifications continue in additional messages with repeated section and ima
 You need a working Docker host and at least one notification target. The distributed image includes Trivy.
 
 ```sh
-# 1. Copy the repository's example configuration and set a notification target
+# 1. Clone the repository, copy the example configuration, and set a notification target
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
-$EDITOR config.yml
+${EDITOR:-vi} config.yml
 
 # 2. Start the agent (change TZ to your timezone)
 docker run -d --name kestrelynx \
@@ -147,8 +149,10 @@ docker logs -f kestrelynx
 ### Running with Docker Compose
 
 ```sh
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
-$EDITOR config.yml
+${EDITOR:-vi} config.yml
 docker compose up -d
 docker compose logs -f
 ```

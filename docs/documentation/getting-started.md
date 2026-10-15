@@ -18,6 +18,8 @@ containers, then sends the results to Slack or a webhook.
 Download or clone the repository, then create a local configuration file.
 
 ```bash
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
 ```
 

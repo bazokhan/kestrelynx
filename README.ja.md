@@ -13,7 +13,7 @@
 
 ## 主な機能
 
-- **イメージスキャン**：[Trivy](https://github.com/aquasecurity/trivy)によるHIGH／CRITICALの検出（既定）
+- **イメージスキャン**：[Trivy](https://github.com/aquasecurity/trivy)のイメージスキャンで識別できるOSパッケージと言語パッケージのHIGH／CRITICALの検出（既定、言語パッケージの更新PRはnpm／pnpm／pip／uvのみ）
 - **重複スキャンの抑制**：同一と確認できたイメージの結果共有
 - **優先順位付け**：深刻度・CISA KEV・EPSSに基づく今すぐ対応／要監視／低優先度の分類
 - **稼働時の使用状況（実験的）**：Docker向けの任意のSensorで使用中のパッケージの所見に印を付け、優先度を変えずに同じ区分内で先に表示（[稼働時の使用状況](docs-ja/documentation/runtime-usage.md)）
@@ -120,9 +120,11 @@
 Dockerが動作するホストと、少なくとも1つの通知先が必要です。配布イメージにはTrivyを同梱しています。
 
 ```sh
-# 1. リポジトリの設定例をコピーし、通知先を設定
+# 1. リポジトリを取得し、設定例をコピーして通知先を設定
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
-$EDITOR config.yml
+${EDITOR:-vi} config.yml
 
 # 2. 起動（TZは利用するタイムゾーンに合わせて変更）
 docker run -d --name kestrelynx \
@@ -147,8 +149,10 @@ docker logs -f kestrelynx
 ### Docker Composeでの実行
 
 ```sh
+git clone https://github.com/kitsunetrail/kestrelynx.git
+cd kestrelynx
 cp config.example.yml config.yml
-$EDITOR config.yml
+${EDITOR:-vi} config.yml
 docker compose up -d
 docker compose logs -f
 ```
