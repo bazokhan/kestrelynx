@@ -19,7 +19,7 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 - 修正PRを有効にしても、PRのマージ、アプリケーションイメージのビルド、変更の配置は行わない
 
 有効化の設定は[有効化設定](configuration.md#remediation-enablement)を参照してください。
-通知の送信判定は[通知を送る条件](how-it-works.md#notification-conditions)で説明します。
+通知の送信判定は[通知を送る条件](notification-conditions.md#notification-conditions)で説明します。
 
 ### ソースの確認 {#source-verification}
 
@@ -284,7 +284,7 @@ KestreLynxが選定済みのnpm・pnpm・uvを取得し、照合した配布物�
 | コンテナへ渡すファイル | 記録したサイズとハッシュに一致すること |
 
 ハッシュ不一致や配布物の不整合を無視して実行することはありません。
-通信先と認証情報の送付範囲は[外向きの通信](how-it-works.md#outbound-communication)を参照してください。
+通信先と認証情報の送付範囲は[外向きの通信](outbound-communication.md#outbound-communication)を参照してください。
 
 ### ツール公開後の待機 {#tool-release-age}
 
@@ -319,7 +319,7 @@ npm・pnpm・uvは、公開時刻から設定された待機時間を経過し�
 | GitHub token・イメージレジストリの認証情報 | 渡しません。 |
 | KestreLynxの設定ファイル・Docker socket | 渡しません。 |
 
-認証情報を外部へ送る範囲は[認証情報の送付範囲](how-it-works.md#credential-destinations)を参照してください。
+認証情報を外部へ送る範囲は[認証情報の送付範囲](outbound-communication.md#credential-destinations)を参照してください。
 
 ### 実行時の制限 {#worker-restrictions}
 
@@ -334,7 +334,7 @@ npm・pnpm・uvは、公開時刻から設定された待機時間を経過し�
 Dockerのroot filesystem設定自体は読み取り専用ではありません。
 ファイルの所有者・権限と一時領域のマウントで、非rootの処理が書き込める場所を制限します。
 
-処理量の設定は[処理の上限](configuration.md#remediation-limits)、通信の制限範囲は[作業用コンテナのネットワーク](how-it-works.md#worker-network)を参照してください。
+処理量の設定は[処理の上限](configuration.md#remediation-limits)、通信の制限範囲は[作業用コンテナのネットワーク](outbound-communication.md#worker-network)を参照してください。
 
 ### 結果の回収 {#worker-results}
 

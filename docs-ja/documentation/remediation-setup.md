@@ -3,7 +3,7 @@
 修正計画と修正PRを有効にする手順と、設定が効いていることの確認方法を説明します。
 機能の概要は[修正計画と修正PR](remediation.md#overview)を参照してください。
 
-対応する環境と入力は[対応範囲](remediation-reference.md#scope-and-requirements)、通信先は[外向きの通信](how-it-works.md#outbound-communication)を参照してください。
+対応する環境と入力は[対応範囲](remediation-reference.md#scope-and-requirements)、通信先は[外向きの通信](outbound-communication.md#outbound-communication)を参照してください。
 
 ## 修正計画の有効化 {#enable-fix-plans}
 
@@ -72,7 +72,7 @@ remediation:
 ```
 
 各キーの形式と設定条件は[イメージレジストリの認証](configuration.md#remediation-registries)を参照してください。
-認証情報が送られる範囲は[認証情報の送付範囲](how-it-works.md#credential-destinations)に記載しています。
+認証情報が送られる範囲は[認証情報の送付範囲](outbound-communication.md#credential-destinations)に記載しています。
 
 !!! note "記録の保存先"
 

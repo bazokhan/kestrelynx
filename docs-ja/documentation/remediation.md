@@ -46,6 +46,6 @@
 関連する設定と仕様は、次のページにあります。
 
 - [設定：修正計画と修正PR](configuration.md#remediation)
-- [仕組み：通知を送る条件](how-it-works.md#notification-conditions)
-- [仕組み：汎用Webhookの修正計画のフィールド](how-it-works.md#remediation-fields)
-- [仕組み：外向きの通信](how-it-works.md#outbound-communication)
+- [仕組み：通知を送る条件](notification-conditions.md#notification-conditions)
+- [仕組み：汎用Webhookの修正計画のフィールド](webhook-remediation-reference.md#remediation-fields)
+- [仕組み：外向きの通信](outbound-communication.md#outbound-communication)

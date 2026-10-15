@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 設定の読み込みで停止する | ログに示された設定項目と、有効化設定の組み合わせを確認する | [起動時の検証](configuration.md#remediation-validation) |
 | 計画に対象の項目がない | 稼働イメージのスキャン結果、対象の深刻度、修正版情報を確認する | [イメージ候補の選定](remediation-logic.md#image-selection)・[言語パッケージの候補選定](remediation-logic.md#package-selection) |
-| 計画の記録はあるが通知がない | 通知先、送信条件、配信失敗のログを確認する | [通知を送る条件](how-it-works.md#notification-conditions)・[修正計画の再送](how-it-works.md#remediation-redelivery) |
+| 計画の記録はあるが通知がない | 通知先、送信条件、配信失敗のログを確認する | [通知を送る条件](notification-conditions.md#notification-conditions)・[修正計画の再送](notification-conditions.md#remediation-redelivery) |
 | ソースを取得できない、対象ファイルが見つからない | Composeラベル、対応付け、ベースブランチ、パス、GitHubのアクセスを確認する | [ソースの対応付け](configuration.md#remediation-mappings)・[GitHubアクセス](configuration.md#remediation-github) |
 | 非公開イメージへアクセスできない | レジストリのホスト、認証情報、取得権限、token serviceの許可を確認する | [イメージレジストリの認証](configuration.md#remediation-registries) |
 | 新しいイメージ候補がない | 通知の理由から、新しいタグ・内容・改善の有無を確認する | [イメージ候補の理由](remediation-reference.md#image-reasons) |
@@ -33,7 +33,7 @@
 | 実行環境を選べない、互換条件を満たさない | 版ファイルとmanifestの宣言、依存パッケージの要件、系列のサポート状態を確認する | [実行環境の選定](remediation-logic.md#runtime-and-tool-versions)・[実行環境の理由](remediation-reference.md#runtime-reasons) |
 | pipの検証環境を決められない、または一致しない | 稼働イメージのPython版・OS・platformと、同じ依存ファイルを共有するイメージを確認する | [pipの検証環境](remediation-logic.md#pip-target-environment) |
 | ツールの公開後待機で保留になる | 公開時刻、設定した待機時間、詳細に示された使用可能時刻を確認する | [ツールの公開後待機時間](configuration.md#remediation-tool-release-age)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
-| ツールを取得できない | 取得先への通信、取得枠、通知の詳細を確認する | [ツールの取得](how-it-works.md#tool-downloads)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
+| ツールを取得できない | 取得先への通信、取得枠、通知の詳細を確認する | [ツールの取得](outbound-communication.md#tool-downloads)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
 | ツールのハッシュが一致しない | 宣言したハッシュと、取得・照合の詳細を確認する | [ツールの版宣言](remediation-reference.md#tool-declarations)・[ツールの取得と照合](remediation-logic.md#tool-verification) |
 | ツールキャッシュを利用できない | 保存先の書き込み権限、空き容量、キャッシュ容量の設定を確認する | [ツールキャッシュの容量](configuration.md#remediation-tool-cache)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
 | 作業用コンテナを実行できない | Docker API、作業用イメージの取得先、作業環境の検査ログを確認する | [修正PRの有効化](remediation-setup.md#enable-pull-requests)・[作業用コンテナの実行](remediation-logic.md#worker-execution) |
@@ -52,7 +52,7 @@
 | 新規PR数やオープン中のPR数の上限に達する | 現在のPRと設定した上限を確認する | [処理の上限](configuration.md#remediation-limits) |
 | 既存PRに対応付けられる、新しいPRが作られない | 通知された既存PRと、同じ更新を未マージで閉じた履歴を確認する | [既存PRとの照合](remediation-logic.md#existing-pr-matching)・[閉じたPRの扱い](remediation-logic.md#closed-prs) |
 | PR準備中にソースや候補が変わる | 通知の詳細と現在のソース・候補を確認し、次のサイクルの結果を確認する | [PR処理の理由](remediation-reference.md#pr-reasons) |
-| GitHub操作が失敗する、結果が不明になる | アクセス、通信、操作結果を確認し、結果不明の操作はKestreLynxによる照合を待つ | [PR操作イベントのフィールド](how-it-works.md#remediation-operation-fields)・[PR処理の理由](remediation-reference.md#pr-reasons) |
+| GitHub操作が失敗する、結果が不明になる | アクセス、通信、操作結果を確認し、結果不明の操作はKestreLynxによる照合を待つ | [PR操作イベントのフィールド](webhook-remediation-reference.md#remediation-operation-fields)・[PR処理の理由](remediation-reference.md#pr-reasons) |
 
 ## 記録を照合できない場合の確認 {#check-record-failure}
 

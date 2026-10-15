@@ -5,13 +5,10 @@
     Sensor（稼働時の使用状況）は実験的な機能です。
     設定・表示・証拠の形式は今後変わることがあり、凍結する可能性があります。
 
-Dockerホストに任意のSensorコンテナを追加すると、使用中のパッケージの所見に印が付き、
-そのパッケージと、それを含むイメージが同じ優先度の中で先に並びます。
-優先度そのものは変わりません。
+Dockerホストに任意のSensorコンテナを追加すると、稼働中のプログラムが使っているパッケージを観測できます。
+KestreLynxは観測結果をSlackとWebhookの通知に反映します。
 
-Sensorは稼働中のプログラムが使っているパッケージを観測し、本体がその結果を
-SlackとWebhookの通知に反映します。トリアージが無効の場合も使用状況は表示しますが、
-並べ替えは行いません。
+使用状況は脆弱性の優先度を変えません。
 
 [修正計画と修正PR（実験的）](remediation.md)にSensorは不要です。
 `runtime.enabled: false`のまま利用できます。
@@ -35,12 +32,8 @@ SlackとWebhookの通知に反映します。トリアージが無効の場合�
 関数の呼び出しやモジュールの読み込みは判定しません。
 データファイルの読み取りは使用の根拠にしません。
 
-`notify.language: en`では、Slackのパッケージカードに`Runtime: ▶ in use`を表示します。
-詳細カードは観測した動作を`Evidence:`の行に分け、簡略カードは
-`Runtime: ▶ in use (running)`のような短い行を使います。
-スレッドでは`Runtime: ▷ not observed`や
-`Runtime: ▷ runtime evidence unavailable (<理由>)`も表示します。
-通知の文言、並び順、Webhookのフィールドは[KestreLynxの仕組み](how-it-works.md)に記載しています。
+Slackの文言と観測根拠は[稼働時の使用状況の表示](slack-display.md#runtime-display)、並び順は[現在状態レポートの並び順](slack-display.md#current-order)を参照してください。
+Webhookのフィールドは[稼働時のフィールド](webhook-reference.md#runtime)に記載しています。
 
 ## 動作要件
 
@@ -169,40 +162,18 @@ runtime:
 EOLは常に通知します。スキャンに失敗した・実体を確認できなかったイメージの参照は、
 そのサイクルでは通知オフにしません。
 
-優先度は変えません。Slackでは該当する行を出さず、Priority行とOpen nowの
-優先度の件数からも除き、件数の1行を表示します。`notify.language: ja`の場合は次の表示です。
+通知オフにしても優先度は変わりません。
+同じイメージの同じパッケージについて、次のいずれかに該当すると通知オフを解除します。
 
-```text
-🔇 通知オフ — 修正版がなく7日以上使用が確認されない: N件
-```
+- 使用中のグループがある
+- Act nowのグループがある
+- 修正版のある`fixed`のグループがある
+- `end_of_life`のグループがある
+- 使用状況を判定できない、または判定対象のコンテナの観測期間が7日に満たない
+- 修正状態が通知オフの対象から外れた
 
-汎用Webhookには、通知オフの所見も全件残ります。
-追加のフィールドは[KestreLynxの仕組み](how-it-works.md)に記載しています。
-
-通知オフの条件を満たさなくなった場合は、`変化:`（英語では`Change:`）の行で通知を再開します。
-修正版が出た・優先度が上がった・CVEが追加された場合は、この行に
-`修正版が利用可能`・`⬆️ <優先度>に優先度昇格`（例: 今すぐ対応・要監視）・`新しいCVE CVE-…`を表示します。
-英語では`fix now available`・`⬆️ escalated to <priority>`（例: ACT NOW・WATCH）・`new CVEs: CVE-…`です。
-それ以外は`変化: ↩️ 通知を再開 (<理由>)`（英語では`Change: ↩️ Unmuted (<理由>)`）を表示します。
-
-| 理由 | 日本語の通知 |
-| --- | --- |
-| `now in use` | 使用中になった |
-| `act now` | 今すぐ対応 |
-| `fix available` | 修正版あり |
-| `now end-of-life` | サポート終了(EOL)となった |
-| `insufficient observation` | 観測不足 |
-| `not an eligible status` | 対象外の状態 |
-
-```text
-イメージ: web:1.0
-◆ curl
-変化: ↩️ 通知を再開 (使用中になった)
-現在: 8.0.0 · 修正版: なし
-検出件数: CRITICAL 0 / HIGH 1
-代表CVE: CVE-CURL · EPSS n/a
-使用状況: ▶ 使用中 (実行中)
-```
+Slackの表示と件数は[通知オフの表示](slack-display.md#muted-display)、ほかの変化と同時に起きた場合の判定順は[通常のパッケージの変化](diff-logic.md#normal-changes)を参照してください。
+汎用Webhookには通知オフの所見も全件残り、追加フィールドは[パッケージ](webhook-reference.md#package-fields)と[通常のパッケージの変化](webhook-reference.md#new-fields)に記載しています。
 
 ### 観測のオプション
 
@@ -222,8 +193,7 @@ SensorのComposeの`command`には、次のオプションを指定できます�
 
 ## Sensorの状態
 
-Sensorに問題がある場合は、通知の先頭に警告を表示します。
-Webhookでは`runtime.sensor_status`で状態を確認できます。
+状態ごとの警告文は[Sensorの警告](slack-display.md#sensor-warnings)、Webhookのフィールドは[Sensorの情報](webhook-reference.md#sensor-fields)を参照してください。
 
 | 状態 | 意味 |
 | --- | --- |

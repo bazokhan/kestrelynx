@@ -30,8 +30,8 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `notify.slack_webhook_url` | 空 | Slack Incoming WebhookのURLです。 |
-| `notify.slack_bot_token` | 空 | `chat:write`権限を持つSlack Bot Tokenです。`slack_channel`と一緒に設定します。 |
+| `notify.slack_webhook_url` | 空 | Slack Incoming WebhookのURLです。チャンネルへの通知に対応します。 |
+| `notify.slack_bot_token` | 空 | `chat:write`権限を持つSlack Bot Tokenです。`slack_channel`と一緒に設定すると、スレッド投稿と前回レポートへのリンクを利用できます。 |
 | `notify.slack_channel` | 空 | Botで通知するSlackチャンネルIDです。 |
 | `notify.generic_webhook_url` | 空 | 構造化JSONを受け取るエンドポイントです。 |
 | `notify.language` | `en` | Slack通知とPR本文の言語です。`en`か`ja`を指定し、それ以外は設定エラーです。汎用WebhookのJSONは英語のままです。 |
@@ -40,14 +40,7 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 `slack_webhook_url`とBot Tokenの組み合わせを同時には設定できません。
 汎用Webhookは、どちらのSlack通知方式とも併用できます。
 
-Botのスレッドの見出しは`Everything open now`（日本語では`未解決の所見の全体`）です。
-本文を複数のメッセージに分ける場合も、スレッドは本文1通目に付けます。
-スレッドを投稿した日は、その1通目の末尾にcontextのフッターとして
-`📊 Everything open now is in this message's thread ↓`を表示します。
-新しいスレッドがなく、有効な前回レポートへのリンクがある場合は
-`🔗 Everything open as of the last report → thread`を表示し、
-そのレポート時点の未解決の所見を示します。
-どちらもない場合や、前回のパーマリンクが長すぎて表示できない場合はフッターを付けません。
+スレッドの位置とフッターの読み方は、[スレッドのレポート](slack-display.md#thread-display)を参照してください。
 
 日本語のSlack通知は、次のように設定します。
 
@@ -56,7 +49,7 @@ notify:
   language: ja
 ```
 
-翻訳する定型文と英語のまま残る内容は、[KestreLynxの仕組み](how-it-works.md#notification-language)に記載しています。
+翻訳する定型文と英語のまま残る内容は、[通知の言語](slack-display.md#notification-language)を参照してください。
 
 ## 通知モード
 
@@ -65,9 +58,7 @@ notify:
 | `notify.mode` | `diff` | `diff`は変化を通知し、`full`はスキャンごとに現在の全項目を通知します。 |
 | `notify.full_report_day` | `monday` | diffモードで完全なレポートを送る曜日です。`never`で無効化します。 |
 
-diffモードでは、新規検出、解消、修正可能化、優先度昇格、通知オフからの再開を通知します。未解決項目が
-残っていても変化がない場合、完全なレポートを繰り返さず、短いハートビート通知を
-送信します。
+差分として扱う変化は[パッケージの変化](diff-logic.md#package-changes)、送信する条件は[スキャン通知の送信条件](notification-conditions.md#notification-conditions)を参照してください。
 
 ## 状態管理とDocker
 
@@ -76,9 +67,10 @@ diffモードでは、新規検出、解消、修正可能化、優先度昇格�
 | `docker.socket` | `/var/run/docker.sock` | Dockerソケットのパスです。 |
 | `state.path` | `/var/lib/kestrelynx/state.json` | スキャン履歴と差分計算に使用するファイルです。 |
 
-`state.path`を含むディレクトリをDockerボリューム、またはKubernetesの永続ボリュームで
-永続化してください。脅威情報フィードのキャッシュは、`state.path`と同じディレクトリ内の
-`intel`ディレクトリに保存します。既定のパスは`/var/lib/kestrelynx/intel`です。
+脅威情報フィードのキャッシュは、`state.path`と同じディレクトリ内の`intel`ディレクトリに保存します。
+既定のパスは`/var/lib/kestrelynx/intel`です。
+
+`state.path`を含むディレクトリの永続化は[セットアップ手順](getting-started.md)、履歴の扱いは[履歴の継続](diff-logic.md#state-lifecycle)を参照してください。
 
 ## 修正計画と修正PR {#remediation}
 
@@ -106,7 +98,7 @@ diffモードでは、新規検出、解消、修正可能化、優先度昇格�
 | PRの作成・管理 | 対象リポジトリに限定したfine-grained tokenのContentsとPull requests: Read and write |
 
 設定ファイルは所有者だけが読めるようにしてください。
-tokenの送付先は[認証情報の送付範囲](how-it-works.md#credential-destinations)を参照してください。
+tokenの送付先は[認証情報の送付範囲](outbound-communication.md#credential-destinations)を参照してください。
 
 ### 保存先 {#remediation-storage}
 
@@ -134,7 +126,7 @@ tokenの送付先は[認証情報の送付範囲](how-it-works.md#credential-des
 - 正規化後に同じ`host`となる認証設定は重複して指定できない
 - Docker Hubの認証には`host: docker.io`と`token_hosts: [auth.docker.io]`を指定する
 
-送付先とリダイレクトの制限は[認証情報の送付範囲](how-it-works.md#credential-destinations)、設定手順は[非公開イメージの認証](remediation-setup.md#configure-registry-auth)を参照してください。
+送付先とリダイレクトの制限は[認証情報の送付範囲](outbound-communication.md#credential-destinations)、設定手順は[非公開イメージの認証](remediation-setup.md#configure-registry-auth)を参照してください。
 
 ### ソースの対応付け {#remediation-mappings}
 
@@ -190,7 +182,7 @@ Composeの`build`からの特定と明示したDockerfileとの照合は[ベー�
 - パスには小文字英数字と区切りの`.`・`_`・`-`を使う
 - ミラーには指定したホストとパスの下に、公式イメージと同じ内容の`library/node`・`library/python`を配置する
 
-固定と取得不能時の扱いは[公式イメージの固定](remediation-logic.md#worker-images)、系列は[対応する実行環境](remediation-reference.md#supported-runtimes)、通信先は[作業用イメージの取得](how-it-works.md#worker-image-downloads)を参照してください。
+固定と取得不能時の扱いは[公式イメージの固定](remediation-logic.md#worker-images)、系列は[対応する実行環境](remediation-reference.md#supported-runtimes)、通信先は[作業用イメージの取得](outbound-communication.md#worker-image-downloads)を参照してください。
 
 ### ツールの公開後待機時間 {#remediation-tool-release-age}
 
@@ -306,7 +298,7 @@ Pod、ReplicaSet、Jobの一覧はnamespaceごとに個別に取得します。N
 | `triage.epss_url` | 空 | EPSSフィードのURLを、ローカルミラーなどへ変更します。 |
 | `triage.discussion_links` | `true` | act-now CVEに関するHacker Newsの議論を検索します。 |
 
-通信先と送信内容は[外向きの通信](how-it-works.md#outbound-communication)を参照してください。
+通信先と送信内容は[外向きの通信](outbound-communication.md#outbound-communication)を参照してください。
 
 しきい値は次の条件を満たす必要があります。
 

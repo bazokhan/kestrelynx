@@ -49,6 +49,7 @@ nav:
       - Overview: documentation/index.md
       - Setup: documentation/getting-started.md
       - Configuration: documentation/configuration.md
+      - How it works: documentation/how-it-works.md
       - Remediation plans and pull requests (experimental):
           - Overview: documentation/remediation.md
           - Enabling remediation: documentation/remediation-setup.md
@@ -57,7 +58,6 @@ nav:
           - How candidates and pull requests are decided: documentation/remediation-logic.md
           - Supported inputs and reason codes: documentation/remediation-reference.md
       - Runtime usage (experimental): documentation/runtime-usage.md
-      - How it works: documentation/how-it-works.md
   - Development:
       - Overview: development/index.md
       - Remediation plan and pull request development: development/remediation-pull-requests.md

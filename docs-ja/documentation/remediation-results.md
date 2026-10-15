@@ -157,14 +157,14 @@ pipの固定版更新は部分PRに分けません。
 
 | 確認したい内容 | フィールド仕様 |
 | --- | --- |
-| 計画の状態、比較条件、処理上限と使用量 | [修正計画の共通フィールド](how-it-works.md#remediation-fields) |
-| 配布イメージの候補と比較結果 | [配布イメージのフィールド](how-it-works.md#remediation-image-fields) |
-| ベースイメージの候補とレイヤーの確認結果 | [ベースイメージのフィールド](how-it-works.md#remediation-dockerfile-fields) |
-| パッケージごとの版・処理・除外理由、実行環境、ツール、更新検査 | [言語パッケージのフィールド](how-it-works.md#remediation-language-fields) |
-| PRの状態と、PRに含まれず対応が残るパッケージ | [PR処理のフィールド](how-it-works.md#remediation-pr-fields) |
-| PRの作成・照合などの操作結果 | [PR操作イベントのフィールド](how-it-works.md#remediation-operation-fields) |
-| PRへの書き込みを止めた問題 | [書き込み停止のフィールド](how-it-works.md#remediation-problem-fields) |
-| 部分PRを含む通知データの例 | [修正計画のJSON例](how-it-works.md#remediation-json-example) |
+| 計画の状態、比較条件、処理上限と使用量 | [修正計画の共通フィールド](webhook-remediation-reference.md#remediation-fields) |
+| 配布イメージの候補と比較結果 | [配布イメージのフィールド](webhook-remediation-reference.md#remediation-image-fields) |
+| ベースイメージの候補とレイヤーの確認結果 | [ベースイメージのフィールド](webhook-remediation-reference.md#remediation-dockerfile-fields) |
+| パッケージごとの版・処理・除外理由、実行環境、ツール、更新検査 | [言語パッケージのフィールド](webhook-remediation-reference.md#remediation-language-fields) |
+| PRの状態と、PRに含まれず対応が残るパッケージ | [PR処理のフィールド](webhook-remediation-reference.md#remediation-pr-fields) |
+| PRの作成・照合などの操作結果 | [PR操作イベントのフィールド](webhook-remediation-reference.md#remediation-operation-fields) |
+| PRへの書き込みを止めた問題 | [書き込み停止のフィールド](webhook-remediation-reference.md#remediation-problem-fields) |
+| 部分PRを含む通知データの例 | [修正計画のJSON例](webhook-remediation-reference.md#remediation-json-example) |
 
 ### 保存記録の確認先 {#saved-details}
 

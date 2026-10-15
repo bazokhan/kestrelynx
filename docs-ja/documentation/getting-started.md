@@ -36,10 +36,10 @@ docker compose up -d
 docker compose logs -f
 ```
 
-同梱のComposeファイルは、スキャン履歴を`kestrelynx-state`ボリュームへ
-永続化します。  
-この状態データは、コンテナを再作成した後も差分通知と初回検出日を
-維持するために必要です。
+同梱のComposeファイルは、`kestrelynx-state`ボリュームを`/var/lib/kestrelynx`にマウントします。
+スキャン履歴と脅威情報フィードのキャッシュを保持するため、このボリュームを永続化してください。
+
+保存先の設定は[設定](configuration.md)、履歴が差分判定に与える影響は[履歴の継続](diff-logic.md#state-lifecycle)を参照してください。
 
 ## Dockerで実行
 
@@ -131,5 +131,5 @@ environment:
 
 ## 参考ページ
 
-- configについては[設定項目](configuration.md)を参照してください。
-- 通知ロジックは[通知ロジック](how-it-works.md)を参照してください。
+- [設定](configuration.md) — 設定項目と既定値
+- [スキャン通知の送信条件](notification-conditions.md#notification-conditions) — 通知モードごとの送信条件

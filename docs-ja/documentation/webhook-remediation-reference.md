@@ -1,0 +1,349 @@
+# Webhookの修正計画フィールド
+
+## 修正計画の共通フィールド {#remediation-fields}
+
+修正計画が有効な場合、full・diffの両方のペイロードに`remediation`を含めます。
+レポート全体の形式は、[Webhookのフィールド仕様](webhook-reference.md#top-level)を参照してください。
+
+各表のフィールド名は、表で示すオブジェクトからの相対パスです。
+省略条件を記載していないフィールドは、そのオブジェクトがある場合に出力します。
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `schema_version` | integer | このオブジェクトの形式の版で、現在は`1` |
+| `status` | string | 計画を作成できた場合は`ok`、作成できなかった場合は`unavailable` |
+| `unavailable_reason` | string | 計画を作成できなかった理由で、それ以外は省略 |
+| `not_saved` | boolean | 計画を保存できなかった場合は`true`で、それ以外は省略 |
+| `generated_at` | string | RFC 3339形式の計画生成時刻で、計画がない場合は省略 |
+| `conditions` | object | 比較スキャンの条件で、Trivyの版と脆弱性データベースの識別情報の両方が不明なら省略 |
+| `conditions.trivy_version` | string | Trivyの版 |
+| `conditions.trivy_sha256` | string | TrivyのSHA-256で、不明なら省略 |
+| `conditions.vulnerability_db_updated_at` / `conditions.java_db_updated_at` | string | 各データベースのRFC 3339形式の更新時刻で、不明なら省略 |
+| `conditions.vulnerability_db_sha256` / `conditions.java_db_sha256` | string | 各データベースのSHA-256で、不明なら省略 |
+| `conditions.severities` | stringの配列 | 比較対象の深刻度で、空なら省略 |
+| `conditions.analysis_settings` | string | 解析設定の識別用ハッシュで、不明なら省略 |
+| `limits` | object | 計画の上限で、計画がない場合は省略 |
+| `limits.max_candidate_scans` | integer | 候補イメージのスキャン上限 |
+| `limits.max_baseline_rescans` | integer | 比較元の再スキャン上限 |
+| `limits.max_tag_pages` | integer | リポジトリごとのタグ一覧取得の上限 |
+| `usage` | object | 計画作成時の処理件数で、計画がない場合は省略 |
+| `usage.candidate_scans` / `usage.baseline_rescans` | integer | 候補スキャン・比較元の再スキャンの件数 |
+| `usage.tag_pages` / `usage.registry_requests` | integer | タグ一覧取得・レジストリへの要求の件数 |
+
+`unavailable_reason`には、`databases_not_prepared`または`planner_not_built`を使用します。
+計画がない場合も、[配布イメージの`items`](#remediation-image-fields)は`[]`として出力します。
+
+各項目の`category`は[計画の分類値](remediation-reference.md#category-values)、`reason`は[理由コード](remediation-reference.md#reason-codes)を参照してください。
+項目の`reason`と補足の`detail`は、空なら省略します。
+
+## 配布イメージのフィールド {#remediation-image-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `summary` | object | 分類値をキー、整数の件数を値とする配布イメージの集計で、計画がない場合は省略 |
+| `items` | objectの配列 | 配布イメージの項目で、該当なしは`[]` |
+| `items[].key` | string | 項目の識別子 |
+| `items[].category` | string | 計画の分類値 |
+| `items[].reason` / `items[].detail` | string | 理由と補足で、空なら省略 |
+| `items[].tag_kind` | string | 現在のタグの分類で、不明なら省略 |
+| `items[].priority` | string | 対象の優先度で、情報なしは省略 |
+| `items[].services` | objectの配列 | 対応するサービスの情報で、空なら省略 |
+| `items[].current` | object | 現在のイメージ情報 |
+| `items[].candidate` | object | 候補のイメージ情報で、候補がなければ省略 |
+| `items[].targets` | integer | 比較対象の所見数 |
+| `items[].kev_targets` | integer | KEVに掲載された比較対象の所見数で、`0`なら省略 |
+| `items[].comparison` | object | 比較結果で、結果がなければ省略 |
+| `items[].scans` | objectの配列 | 比較に使ったスキャンの記録で、空なら省略 |
+
+`current`と`candidate`のイメージ情報は、次の形式です。
+ベースイメージの項目に含むイメージ情報も同じ形式を使用します。
+
+| イメージ情報のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `ref` | string | イメージ参照 |
+| `tag` | string | タグで、不明なら省略 |
+| `content` | string | 稼働イメージの実体識別情報で、情報なしや候補イメージでは省略 |
+| `config_digest` / `manifest_digest` / `top_digest` | string | 各digestで、不明なら省略 |
+| `platform` | string | プラットフォームで、不明なら省略 |
+| `digest_kind_unverified` | boolean | 稼働イメージのdigestの種類を確認できていない場合は`true`で、それ以外は省略 |
+
+| `comparison`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `comparable` | boolean | 比較可能な場合は`true` |
+| `reason` / `scope` / `decision` | string | 比較の理由・範囲・判定で、空なら省略 |
+| `targets` / `resolved` / `remaining` | integer | 対象・解消・残存の件数 |
+| `unknown` / `undetected` / `introduced` | integer | 判定不能・比較元で未検出・新規検出の件数 |
+| `verdicts` | objectの配列 | 対象の脆弱性ごとの判定で、空なら省略 |
+| `introduced_findings` | objectの配列 | 新規検出の脆弱性ごとの判定で、空なら省略 |
+| `verdicts_truncated` / `introduced_findings_truncated` | boolean | 対応する一覧の一部を省略した場合は`true`で、それ以外は省略 |
+
+| `scans[]`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `role` / `ref` | string | スキャンの役割とイメージ参照 |
+| `requested` / `confirmed` | string | 要求した対象と確認できた対象 |
+| `db` | string | 使用したデータベースの識別情報 |
+| `scanned_at` | string | RFC 3339形式のスキャン時刻で、記録がなければ省略 |
+| `failure` | string | スキャン失敗の情報で、空なら省略 |
+
+比較の条件は[スキャンの比較条件](remediation-logic.md#comparison-conditions)、結果の解釈は[比較結果の解消](remediation-results.md#verification-results)を参照してください。
+
+## ベースイメージのフィールド {#remediation-dockerfile-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `dockerfile_summary` | object | 分類値をキー、整数の件数を値とする集計で、該当項目がなければ省略 |
+| `dockerfile_items` | objectの配列 | ベースイメージの項目で、該当なしは省略 |
+| `dockerfile_items[].key` | string | 項目の識別子 |
+| `dockerfile_items[].kind` | string | `dockerfile` |
+| `dockerfile_items[].fix_class` | string | `base_image` |
+| `dockerfile_items[].verification` | string | `base_image_comparison` |
+| `dockerfile_items[].category` | string | 計画の分類値 |
+| `dockerfile_items[].reason` / `dockerfile_items[].detail` | string | 理由と補足で、空なら省略 |
+| `dockerfile_items[].priority` | string | 対象の優先度で、情報なしは省略 |
+| `dockerfile_items[].workloads` | stringの配列 | 対象のWorkloadで、該当なしは`[]` |
+| `dockerfile_items[].source` | object | Dockerfileのリポジトリ・ブランチ・パスと、取得できたコミット・ステージなどの情報 |
+| `dockerfile_items[].base_ref` / `dockerfile_items[].base_kind` | string | 現在のベースイメージ参照とタグの分類で、空なら省略 |
+| `dockerfile_items[].candidate` | object | 候補の[イメージ情報](#remediation-image-fields)で、候補がなければ省略 |
+| `dockerfile_items[].counts` | object | 整数値の`targets`・`resolved`・`remaining`・`introduced`による集計 |
+| `dockerfile_items[].entities` | objectの配列 | 稼働イメージごとの照合・比較結果で、空なら省略 |
+| `dockerfile_items[].final_image_verified` | boolean | 再ビルド後のアプリケーションイメージの検証有無で、常に`false` |
+| `dockerfile_items[].pull_request` | object | 対応する[PR処理](#remediation-pr-fields)で、対応がなければ省略 |
+
+| `dockerfile_items[].entities[]`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `running_image` | object | 稼働イメージの情報 |
+| `current_base` / `candidate_base` | object | 現在・候補のベースイメージ情報で、情報なしは省略 |
+| `layer_confirmation` / `findings_by_layer` | object | ベースレイヤーの照合結果とレイヤー別の所見件数 |
+| `category` | string | 稼働イメージごとの分類値 |
+| `reason` / `detail` | string | 理由と補足で、空なら省略 |
+| `services` | objectの配列 | 対応するサービスで、空なら省略 |
+| `targets` | integer | 比較対象の所見数 |
+| `kev_targets` | integer | KEVに掲載された比較対象の所見数で、`0`なら省略 |
+| `comparison` | object | [比較結果](#remediation-image-fields)で、結果がなければ省略 |
+| `scans` | objectの配列 | [スキャンの記録](#remediation-image-fields)で、空なら省略 |
+
+検査の範囲は、[対象別の検証範囲](remediation-logic.md#verification-scope)を参照してください。
+
+## 言語パッケージのフィールド {#remediation-language-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `language_summary` | object | 分類値をキー、整数の件数を値とする集計で、該当項目がなければ省略 |
+| `language_items` | objectの配列 | 言語パッケージの項目で、該当なしは省略 |
+| `language_items[].key` | string | 項目の識別子 |
+| `language_items[].category` | string | 計画の分類値 |
+| `language_items[].reason` / `language_items[].detail` | string | 理由と補足で、空なら省略 |
+| `language_items[].manager` / `language_items[].priority` | string | パッケージマネージャーと優先度で、空なら省略 |
+| `language_items[].workloads` | stringの配列または`null` | 対象のWorkload |
+| `language_items[].source` | object | 依存ファイルのリポジトリ・ブランチ・ディレクトリなどのソース情報 |
+| `language_items[].pull_request` | object | 対応する[PR処理](#remediation-pr-fields)で、対応がなければ省略 |
+
+### パッケージの結果 {#language-package-fields}
+
+| `language_items[]`からのフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `package_count` | integer | パッケージの総件数 |
+| `packages` | objectの配列 | パッケージごとの結果で、空なら省略 |
+| `packages_truncated` | boolean | 一覧の一部を省略した場合は`true`で、それ以外は省略 |
+| `packages[].name` / `packages[].ecosystem` / `packages[].installed` | string | パッケージ名・エコシステム・稼働版 |
+| `packages[].normalized` | string | 正規化したパッケージ名で、空なら省略 |
+| `packages[].selection_lower_bound` / `packages[].adopted_version` | string | 更新目標の下限と採用版で、情報なしは省略 |
+| `packages[].relation` | string | 依存関係の区分で、空なら省略 |
+| `packages[].action` / `packages[].reason` / `packages[].detail` | string | 対応・理由・補足で、空なら省略 |
+| `packages[].left_out` | boolean | 計画した更新から除外された場合は`true`で、それ以外は省略 |
+| `packages[].occurrence_count` / `packages[].cve_count` / `packages[].origin_count` | integer | 依存ファイル内の出現箇所・脆弱性・元の所見の件数 |
+| `packages[].kev_count` | integer | KEVに掲載された脆弱性の件数で、`0`なら省略 |
+| `packages[].occurrences` / `packages[].cves` / `packages[].origins` | objectの配列 | 出現箇所・脆弱性・元の所見の一覧で、空なら省略 |
+| `packages[].occurrences_truncated` / `packages[].cves_truncated` / `packages[].origins_truncated` | boolean | 対応する一覧の一部を省略した場合は`true`で、それ以外は省略 |
+
+`action`の定義は[パッケージの処理値](remediation-reference.md#action-values)、版の解釈は[更新目標と採用版](remediation-results.md#target-and-adopted-version)を参照してください。
+
+### 実行環境 {#language-runtime-fields}
+
+| `language_items[]`からのフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `runtime_eol` | object | サポート終了により手動対応となる実行環境で、該当なしは省略 |
+| `runtime_eol.id` / `runtime_eol.name` | string | 実行環境の識別子と名前 |
+| `runtime_eol.eol` | string | `YYYY-MM-DD`形式のサポート終了日で、不明なら省略 |
+| `update.runtime` | object | 更新に使った実行環境で、記録がなければ省略 |
+| `update.runtime.id` / `update.runtime.version` | string | 実行環境の識別子と版 |
+| `update.runtime.pip` | string | Pythonイメージに含まれるpipの版で、情報なしは省略 |
+| `update.runtime.image` / `update.runtime.platform` / `update.runtime.digest` | string | 作業用イメージ・プラットフォーム・digestで、情報なしは省略 |
+| `update.runtime.support` / `update.runtime.eol` | string | サポート状態と終了日で、情報なしは省略 |
+| `update.runtime.basis` | string | 実行環境の選定根拠で、情報なしは省略 |
+| `update.runtime.declared` | objectの配列 | `source`・`value`を持つ版宣言で、空なら省略 |
+| `update.runtime.excluded` | objectの配列 | 選ばなかった系列の`id`・`why`と補足情報で、空なら省略 |
+| `update.runtime.engines_floor` | string | 依存の互換性を確認した最低Node.js版で、記録がなければ省略 |
+
+選定方法は、[実行環境の選定](remediation-logic.md#runtime-and-tool-versions)を参照してください。
+
+### ツール {#language-tool-fields}
+
+`language_items[].update.tool`は、更新に使ったツールの記録がある場合に含めます。
+
+| `update.tool`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `name` / `version` | string | ツール名と版 |
+| `source` | string | 版の選定根拠で、`declared`、`default`、`default_in_range`のいずれか |
+| `sha256` | string | 配布物のSHA-256 |
+| `format` | string | 配布物の形式で、空なら省略 |
+| `size` | integer | 配布物のバイト数で、`0`なら省略 |
+| `sha512` | string | 配布物のSHA-512で、空なら省略 |
+| `published_at` | string | RFC 3339形式の公開日時 |
+| `registry_digest` | string | レジストリが示した配布物のdigestで、空なら省略 |
+| `spec_hash` | string | プロジェクトが宣言し、照合したハッシュで、空なら省略 |
+
+選定根拠の意味は、[ツール版の選定](remediation-logic.md#tool-version-selection)を参照してください。
+
+### 更新の記録 {#language-update-fields}
+
+| `language_items[]`からのフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `update_executed` | boolean | この回に依存更新を実行したかで、`false`でも出力 |
+| `post_update_check_executed` | boolean | この回に更新後の検査を実行したかで、`false`でも出力 |
+| `update` | object | 更新の記録で、記録がなければ省略 |
+| `update.steps` | objectの配列 | 実行した操作の記録で、空なら省略 |
+| `update.notes` | stringの配列 | 更新処理の補足で、空なら省略 |
+| `update.manifest_edits` | objectの配列 | manifestの変更箇所で、空なら省略 |
+| `update.manifest_edits[].file` / `section` / `name` / `from` / `to` | string | ファイル・節・依存名・変更前・変更後 |
+| `update.manifest_edits[].major_change` | boolean | メジャー版の変更に該当する場合は`true`で、それ以外は省略 |
+| `update.deprecated_changed` | integer | 非推奨注記が追加・削除・変更されたlockfile項目の件数で、`0`なら省略 |
+| `update.diff` | object | lockfileの差分で、記録がなければ省略 |
+| `update.diff.added` / `update.diff.changed` / `update.diff.removed` | stringの配列 | 追加・変更・削除された項目で、空なら省略 |
+| `update.diff.truncated` | boolean | 差分一覧の一部を省略した場合は`true`で、それ以外は省略 |
+| `update.diff.followed` | objectの配列 | 更新に伴って依存先の版が変わった項目で、空なら省略 |
+| `update.diff.followed[].entry` | string | 変更された項目 |
+| `update.diff.followed[].moves` | objectの配列 | stringの`name`・`from`・`to`を持つ依存先の変更 |
+| `source_check` | object | 更新前後の依存ファイルのスキャン結果で、記録がなければ省略 |
+| `source_check.counts` | integerの配列 | 解消・残存・新規検出の順に並ぶ3つの件数 |
+| `source_check.resolved` / `source_check.remaining` / `source_check.introduced` | objectの配列 | 対応する脆弱性の一覧で、空なら省略 |
+| `source_check.truncated` | boolean | 脆弱性一覧の一部を省略した場合は`true`で、それ以外は省略 |
+| `source_check.passed` | boolean | 更新後の検査に合格したかで、`false`でも出力 |
+
+非推奨注記の変更件数はWebhookに含めますが、対象名の一覧は含めません。
+対象名と注記の追加・削除・変更はPR本文で確認します。
+
+### 更新ファイル {#language-artifact-fields}
+
+`language_items[].artifacts`は、更新ファイルの情報がある場合に含めます。
+ファイルの内容は含めません。
+
+| `artifacts[]`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `path` | string | リポジトリ内のファイルパス |
+| `sha256` | string | ファイル内容のSHA-256 |
+| `size` | integer | ファイルのバイト数 |
+| `mode` | string | ファイルのモードで、情報なしは省略 |
+
+## PR処理のフィールド {#remediation-pr-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `pull_request_summary` | object | 状態値をキー、整数の件数を値とする集計で、処理単位がなければ省略 |
+| `pull_requests` | objectの配列 | PR処理の単位で、該当なしは省略 |
+| `pull_requests[].key` | string | 処理単位の識別子 |
+| `pull_requests[].kind` | string | ベースイメージ更新は`dockerfile`、言語パッケージ更新は`language`で、Composeのタグ更新では省略 |
+| `pull_requests[].repo` / `pull_requests[].base_branch` / `pull_requests[].path` | string | 対象リポジトリ・ベースブランチ・ファイルパス |
+| `pull_requests[].status` | string | PR処理の状態 |
+| `pull_requests[].reason` / `pull_requests[].detail` | string | 理由と補足で、空なら省略 |
+| `pull_requests[].number` | integer | PR番号で、`0`なら省略 |
+| `pull_requests[].url` / `pull_requests[].state` | string | PRのURLとGitHub上の状態で、空なら省略 |
+| `pull_requests[].item_key` | string | 対応する言語パッケージ項目の識別子で、情報なしは省略 |
+| `pull_requests[].language` | object | 言語パッケージ更新の内容で、該当なしは省略 |
+| `pull_requests[].language.remaining` | objectの配列 | PRに含めなかったパッケージで、空なら省略 |
+| `dockerfile_items[].pull_request` | object | 対応する処理の`status`と、任意の`reason`・`number`・`url`・`state`で、対応がなければ省略 |
+| `language_items[].pull_request` | object | 対応する処理の`status`と、任意の理由・補足・PR情報・照合用識別子で、対応がなければ省略 |
+
+| `pull_requests[].language.remaining[]`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `name` / `ecosystem` | string | パッケージ名とエコシステム |
+| `from` / `target` | string | 稼働版と予定していた更新先 |
+| `reason` | string | 更新から除外した理由 |
+| `relation` / `detail` | string | 依存関係の区分と補足で、空なら省略 |
+
+既存PRに対応付けた回は、PR側の`language.remaining`からパッケージの除外情報を補います。
+その回の更新・検査の実行有無が`false`でも、`packages[]`に`left_out`・`action`・`reason`が付く場合があります。
+
+状態の定義は[PRの状態値](remediation-reference.md#pr-status-values)、部分PRの解釈は[部分PR](remediation-results.md#partial-pull-requests)を参照してください。
+
+## PR操作イベントのフィールド {#remediation-operation-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `operations` | objectの配列 | 未配信のPR操作イベントで、該当なしは省略 |
+| `operations[].seq` | integer | イベントの連番 |
+| `operations[].id` | string | 操作の識別子 |
+| `operations[].at` | string | RFC 3339形式の時刻 |
+| `operations[].phase` / `operations[].kind` / `operations[].repo` | string | 操作の段階・種類・対象リポジトリ |
+| `operations[].attempt_key` | string | 試行の識別子で、空なら省略 |
+| `operations[].number` | integer | PR番号で、`0`なら省略 |
+| `operations[].result` / `operations[].error` | string | 操作結果とエラーで、空なら省略 |
+
+配信と再送の扱いは、[修正計画の再送](notification-conditions.md#remediation-redelivery)を参照してください。
+
+## 書き込み停止のフィールド {#remediation-problem-fields}
+
+| `remediation`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `problems` | objectの配列 | PRの書き込みを止める問題で、該当なしは省略 |
+| `problems[].code` | string | 問題の分類コード |
+| `problems[].repo` / `problems[].target` | string | 対象リポジトリと更新対象の識別子で、空なら省略 |
+| `problems[].reason` / `problems[].detail` | string | 理由と補足で、空なら省略 |
+
+停止条件は[書き込みの停止](remediation-logic.md#write-stops)、理由は[理由コード](remediation-reference.md#reason-codes)を参照してください。
+
+## 修正計画のJSON例 {#remediation-json-example}
+
+部分PRを含むペイロードから、主要フィールドだけを抜粋した例です。
+`example-b`は更新から除外され、パッケージの結果とPRの`remaining`の両方に記録されています。
+
+```json
+{
+  "remediation": {
+    "language_items": [
+      {
+        "category": "pr_candidate",
+        "update_executed": true,
+        "post_update_check_executed": true,
+        "packages": [
+          {
+            "name": "example-a",
+            "ecosystem": "node-pkg",
+            "installed": "1.0.0",
+            "adopted_version": "1.0.1",
+            "action": "update",
+            "reason": "update_verified"
+          },
+          {
+            "name": "example-b",
+            "ecosystem": "node-pkg",
+            "installed": "2.0.0",
+            "selection_lower_bound": "2.0.1",
+            "action": "manual",
+            "reason": "target_not_updated",
+            "left_out": true
+          }
+        ]
+      }
+    ],
+    "pull_requests": [
+      {
+        "kind": "language",
+        "language": {
+          "remaining": [
+            {
+              "name": "example-b",
+              "ecosystem": "node-pkg",
+              "from": "2.0.0",
+              "target": "2.0.1",
+              "reason": "target_not_updated"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+採用条件は、[部分PRの成立条件](remediation-logic.md#partial-pr-selection)を参照してください。

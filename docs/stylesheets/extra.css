@@ -1,3 +1,12 @@
 .md-header__button.md-logo {
   display: none;
 }
+
+/* Indent the pages of a nested section in the desktop sidebar so they read as part of it. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary .md-nav__item--section > .md-nav[data-md-level="2"] > .md-nav__list {
+    margin-left: 0.4rem;
+    padding-left: 0.8rem;
+    border-left: 0.05rem solid var(--md-default-fg-color--lighter);
+  }
+}
