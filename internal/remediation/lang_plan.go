@@ -3,6 +3,7 @@ package remediation
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/github"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
@@ -260,6 +261,10 @@ type LanguagePackage struct {
 	// counts among the inputs the update was made from, so the fingerprint of
 	// the unit does not change when some of its packages are left out.
 	LeftOut bool `json:"left_out,omitempty"`
+	// Through names the direct dependencies an update moved to bring the
+	// package to its fixed version, when the packages that held it back had to
+	// be updated too.
+	Through []string `json:"through,omitempty"`
 }
 
 // KEVCount is how many of the package's vulnerabilities are KEV-listed.
@@ -308,6 +313,22 @@ type LanguageItem struct {
 	Artifacts   []ArtifactFile  `json:"artifacts,omitempty"`
 	Update      *LanguageUpdate `json:"update,omitempty"`
 	SourceCheck *SourceCheck    `json:"source_check,omitempty"`
+
+	// RetryAfter is when an item deferred for the age of a release is tried
+	// again.
+	RetryAfter *time.Time `json:"retry_after,omitempty"`
+
+	// The following are kept only while a pass runs. inputFingerprint is the
+	// fingerprint of the inputs before the update stage changed any package;
+	// waitIntent is what the pass found out about waiting (see
+	// RecordLanguageWaits) and waitFallback the outcome to use when a wait
+	// cannot be recorded; chainStopped and priorWait come from the records of
+	// earlier passes.
+	inputFingerprint string
+	waitIntent       *langWaitIntent
+	waitFallback     *LanguageItem
+	chainStopped     *LangWaitRecord
+	priorWait        *LangWaitRecord
 }
 
 // Count returns how many of the item's packages have action a.

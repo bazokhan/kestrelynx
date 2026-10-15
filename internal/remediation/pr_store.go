@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,53 @@ type PRStoreFile struct {
 	// DeliveredSeq the highest one delivered in a notification.
 	NextSeq      int64 `json:"next_seq"`
 	DeliveredSeq int64 `json:"delivered_seq"`
+	// LangWaits are the dependency update items that were put off, or that
+	// stopped trying the chain update (see LangWaitRecord). A build that does
+	// not know the field drops it on its next save, which only means the
+	// waits are found out again.
+	LangWaits []LangWaitRecord `json:"lang_waits,omitempty"`
+}
+
+// chainStoppedKind is the kind of a LangWaitRecord that says the chain update
+// is not tried for the inputs any more.
+const chainStoppedKind = "chain_stopped"
+
+// langWaitKinds are the kinds of a LangWaitRecord: why an item is put off
+// (a release too new, or the limit of the item that was reached) and the stop.
+var langWaitKinds = map[string]bool{
+	releaseAgeWait: true, budgetContainerWait: true, budgetLookupWait: true, budgetBytesWait: true, budgetTimeWait: true,
+	chainStoppedKind: true,
+}
+
+// LangWaitRecord is what is kept of a dependency update item the pass put off
+// or stopped trying the chain update for. It belongs to the inputs the update
+// is made from, named by InputFingerprint, and goes away when they change.
+type LangWaitRecord struct {
+	Repo       string `json:"repo"`
+	BaseBranch string `json:"base_branch"`
+	LockPath   string `json:"lock_path"`
+	// InputFingerprint is LanguageInputFingerprint of the item before the
+	// update stage changed any package.
+	InputFingerprint string `json:"input_fingerprint"`
+	// Kind is why the item is put off, or chain_stopped.
+	Kind string `json:"kind"`
+	// RetryAfter is when an item put off for the age of a release is tried
+	// again; zero for the other kinds.
+	RetryAfter time.Time `json:"retry_after,omitzero"`
+	// Count is how many passes in a row stopped for this kind.
+	Count int `json:"count,omitempty"`
+	// StopReason is the reason of a chain_stopped record.
+	StopReason Reason `json:"stop_reason,omitempty"`
+	// LastSeenAt is the last time an item with these inputs was in the plan.
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
+// isStop reports whether the record is a stop of the chain update.
+func (w LangWaitRecord) isStop() bool { return w.Kind == chainStoppedKind }
+
+// sameItem reports whether the record is for the inputs of the item.
+func (w LangWaitRecord) sameItem(repo, base, lock, fingerprint string) bool {
+	return w.InputFingerprint == fingerprint && w.BaseBranch == base && w.LockPath == lock && strings.EqualFold(w.Repo, repo)
 }
 
 // PRStorage keeps the pull request records. Lock takes the single-writer
@@ -128,6 +176,24 @@ func (f PRStoreFile) validate() error {
 		if a.AttemptKey == "" || a.UpdateKey == "" || a.Repo == "" {
 			return errors.New("an attempt record has no key or repository")
 		}
+	}
+	type waitKey struct {
+		repo, base, lock, fp string
+		stop                 bool
+	}
+	seen := map[waitKey]bool{}
+	for _, w := range f.LangWaits {
+		if w.Repo == "" || w.LockPath == "" || w.InputFingerprint == "" {
+			return errors.New("a dependency update wait record has no repository, lockfile or fingerprint")
+		}
+		if !langWaitKinds[w.Kind] {
+			return fmt.Errorf("a dependency update wait record has the unknown kind %q", w.Kind)
+		}
+		k := waitKey{strings.ToLower(w.Repo), w.BaseBranch, w.LockPath, w.InputFingerprint, w.isStop()}
+		if seen[k] {
+			return errors.New("two dependency update wait records are for the same inputs")
+		}
+		seen[k] = true
 	}
 	return nil
 }

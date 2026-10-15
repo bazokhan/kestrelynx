@@ -372,7 +372,11 @@ func (r Runner) runLanguageUpdates(ctx context.Context, cfg *LanguageUpdateConfi
 	// Candidates whose inputs a pull request was already made from are tied to
 	// it first, whatever the state of the work image: only what is left needs
 	// the stage.
-	order, bound := remediation.BindProposedLanguageUpdates(plan, store)
+	order, bound := remediation.BindProposedLanguageUpdatesAt(plan, store, r.now())
+	// What the pass found out about waiting is kept on every way out from
+	// here, the ones that run nothing included: an item tied to a pull request
+	// ends its wait, and an item that is still waiting has been seen.
+	defer r.recordLanguageWaits(ctx, plan, store)
 	if len(order) == 0 {
 		log.Info("dependency update stage finished", "jobs", 0, "tied_to_existing_pull_requests", bound,
 			"pr_candidates", plan.CountLanguage(remediation.CategoryPRCandidate))
@@ -402,6 +406,21 @@ func (r Runner) runLanguageUpdates(ctx context.Context, cfg *LanguageUpdateConfi
 		"manual", plan.CountLanguage(remediation.CategoryManual),
 		"deferred", plan.CountLanguage(remediation.CategoryDeferred),
 		"failed", plan.CountLanguage(remediation.CategoryFailed))
+}
+
+// recordLanguageWaits saves the waits of the dependency update items in the
+// pull request records. It runs on a context cut loose from the cycle's
+// deadline and from the time an item was given to work in, so that an item
+// that stopped for running out of either can still be counted, and for a short
+// time of its own. When the waits cannot be saved, the items that were put off
+// for them are settled without waiting.
+func (r Runner) recordLanguageWaits(ctx context.Context, plan *remediation.Plan, store remediation.PRStorage) {
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if err := remediation.RecordLanguageWaits(saveCtx, store, plan, r.now()); err != nil {
+		r.log().Warn("the waits of dependency updates could not be recorded; the items that were put off are settled instead", "err", err)
+		remediation.ApplyWaitSaveFailure(plan, err)
+	}
 }
 
 // clipText shortens s to at most n runes.

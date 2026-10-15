@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
@@ -44,7 +45,12 @@ func (o *jobOutput) finalFile(name string) ([]byte, bool) {
 // The deadline leaves the client time to collect the result before its own
 // limit.
 func (u *LangUpdater) newJob(m worker.Manager, env *jobEnvironment, inputs map[string][]byte, steps []worker.Step) worker.Job {
-	deadline := jobDeadlineSeconds(u.cfg.JobTimeout)
+	return u.newJobWithin(m, env, inputs, steps, u.cfg.JobTimeout)
+}
+
+// newJobWithin is newJob for a container that may take timeout.
+func (u *LangUpdater) newJobWithin(m worker.Manager, env *jobEnvironment, inputs map[string][]byte, steps []worker.Step, timeout time.Duration) worker.Job {
+	deadline := jobDeadlineSeconds(timeout)
 	job := worker.Job{
 		Protocol: worker.ProtocolVersion, Manager: m, Runtime: env.runtime, Tool: env.tool, Steps: steps,
 		Outputs:         worker.OutputNames(m),
@@ -66,7 +72,7 @@ func (u *LangUpdater) newJob(m worker.Manager, env *jobEnvironment, inputs map[s
 // exactly the ones the steps and the final tree declare with the sizes and
 // hashes declared, and the outcome is mapped to a failure when the job did not
 // complete. roles maps a failed step's id to the failure it stands for.
-func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvironment, inputs, replacements map[string][]byte, jobID string, upd *LanguageUpdate) (*jobOutput, *updateFailure) {
+func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvironment, inputs, replacements map[string][]byte, jobID string, upd *LanguageUpdate, timeout time.Duration) (*jobOutput, *updateFailure) {
 	if f := jobLimitFailure(job, inputs, replacements); f != nil {
 		return nil, f
 	}
@@ -88,7 +94,7 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvir
 			{Path: "job.json", Content: jobJSON},
 			{Path: worker.ProgramInputPath, Content: program, Kind: docker.KindProgram, Executable: true},
 		},
-		Timeout:   u.cfg.JobTimeout,
+		Timeout:   timeout,
 		Resources: u.cfg.Resources,
 	}
 	if job.Tool != nil {
@@ -112,7 +118,7 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvir
 		case ctx.Err() != nil:
 			return nil, &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
 		case errors.Is(err, docker.ErrJobTimeout):
-			return nil, failedFailure(ReasonUpdateJobTimedOut, "the job did not finish within %s", u.cfg.JobTimeout)
+			return nil, failedFailure(ReasonUpdateJobTimedOut, "the job did not finish within %s", timeout)
 		default:
 			return nil, failedFailure(ReasonUpdateJobFailed, "run the job: %v", clip(err.Error(), 300))
 		}

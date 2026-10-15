@@ -86,6 +86,24 @@ const (
 	ReasonSourceIntroduced              Reason = "source_introduced_findings"
 	ReasonSourceIntroducedKEV           Reason = "source_introduced_kev"
 	ReasonSourceScanIncomplete          Reason = "source_scan_incomplete"
+
+	// Re-resolving the packages that depend on a package that is held back by
+	// them: the package reasons of an item whose update needed that, and the
+	// reasons below them that say why it did not go through.
+	ReasonDependentsNotFixed    Reason = "dependents_update_not_fixed"
+	ReasonDependentsRejected    Reason = "dependents_update_rejected"
+	ReasonDependentsUnsupported Reason = "dependents_update_unsupported"
+	ReasonDependentsLimit       Reason = "dependents_update_limit"
+	// ReasonReleaseTooNew: a version the update brings in was published less
+	// than the minimum age ago; the item is tried again later.
+	ReasonReleaseTooNew Reason = "release_too_new"
+	// ReasonChainDowngrade: the update would move a package to an older
+	// version on some path, or the versions on the paths cannot be matched.
+	ReasonChainDowngrade Reason = "chain_downgrade"
+	// ReasonChainMoveLimit: the update changes more entries than allowed.
+	ReasonChainMoveLimit Reason = "chain_move_limit"
+	// ReasonChainItemBudget: the update needs more work than one item may use.
+	ReasonChainItemBudget Reason = "chain_item_budget"
 )
 
 // WorkRunner is the part of the work container client the update stage uses.
@@ -181,6 +199,75 @@ type LanguageUpdate struct {
 	// specifier did not allow a fixed version. Empty when the manifest was
 	// left as it was.
 	ManifestEdits []ManifestEdit `json:"manifest_edits,omitempty"`
+	// Chain records the re-resolution of the packages that depend on a held
+	// back package, when the update tried it.
+	Chain *ChainUpdate `json:"chain,omitempty"`
+}
+
+// Outcomes of ChainUpdate.
+const (
+	ChainAdopted  = "adopted"
+	ChainNotFixed = "not_fixed"
+	ChainRejected = "rejected"
+	ChainFailed   = "failed"
+	ChainNotTried = "not_tried"
+	ChainDeferred = "deferred"
+)
+
+// ChainUpdate records an update that moved the packages a held back package
+// depends on, the direct dependencies the project declares among them, and
+// what became of it.
+type ChainUpdate struct {
+	Outcome string `json:"outcome"`
+	Reason  Reason `json:"reason,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	// Source is "chain_job" for an update made for the purpose and
+	// "first_run" for the result of the first update, checked again.
+	Source    string       `json:"source"`
+	Blocked   []ChainBlock `json:"blocked"`
+	Tops      []ChainMove  `json:"tops"`
+	Moves     []ChainMove  `json:"moves,omitempty"`
+	Truncated bool         `json:"truncated,omitempty"`
+	Usage     ChainUsage   `json:"usage"`
+}
+
+// ChainBlock is a requirement that holds a package at a version below the
+// fixed one: Parent at ParentVersion asks for Package at Range, and Proof says
+// how that was established ("exact" or "upper_bound").
+type ChainBlock struct {
+	Package       string `json:"package"`
+	Version       string `json:"version"`
+	Parent        string `json:"parent"`
+	ParentVersion string `json:"parent_version"`
+	Range         string `json:"range"`
+	Proof         string `json:"proof"`
+}
+
+// ChainMove is an entry the chain moved: From is empty for an added entry and
+// To for a removed one; Kind is top, ancestor, added, removed or followed.
+type ChainMove struct {
+	Name string `json:"name"`
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+	Kind string `json:"kind"`
+}
+
+// ChainUsage is what the item spent on the chain, over all of its runs.
+type ChainUsage struct {
+	Containers int   `json:"containers"`
+	Lookups    int   `json:"lookups"`
+	Bytes      int64 `json:"bytes"`
+	ElapsedMS  int64 `json:"elapsed_ms"`
+}
+
+// ChainCount is a count of entries or requirements for a vulnerable version
+// before and after an update.
+type ChainCount struct {
+	Package string `json:"package"`
+	Version string `json:"version,omitempty"`
+	VulnID  string `json:"vuln_id"`
+	Before  int    `json:"before"`
+	After   int    `json:"after"`
 }
 
 // What happened to the deprecation note of a package version.
@@ -256,4 +343,12 @@ type SourceCheck struct {
 	// Passed is true when every target was found before, was not found in any
 	// occurrence after, and nothing was introduced.
 	Passed bool `json:"passed"`
+	// Basis names what a chain update's findings were compared by
+	// ("package_version_vuln_edges": package, version and vulnerability, and
+	// the entries and requirements they appear in). The following lists are
+	// that comparison's findings, each cut at maxSourceVulns.
+	Basis            string       `json:"basis,omitempty"`
+	ChainNewTriples  []SourceVuln `json:"chain_new_findings,omitempty"`
+	ChainEntryGrowth []ChainCount `json:"chain_entry_growth,omitempty"`
+	ChainEdgeGrowth  []ChainCount `json:"chain_edge_growth,omitempty"`
 }

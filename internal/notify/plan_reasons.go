@@ -210,6 +210,16 @@ var planReasonTexts = map[string]struct{ en, ja string }{
 	"source_scan_incomplete":            {"the scan of the dependency files was incomplete", "依存関係ファイルのスキャンが不完全だった"},
 	"update_verified":                   {"the update was verified", "更新を検証済みである"},
 
+	// Updating the packages that hold a package back.
+	"dependents_update_not_fixed":   {"re-resolving the packages that depend on it did not reach the fixed version this time", "依存元を解決し直したが、今回の再解決では修正版に届かなかった"},
+	"dependents_update_rejected":    {"updating the packages that depend on it did not pass the checks", "依存元の更新が検査を通らなかった"},
+	"dependents_update_unsupported": {"the packages that depend on it cannot be updated by this tool", "依存元をこのツールでは更新できない"},
+	"dependents_update_limit":       {"updating the packages that depend on it exceeds a limit", "依存元の更新が上限を超える"},
+	"release_too_new":               {"a version the update brings in was published less than 72 hours ago", "更新で入る版の公開から72時間経っていない"},
+	"chain_downgrade":               {"the update would move a package to an older version, or its versions cannot be matched", "更新でパッケージが古い版に下がる、または版の対応を確定できない"},
+	"chain_move_limit":              {"the update changes more packages than the limit allows", "更新で動くパッケージ数が上限を超える"},
+	"chain_item_budget":             {"the update needs more work than one item may use", "更新に必要な作業が1項目の上限を超える"},
+
 	// The pull request stage.
 	"pr_limit":                    {"the limit on pull requests of a run was reached", "1回の実行で作れる Pull Request の数の上限に達した"},
 	"candidate_changed":           {"the candidate changed while the pull request was prepared", "Pull Request の準備中に候補が変わった"},

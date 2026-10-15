@@ -91,6 +91,12 @@ type LangUpdater struct {
 	cfg LangUpdateConfig
 	// runID makes the job ids of one pass distinct from those of another.
 	runID string
+	// chainRunners are the chain updates the stage can make, by manager. A
+	// manager without one is updated by the first update only.
+	chainRunners map[DependencyManager]chainRunner
+	// itemBudget, when set, makes the budget of an item that may go on to the
+	// chain update, in place of the default limits.
+	itemBudget func() *itemBudget
 }
 
 // NewLangUpdater validates cfg and returns an updater.
@@ -175,6 +181,15 @@ type updateFailure struct {
 	retryWithout map[string]updateFailureDetail
 	// runtimeEOL names the runtime of a runtime_eol failure.
 	runtimeEOL *RuntimeEOLInfo
+	// lockUnchanged says the update left the lockfile as it was;
+	// allUnreached that every package of the set was left below its target;
+	// baselineVerified that the failed job's baseline step returned the
+	// original lockfile. They tell the chain update which packages the first
+	// update did not take to their target without reading the detail.
+	lockUnchanged, allUnreached, baselineVerified bool
+	// wait, when set, says the item is to be tried again later and why (see
+	// RecordLanguageWaits).
+	wait *langWaitIntent
 }
 
 type updateFailureDetail struct {
@@ -482,10 +497,29 @@ func (u *LangUpdater) updateItem(ctx context.Context, it *LanguageItem, n int) {
 		return
 	}
 	res := &updateRun{u: u, it: it, n: n, set: set, full: set, upd: &LanguageUpdate{}}
+	run := u.chainRunners[it.Manager]
+	if run != nil {
+		res.shared = newItemShared()
+		if u.itemBudget != nil {
+			res.shared.budget = u.itemBudget()
+		}
+	}
 	fail = res.run(ctx)
+	if run != nil {
+		// An item that may go on to the chain update is settled in one place, so
+		// that every way it runs into one of its limits is counted.
+		if fail != nil && fail.wait != nil {
+			u.chainDeferred(ctx, it, set, res, fail, nil, set.names, fail)
+			return
+		}
+		if !u.chainStage(ctx, it, n, set, res, fail, run) {
+			u.finishFirst(ctx, ctx, it, n, set, res, fail, nil, nil)
+		}
+		return
+	}
 	if fail != nil && len(fail.retryWithout) > 0 {
 		first := res
-		res, fail = u.runWithout(ctx, it, n, set, fail.retryWithout)
+		res, fail = u.runWithout(ctx, it, n, set, fail.retryWithout, first.shared, nil)
 		if fail != nil && fail.category == CategoryDeferred {
 			// The second run did not finish in time: the item stays as it was
 			// planned, and what the first run found stays on record with the note
@@ -506,7 +540,7 @@ func (u *LangUpdater) updateItem(ctx context.Context, it *LanguageItem, n int) {
 
 // runWithout runs the update of the item again with the packages in without
 // (by matching name) left out of the set.
-func (u *LangUpdater) runWithout(ctx context.Context, it *LanguageItem, n int, set updateSet, without map[string]updateFailureDetail) (*updateRun, *updateFailure) {
+func (u *LangUpdater) runWithout(ctx context.Context, it *LanguageItem, n int, set updateSet, without map[string]updateFailureDetail, shared *itemShared, baseOK *jobOutput) (*updateRun, *updateFailure) {
 	names := make([]string, 0, len(without))
 	for name := range without {
 		names = append(names, set.display[name])
@@ -514,7 +548,7 @@ func (u *LangUpdater) runWithout(ctx context.Context, it *LanguageItem, n int, s
 	sort.Strings(names)
 	res := &updateRun{
 		u: u, it: it, n: n, set: set.without(without), full: set, upd: &LanguageUpdate{},
-		attempt: 1, noPartial: true, leftOut: without,
+		attempt: 1, noPartial: true, leftOut: without, shared: shared, baseOK: baseOK,
 	}
 	res.upd.Notes = append(res.upd.Notes, "the first run did not take "+strings.Join(names, ", ")+" to the target, so the update was run again without it")
 	fail := res.run(ctx)
@@ -620,6 +654,14 @@ type updateRun struct {
 	// against the project's requires-python, and falseThrough the answers.
 	declMarkers  *markerBudget
 	falseThrough map[string]bool
+	// chain is set on a run that re-resolves the packages that hold a package
+	// back, and shared on every run of an item that may (see itemShared).
+	chain  *chainScope
+	shared *itemShared
+	// baseOK is the output of the job that checked the original input as it is,
+	// when it was found consistent: a later run of the item uses it in place of
+	// checking again.
+	baseOK *jobOutput
 }
 
 // succeed records a passed update on the item.

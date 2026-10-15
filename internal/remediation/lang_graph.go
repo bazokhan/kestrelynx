@@ -183,6 +183,14 @@ type depEdge struct {
 	// to is the number of the entry the requirement points to (see
 	// depGraph.link), -1 when it points to none.
 	to int
+	// peerOnly and class are set on a copy of a graph by the chain update
+	// (see normalizeParentEdges and classifyEdge), not by the builders:
+	// peerOnly marks a requirement the registry declares as a peer dependency
+	// only, which is not the parent's requirement, and class says what the
+	// parent's declared range does to the fixed version of the entry it points
+	// to. The zero values mean not judged.
+	peerOnly bool
+	class    edgeClass
 }
 
 // depGraph is the dependency graph a lockfile (or, for pip, the install
@@ -1514,6 +1522,72 @@ func (g *depGraph) reach(ctx context.Context, starts []string, stop func(*depNod
 			if e.to >= 0 && !seen[e.to] {
 				queue = append(queue, e.to)
 			}
+		}
+	}
+	return out
+}
+
+// reverseEdges is a graph's requirements indexed by the entry they point to:
+// for each entry number, the requirements that point to it as the number of
+// the entry that holds it and its place in that entry's list, and the places
+// of the project's own requirements that point to it.
+type reverseEdges struct {
+	from  [][]edgeRef
+	roots [][]int
+}
+
+// edgeRef is the place of a requirement: the entry that holds it and its index
+// in that entry's requirements.
+type edgeRef struct{ node, edge int }
+
+// reverseIndex builds the reverse index of the graph in one pass over its
+// requirements.
+func (g *depGraph) reverseIndex() reverseEdges {
+	g.link()
+	rev := reverseEdges{from: make([][]edgeRef, len(g.list)), roots: make([][]int, len(g.list))}
+	for i, e := range g.roots {
+		if e.to >= 0 {
+			rev.roots[e.to] = append(rev.roots[e.to], i)
+		}
+	}
+	for _, n := range g.list {
+		for i, e := range n.deps {
+			if e.to >= 0 {
+				rev.from[e.to] = append(rev.from[e.to], edgeRef{n.id, i})
+			}
+		}
+	}
+	return rev
+}
+
+// ancestorsOf returns the entries from which the starts (keys of entries) are
+// reached along requirements that are not peer-only, the starts included. It
+// walks the requirements backwards from the starts once and gives up
+// (returning what it has) when ctx ends; callers check ctx.
+func ancestorsOf(ctx context.Context, g *depGraph, starts []string) map[string]bool {
+	rev := g.reverseIndex()
+	seen := make([]bool, len(g.list))
+	var queue []int
+	for _, k := range starts {
+		if n := g.nodes[k]; k != "" && n != nil && !seen[n.id] {
+			seen[n.id] = true
+			queue = append(queue, n.id)
+		}
+	}
+	out := map[string]bool{}
+	for steps := 0; len(queue) > 0; steps++ {
+		if steps%1024 == 0 && ctx.Err() != nil {
+			return out
+		}
+		id := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		out[g.list[id].key] = true
+		for _, ref := range rev.from[id] {
+			if g.list[ref.node].deps[ref.edge].peerOnly || seen[ref.node] {
+				continue
+			}
+			seen[ref.node] = true
+			queue = append(queue, ref.node)
 		}
 	}
 	return out

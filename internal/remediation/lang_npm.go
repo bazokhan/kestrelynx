@@ -48,6 +48,9 @@ type NpmDist struct {
 	// package carries its own npm-shrinkwrap.json, which npm reads again after
 	// unpacking it.
 	HasShrinkwrap bool
+	// BodyBytes is the size of the registry's response, for the bytes an item
+	// may receive; the fakes of tests leave it zero.
+	BodyBytes int
 }
 
 // peersFor returns the peer dependencies of the version as manager m records
@@ -129,7 +132,9 @@ func (c *NpmClient) VersionDist(ctx context.Context, name, version string) (NpmD
 	if len(body) > maxNpmBody {
 		return NpmDist{}, fmt.Errorf("registry response is over %d bytes", maxNpmBody)
 	}
-	return parseNpmVersion(body, name, version)
+	d, err := parseNpmVersion(body, name, version)
+	d.BodyBytes = len(body)
+	return d, err
 }
 
 func parseNpmVersion(body []byte, name, version string) (NpmDist, error) {

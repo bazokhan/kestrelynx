@@ -6,6 +6,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 // LanguageInputFingerprint names what a language update is made from: the
@@ -119,6 +120,20 @@ func (f PRStoreFile) proposalFor(it LanguageItem, fingerprint string, repoID int
 // have one (made from other inputs) after, each group in plan order. Without
 // readable records nothing is bound.
 func BindProposedLanguageUpdates(plan *Plan, store PRStorage) (order []int, bound int) {
+	return BindProposedLanguageUpdatesAt(plan, store, time.Now())
+}
+
+// BindProposedLanguageUpdatesAt is BindProposedLanguageUpdates at the given
+// time. It also gives each candidate the fingerprint of its inputs as they are
+// before the update stage changes any package, and settles it against the
+// waits the records hold, in this order:
+//
+//   - a pull request made from the same inputs wins; the item's wait is over;
+//   - a stop of the chain update is noted on the item, which is then run;
+//   - an item put off for the age of a release is deferred, without a job,
+//     until the time the record gives;
+//   - any other item is run.
+func BindProposedLanguageUpdatesAt(plan *Plan, store PRStorage, now time.Time) (order []int, bound int) {
 	var file PRStoreFile
 	if store != nil {
 		if f, found, err := store.Load(); err == nil && found {
@@ -141,10 +156,30 @@ func BindProposedLanguageUpdates(plan *Plan, store PRStorage) (order []int, boun
 		if it.Category != CategoryDependencyUpdateCandidate {
 			continue
 		}
-		if rec := file.proposalFor(*it, LanguageInputFingerprint(*it), 0); rec != nil {
+		fingerprint := LanguageInputFingerprint(*it)
+		it.inputFingerprint = fingerprint
+		if rec := file.proposalFor(*it, fingerprint, 0); rec != nil {
 			it.Category, it.Reason = CategoryPRCandidate, ReasonUpdateAlreadyProposed
 			it.Detail = fmt.Sprintf("the inputs are those of pull request #%d, so the update was not run again", rec.Number)
+			it.waitIntent = &langWaitIntent{Clear: true}
 			bound++
+			continue
+		}
+		for _, w := range file.LangWaits {
+			if !w.sameItem(it.Source.Repository, it.Source.BaseBranch, languageLockPath(*it), fingerprint) {
+				continue
+			}
+			w := w
+			if w.isStop() {
+				it.chainStopped = &w
+			} else {
+				it.priorWait = &w
+			}
+		}
+		if w := it.priorWait; it.chainStopped == nil && w != nil && w.Kind == releaseAgeWait && w.RetryAfter.After(now) {
+			retry := w.RetryAfter
+			deferItem(it, ReasonReleaseTooNew, "a version the update brings in was published less than the minimum age ago; it is tried again after "+retry.UTC().Format(time.RFC3339))
+			it.RetryAfter = &retry
 			continue
 		}
 		if openOn(*it) {

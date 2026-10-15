@@ -48,7 +48,10 @@ func (r *updateRun) sourceCheck(ctx context.Context, before, after map[string][]
 	if !b.Conditions.Equal(a.Conditions) {
 		return &updateFailure{category: CategoryNotComparable, reason: ReasonConditionsDiffer, detail: "the scan conditions changed between the scan before the update and the scan after it"}
 	}
-	return r.evaluateSourceCheck(sc, b.Report, a.Report)
+	if fail := r.evaluateSourceCheck(sc, b.Report, a.Report); fail != nil || r.chain == nil {
+		return fail
+	}
+	return r.chainSourceCheck(ctx, sc, b.Report, a.Report, before[r.src.lockName], after[r.src.lockName])
 }
 
 func hashedFiles(files map[string][]byte) []HashedFile {

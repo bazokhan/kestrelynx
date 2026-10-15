@@ -43,14 +43,26 @@ const maxRegistryChecks = 256
 // errRegistryBudget: the update has used its registry lookups.
 var errRegistryBudget = errors.New("the registry lookup budget of the update is used up")
 
-// npmRelease looks up a package version in the npm registry once per update.
+// npmRelease looks up a package version in the npm registry once per update;
+// the runs of an item that shares its lookups (see itemShared) look it up once
+// among them.
 func (r *updateRun) npmRelease(ctx context.Context, name, version string) (NpmDist, error) {
 	key := name + "@" + version
 	if d, ok := r.npmDocs[key]; ok {
 		return d, nil
 	}
-	if r.lookups >= maxRegistryChecks {
+	if sh := r.shared; sh != nil {
+		if d, ok := sh.cache.npm[key]; ok {
+			return d, nil
+		}
+	}
+	if r.chain == nil && r.lookups >= maxRegistryChecks {
 		return NpmDist{}, errRegistryBudget
+	}
+	if sh := r.shared; sh != nil {
+		if err := sh.budget.spendLookup(); err != nil {
+			return NpmDist{}, err
+		}
 	}
 	r.lookups++
 	d, err := r.u.cfg.Npm.VersionDist(ctx, name, version)
@@ -61,17 +73,33 @@ func (r *updateRun) npmRelease(ctx context.Context, name, version string) (NpmDi
 		r.npmDocs = map[string]NpmDist{}
 	}
 	r.npmDocs[key] = d
+	if sh := r.shared; sh != nil {
+		sh.cache.npm[key] = d
+		if err := sh.budget.addBytes(int64(d.BodyBytes)); err != nil {
+			return NpmDist{}, err
+		}
+	}
 	return d, nil
 }
 
-// pyRelease looks up a release on PyPI once per update.
+// pyRelease looks up a release on PyPI once per update, as npmRelease does.
 func (r *updateRun) pyRelease(ctx context.Context, name, version string) (PyPIRelease, error) {
 	key := normalizePyName(name) + "==" + version
 	if d, ok := r.pyDocs[key]; ok {
 		return d, nil
 	}
-	if r.lookups >= maxRegistryChecks {
+	if sh := r.shared; sh != nil {
+		if d, ok := sh.cache.py[key]; ok {
+			return d, nil
+		}
+	}
+	if r.chain == nil && r.lookups >= maxRegistryChecks {
 		return PyPIRelease{}, errRegistryBudget
+	}
+	if sh := r.shared; sh != nil {
+		if err := sh.budget.spendLookup(); err != nil {
+			return PyPIRelease{}, err
+		}
 	}
 	r.lookups++
 	d, err := r.u.cfg.PyPI.Release(ctx, name, version)
@@ -82,12 +110,19 @@ func (r *updateRun) pyRelease(ctx context.Context, name, version string) (PyPIRe
 		r.pyDocs = map[string]PyPIRelease{}
 	}
 	r.pyDocs[key] = d
+	if sh := r.shared; sh != nil {
+		sh.cache.py[key] = d
+	}
 	return d, nil
 }
 
 // lookupFailure maps an error from a registry lookup.
 func lookupFailure(ctx context.Context, err error, what string) *updateFailure {
 	switch {
+	case isItemBudget(err) != "":
+		kind := isItemBudget(err)
+		return &updateFailure{category: CategoryDeferred, reason: ReasonChainItemBudget, detail: fmt.Sprintf("%v (at %s)", err, what),
+			wait: &langWaitIntent{Kind: kind}}
 	case errors.Is(err, errRegistryBudget):
 		return &updateFailure{category: CategoryDeferred, reason: ReasonRegistryCheckLimit,
 			detail: fmt.Sprintf("the update needs more than the %d registry lookups one update may make (at %s)", maxRegistryChecks, what)}
@@ -201,6 +236,29 @@ func (r *updateRun) checkRanges(ctx context.Context, g *depGraph, newLock []byte
 	return r.checkParentRanges(ctx, g, check)
 }
 
+// directNames are the names whose declarations in the manifest are judged
+// against the versions the lockfile ends at: the updated packages, and for a
+// chain update the direct dependencies the chain starts from, which it moves.
+func (r *updateRun) directNames() []string {
+	if r.chain == nil {
+		return r.set.names
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range r.set.names {
+		seen[n] = true
+		out = append(out, n)
+	}
+	for _, t := range r.chain.Tops {
+		if !seen[t.Name] {
+			seen[t.Name] = true
+			out = append(out, t.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (r *updateRun) checkDirectRanges(ctx context.Context, g *depGraph, newLock []byte) *updateFailure {
 	roots := rootIndex(g)
 	budget := &rangeBudget{ctx: ctx}
@@ -226,7 +284,7 @@ func (r *updateRun) checkDirectRanges(ctx context.Context, g *depGraph, newLock 
 				return manualFailure(ReasonOutputFilesInvalid, "pnpm-lock.yaml cannot be read: %v", err)
 			}
 		}
-		for _, n := range r.set.names {
+		for _, n := range r.directNames() {
 			listed := false
 			for _, field := range manifestDepFields {
 				mspec, inManifest := pj.deps[field][n]
@@ -280,7 +338,7 @@ func (r *updateRun) checkDirectRanges(ctx context.Context, g *depGraph, newLock 
 			}
 			declared[name] = append(declared[name], constraint)
 		}
-		for _, n := range r.set.names {
+		for _, n := range r.directNames() {
 			if unreadable[n] {
 				return pkgFailure(n, ReasonRangeNotEvaluable, "pyproject.toml requires %s in a form that cannot be judged", n)
 			}

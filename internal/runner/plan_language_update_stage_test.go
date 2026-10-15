@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 )
@@ -137,6 +138,151 @@ func TestRunLanguageUpdates(t *testing.T) {
 		Runner{}.runLanguageUpdates(ctx, cfg, p, nil, LanguageUpdateInput{})
 		if u.ran != 0 || p.LanguageItems[0].Category != remediation.CategoryDeferred {
 			t.Errorf("ran %d, category %s", u.ran, p.LanguageItems[0].Category)
+		}
+	})
+}
+
+func waitsTestItem(dir string) remediation.LanguageItem {
+	lock := "package-lock.json"
+	if dir != "." {
+		lock = dir + "/package-lock.json"
+	}
+	return remediation.LanguageItem{
+		Key: "deps:ex/app@main:" + dir + "#npm", Manager: remediation.ManagerNpm, Category: remediation.CategoryDependencyUpdateCandidate,
+		Reason: remediation.ReasonUpdateCandidateInSource,
+		Source: remediation.SourceRecord{Repository: "ex/app", BaseBranch: "main", Directory: dir,
+			Files: []remediation.SourceFile{{Path: lock, BlobSHA: strings.Repeat("a", 40)}}},
+		Packages: []remediation.LanguagePackage{{Name: "minimist", Ecosystem: "node-pkg", Installed: "1.2.5", SelectionLowerBound: "1.2.6", Action: remediation.ActionUpdate}},
+	}
+}
+
+func waitRecord(it remediation.LanguageItem, kind string, seen time.Time) remediation.LangWaitRecord {
+	lock := "package-lock.json"
+	if it.Source.Directory != "." {
+		lock = it.Source.Directory + "/package-lock.json"
+	}
+	return remediation.LangWaitRecord{
+		Repo: it.Source.Repository, BaseBranch: it.Source.BaseBranch, LockPath: lock,
+		InputFingerprint: remediation.LanguageInputFingerprint(it), Kind: kind, Count: 1, LastSeenAt: seen,
+	}
+}
+
+func openPullRequestFor(it remediation.LanguageItem, number int) remediation.PRRecord {
+	lock := it.Source.Files[0].Path
+	return remediation.PRRecord{
+		Repo: "ex/app", RepoID: 7, Kind: "language", State: remediation.PRStateOpen, BaseBranch: "main", Path: lock, Number: number, UpdateKey: "k",
+		TargetKey: remediation.TargetKeyOf("language", 7, "main", lock, []string{it.Source.Directory}),
+		Lang:      &remediation.LangRecord{Manager: "npm", InputFingerprint: remediation.LanguageInputFingerprint(it)},
+	}
+}
+
+// TestRunLanguageUpdatesKeepsWaits checks that the waits of the items are
+// saved on every way out of the stage after the items were bound, the ones that
+// run nothing included.
+func TestRunLanguageUpdatesKeepsWaits(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	earlier := now.Add(-48 * time.Hour)
+	r := Runner{Now: func() time.Time { return now }}
+	ctx := context.Background()
+	built := 0
+	cfg := &LanguageUpdateConfig{NewUpdater: func(context.Context, LanguageUpdateInput) (LanguageUpdater, error) {
+		built++
+		return &recordingUpdater{}, nil
+	}}
+	in := LanguageUpdateInput{GitHub: fakeReader{}}
+	newStore := func(t *testing.T, f remediation.PRStoreFile) remediation.PRStore {
+		t.Helper()
+		f.NextSeq = 1
+		s := remediation.PRStore{Dir: t.TempDir()}
+		if err := s.Save(f); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	waitsOf := func(t *testing.T, s remediation.PRStore) []remediation.LangWaitRecord {
+		t.Helper()
+		f, _, err := s.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f.LangWaits
+	}
+
+	t.Run("every item tied to a pull request: the waits end and the stops are seen", func(t *testing.T) {
+		it := waitsTestItem(".")
+		stopped := waitsTestItem("sub")
+		wait := waitRecord(it, "budget_lookups", earlier)
+		stop := waitRecord(stopped, "chain_stopped", earlier)
+		stop.Count, stop.StopReason = 0, remediation.ReasonChainItemBudget
+		pr := openPullRequestFor(it, 3)
+		pr2 := openPullRequestFor(stopped, 4)
+		store := newStore(t, remediation.PRStoreFile{PRs: []remediation.PRRecord{pr, pr2}, LangWaits: []remediation.LangWaitRecord{wait, stop}})
+		p := &remediation.Plan{LanguageItems: []remediation.LanguageItem{it, stopped}}
+		r.runLanguageUpdates(ctx, cfg, p, store, in)
+		if built != 0 || p.LanguageItems[0].Reason != remediation.ReasonUpdateAlreadyProposed {
+			t.Fatalf("built %d, item %s/%s", built, p.LanguageItems[0].Category, p.LanguageItems[0].Reason)
+		}
+		w := waitsOf(t, store)
+		if len(w) != 1 || w[0].Kind != "chain_stopped" || !w[0].LastSeenAt.Equal(now) {
+			t.Errorf("waits = %+v: the wait should be gone and the stop seen", w)
+		}
+	})
+
+	t.Run("every item waiting for a release: nothing runs, the waits are kept and seen", func(t *testing.T) {
+		it := waitsTestItem(".")
+		wait := waitRecord(it, "release_age", earlier)
+		wait.RetryAfter = now.Add(time.Hour)
+		store := newStore(t, remediation.PRStoreFile{LangWaits: []remediation.LangWaitRecord{wait}})
+		p := &remediation.Plan{LanguageItems: []remediation.LanguageItem{it}}
+		r.runLanguageUpdates(ctx, cfg, p, store, in)
+		got := p.LanguageItems[0]
+		if built != 0 || got.Category != remediation.CategoryDeferred || got.Reason != remediation.ReasonReleaseTooNew || got.RetryAfter == nil || !got.RetryAfter.Equal(wait.RetryAfter) {
+			t.Fatalf("built %d, item %s/%s/%v", built, got.Category, got.Reason, got.RetryAfter)
+		}
+		w := waitsOf(t, store)
+		if len(w) != 1 || w[0].Kind != "release_age" || w[0].Count != 1 || !w[0].LastSeenAt.Equal(now) || !w[0].RetryAfter.Equal(wait.RetryAfter) {
+			t.Errorf("waits = %+v", w)
+		}
+	})
+
+	t.Run("the work image is not available: the waits are saved anyway", func(t *testing.T) {
+		waiting, running, tied := waitsTestItem("a"), waitsTestItem("b"), waitsTestItem("c")
+		w1 := waitRecord(waiting, "release_age", earlier)
+		w1.RetryAfter = now.Add(time.Hour)
+		w2 := waitRecord(running, "budget_time", earlier)
+		w3 := waitRecord(tied, "budget_bytes", earlier)
+		store := newStore(t, remediation.PRStoreFile{PRs: []remediation.PRRecord{openPullRequestFor(tied, 5)}, LangWaits: []remediation.LangWaitRecord{w1, w2, w3}})
+		p := &remediation.Plan{LanguageItems: []remediation.LanguageItem{waiting, running, tied}}
+		unavailable := &LanguageUpdateConfig{Unavailable: &LanguageUnavailable{Reason: remediation.ReasonWorkImageNotConfigured, Detail: "no work image"}}
+		r.runLanguageUpdates(ctx, unavailable, p, store, in)
+		if p.LanguageItems[1].Reason != remediation.ReasonWorkImageNotConfigured {
+			t.Fatalf("running item = %s/%s", p.LanguageItems[1].Category, p.LanguageItems[1].Reason)
+		}
+		got := map[string]remediation.LangWaitRecord{}
+		for _, w := range waitsOf(t, store) {
+			got[w.Kind] = w
+		}
+		if len(got) != 2 || !got["release_age"].LastSeenAt.Equal(now) || !got["budget_time"].LastSeenAt.Equal(now) || got["budget_time"].Count != 1 {
+			t.Errorf("waits = %+v: the tied item's wait ends, the others are seen and not counted", got)
+		}
+	})
+
+	t.Run("the stage cannot be set up: the waits are saved anyway", func(t *testing.T) {
+		it := waitsTestItem(".")
+		wait := waitRecord(it, "budget_time", earlier)
+		store := newStore(t, remediation.PRStoreFile{LangWaits: []remediation.LangWaitRecord{wait}})
+		p := &remediation.Plan{LanguageItems: []remediation.LanguageItem{it}}
+		r.runLanguageUpdates(ctx, cfg, p, store, LanguageUpdateInput{})
+		if w := waitsOf(t, store); len(w) != 1 || !w[0].LastSeenAt.Equal(now) {
+			t.Errorf("waits = %+v", w)
+		}
+	})
+
+	t.Run("without records there is nothing to save and nothing fails", func(t *testing.T) {
+		p := &remediation.Plan{LanguageItems: []remediation.LanguageItem{waitsTestItem(".")}}
+		r.runLanguageUpdates(ctx, cfg, p, nil, in)
+		if p.LanguageItems[0].Category != remediation.CategoryDependencyUpdateCandidate && p.LanguageItems[0].Category != remediation.CategoryPRCandidate {
+			t.Errorf("item = %s/%s", p.LanguageItems[0].Category, p.LanguageItems[0].Reason)
 		}
 	})
 }

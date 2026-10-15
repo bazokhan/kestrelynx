@@ -93,13 +93,26 @@ func (r *updateRun) execReplacing(ctx context.Context, m worker.Manager, inputs,
 	if fail != nil {
 		return nil, fail
 	}
-	job := r.u.newJob(m, env, inputs, steps)
+	timeout := r.u.cfg.JobTimeout
+	if sh := r.shared; sh != nil {
+		// The item's own limits: the time left once its work began, and the
+		// containers it may use.
+		if !sh.budget.workDeadline.IsZero() {
+			if timeout = containerTimeout(ctx, timeout); timeout < minContainerTime {
+				return nil, budgetFailure(errNoContainerTime)
+			}
+		}
+		if err := sh.budget.spendContainer(); err != nil {
+			return nil, budgetFailure(err)
+		}
+	}
+	job := r.u.newJobWithin(m, env, inputs, steps, timeout)
 	for _, name := range worker.InputNames(m) {
 		if content, ok := replacements[name]; ok {
 			job.Replacements = append(job.Replacements, worker.Input{Path: name, Size: int64(len(content)), SHA256: sha256Hex(content)})
 		}
 	}
-	out, fail := r.u.execute(ctx, job, env, inputs, replacements, r.u.jobID(r.n, role), r.upd)
+	out, fail := r.u.execute(ctx, job, env, inputs, replacements, r.u.jobID(r.n, role), r.upd, timeout)
 	if out != nil {
 		for _, s := range out.result.Steps {
 			if s.ID == stepUpdate && s.ExitCode == 0 && !s.TimedOut && s.Error == "" {
@@ -470,13 +483,18 @@ func (r *updateRun) checkNpmBaseline(out *jobOutput) *updateFailure {
 // own; the update then relocks the lockfile with the targets taken out against
 // the edited manifest.
 func (r *updateRun) runNpmEdited(ctx context.Context) *updateFailure {
-	base, fail := r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock},
-		[]worker.Step{{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true}}, "base")
-	if fail != nil {
-		return fail
-	}
-	if fail := r.checkNpmBaseline(base); fail != nil {
-		return fail
+	base := r.baseOK
+	if base == nil {
+		var fail *updateFailure
+		base, fail = r.exec(ctx, worker.ManagerNpm, map[string][]byte{"package.json": r.src.manifest, "package-lock.json": r.src.lock},
+			[]worker.Step{{ID: stepBaseline, Op: worker.OpNpmRelock, Scratch: true}}, "base")
+		if fail != nil {
+			return fail
+		}
+		if fail := r.checkNpmBaseline(base); fail != nil {
+			return fail
+		}
+		r.baseOK = base
 	}
 	removal, problem := removeNpmTargets(ctx, r.src.lock, r.targetSet())
 	if problem != nil {
@@ -582,9 +600,16 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 // dependency is taken out.
 func (r *updateRun) runPnpmEdited(ctx context.Context) *updateFailure {
 	baseSteps := []worker.Step{{ID: stepBaseline, Op: worker.OpPnpmFrozen, Scratch: true}}
-	base, fail := r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.src.manifest, r.src.lock), baseSteps, "base")
-	if fail != nil {
-		return fail
+	base := r.baseOK
+	if base == nil {
+		var fail *updateFailure
+		base, fail = r.exec(ctx, worker.ManagerPnpm, r.pnpmInputs(r.src.manifest, r.src.lock), baseSteps, "base")
+		if fail != nil {
+			return fail
+		}
+		if baselineVerified(base, r.src.lock, r.src.lockName) {
+			r.baseOK = base
+		}
 	}
 	removal, problem := removePnpmTargets(ctx, r.src.lock, r.targetSet())
 	if problem != nil {
@@ -627,12 +652,20 @@ func (r *updateRun) runUv(ctx context.Context) *updateFailure {
 	if len(r.upd.ManifestEdits) > 0 {
 		// The original input is checked as it is in a job of its own; the
 		// update and its check run on the edited manifest.
-		base, fail := r.exec(ctx, worker.ManagerUv, map[string][]byte{"pyproject.toml": r.src.manifest, "uv.lock": r.src.lock}, steps[:1], "base")
-		if fail != nil {
-			return fail
+		base := r.baseOK
+		if base == nil {
+			var fail *updateFailure
+			base, fail = r.exec(ctx, worker.ManagerUv, map[string][]byte{"pyproject.toml": r.src.manifest, "uv.lock": r.src.lock}, steps[:1], "base")
+			if fail != nil {
+				return fail
+			}
+			if baselineVerified(base, r.src.lock, r.src.lockName) {
+				r.baseOK = base
+			}
 		}
 		out, fail := r.exec(ctx, worker.ManagerUv, map[string][]byte{"pyproject.toml": r.manifest, "uv.lock": r.src.lock}, steps[1:], "update")
 		if fail != nil {
+			fail.baselineVerified = fail.reason == ReasonUpdateStepFailed && baselineVerified(base, r.src.lock, r.src.lockName)
 			return fail
 		}
 		return r.finishLockfile(ctx, out, steps, base)
@@ -640,6 +673,7 @@ func (r *updateRun) runUv(ctx context.Context) *updateFailure {
 	inputs := map[string][]byte{"pyproject.toml": r.src.manifest, "uv.lock": r.src.lock}
 	out, fail := r.exec(ctx, worker.ManagerUv, inputs, steps, "update")
 	if fail != nil {
+		fail.baselineVerified = fail.reason == ReasonUpdateStepFailed && baselineVerified(out, r.src.lock, r.src.lockName)
 		return fail
 	}
 	return r.finishLockfile(ctx, out, steps, nil)
@@ -678,21 +712,45 @@ func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked 
 		}
 	}
 	if bytes.Equal(newLock, r.src.lock) {
-		return manualFailure(ReasonTargetNotUpdated, "the update left %s unchanged", lockName)
+		f := manualFailure(ReasonTargetNotUpdated, "the update left %s unchanged", lockName)
+		f.lockUnchanged = true
+		return f
 	}
-	return r.verifyAndScan(ctx, newLock)
+	fail := r.verifyAndScan(ctx, newLock)
+	if fail != nil && checked != nil && r.it.Manager == ManagerUv && fail.reason == ReasonUnexplainedDiff {
+		// The baseline and the check of the updated file were both consistent
+		// before the difference was judged.
+		fail.baselineVerified = true
+	}
+	return fail
+}
+
+// baselineVerified reports whether the baseline step of a job returned the
+// original lockfile byte for byte, which says the original is consistent with
+// its manifest even when a later step of the job failed.
+func baselineVerified(out *jobOutput, src []byte, lockName string) bool {
+	if out == nil {
+		return false
+	}
+	got, ok := out.stepFile(stepBaseline, lockName)
+	return ok && bytes.Equal(got, src)
 }
 
 // parseLockfile reads a lockfile of the item's manager with the plan's own
 // parser; the manifest is the original one, which the update did not change.
 func (r *updateRun) parseLockfile(lock []byte) (*lockfile, error) {
-	switch r.it.Manager {
+	return parseLockfileFor(r.it.Manager, r.manifest, lock)
+}
+
+// parseLockfileFor reads a lockfile of manager m made for the manifest.
+func parseLockfileFor(m DependencyManager, manifest, lock []byte) (*lockfile, error) {
+	switch m {
 	case ManagerNpm:
-		return parseNpm(r.manifest, lock)
+		return parseNpm(manifest, lock)
 	case ManagerPnpm:
-		return parsePnpm(r.manifest, lock)
+		return parsePnpm(manifest, lock)
 	case ManagerUv:
-		return parseUv(r.manifest, lock)
+		return parseUv(manifest, lock)
 	}
 	return parseRequirements(lock)
 }
@@ -826,7 +884,7 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 			}
 		}
 	}
-	if m == ManagerPnpm {
+	if m == ManagerPnpm && r.chain == nil {
 		if fail := r.checkTriggerReturned(gb, ga, r.src.lock, newLock); fail != nil {
 			return fail
 		}
@@ -834,7 +892,15 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 	if fail := r.checkReferences(ctx, newLock); fail != nil {
 		return fail
 	}
-	diff, reason, detail := diffGraphs(ctx, gb, ga, r.targetSet())
+	var diff DependencyDiff
+	var reason Reason
+	var detail string
+	if r.chain != nil {
+		r.chain.markPeerOnly(gb)
+		diff, reason, detail = diffGraphsChain(ctx, gb, ga, r.chain)
+	} else {
+		diff, reason, detail = diffGraphs(ctx, gb, ga, r.targetSet())
+	}
 	r.upd.Diff = &diff
 	if ctx.Err() != nil {
 		return &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
@@ -960,7 +1026,9 @@ func (r *updateRun) checkVersions(lf *lockfile) *updateFailure {
 	if len(r.unreached) == len(r.set.names) {
 		// Nothing reached its target: there is no part of the set to propose.
 		n := r.set.names[0]
-		return pkgFailure(n, ReasonTargetNotUpdated, "%s", r.unreached[n].detail)
+		f := pkgFailure(n, ReasonTargetNotUpdated, "%s", r.unreached[n].detail)
+		f.allUnreached = true
+		return f
 	}
 	return nil
 }

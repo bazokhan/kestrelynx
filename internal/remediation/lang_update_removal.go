@@ -24,11 +24,23 @@ func (r *updateRun) buildGraphs(ctx context.Context, newLock []byte) (before, af
 	if m != ManagerPnpm {
 		return before, after, errBefore, errAfter
 	}
+	// The contexts of the chain's packages are left out like the updated
+	// packages': they are what the update makes again.
+	names := r.full.targets
+	if r.chain != nil {
+		names = map[string]bool{}
+		for n := range r.full.targets {
+			names[n] = true
+		}
+		for n := range r.chain.Names {
+			names[n] = true
+		}
+	}
 	if errBefore == nil {
-		before, errBefore = normalizedGraph(ctx, before, r.full.targets)
+		before, errBefore = normalizedGraph(ctx, before, names)
 	}
 	if errAfter == nil {
-		after, errAfter = normalizedGraph(ctx, after, r.full.targets)
+		after, errAfter = normalizedGraph(ctx, after, names)
 	}
 	return before, after, errBefore, errAfter
 }
