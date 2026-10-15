@@ -3,7 +3,7 @@
 This page explains how to enable remediation plans and fix pull requests and confirm that the settings have taken effect.
 For an overview, see [Remediation plans and pull requests](remediation.md#overview).
 
-For supported environments and inputs, see [Scope and requirements](remediation-reference.md#scope-and-requirements); for connection destinations, see [Outbound connections](how-it-works.md#outbound-communication).
+For supported environments and inputs, see [Scope and requirements](remediation-reference.md#scope-and-requirements); for connection destinations, see [Outbound connections](outbound-communication.md#outbound-communication).
 
 ## Enabling remediation plans {#enable-fix-plans}
 
@@ -72,7 +72,7 @@ remediation:
 ```
 
 For key formats and configuration requirements, see [Image registry authentication](configuration.md#remediation-registries).
-For the destinations that receive credentials, see [Credential destinations](how-it-works.md#credential-destinations).
+For the destinations that receive credentials, see [Credential destinations](outbound-communication.md#credential-destinations).
 
 !!! note "Record storage"
 

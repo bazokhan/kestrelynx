@@ -30,8 +30,8 @@ At least one destination is required.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `notify.slack_webhook_url` | empty | Slack incoming webhook URL. |
-| `notify.slack_bot_token` | empty | Slack bot token with `chat:write`. Set together with `slack_channel`. |
+| `notify.slack_webhook_url` | empty | Slack incoming webhook URL for channel notifications. |
+| `notify.slack_bot_token` | empty | Slack bot token with `chat:write`. Set together with `slack_channel` to enable thread posts and links to the previous report. |
 | `notify.slack_channel` | empty | Destination Slack channel ID for bot delivery. |
 | `notify.generic_webhook_url` | empty | Endpoint that receives structured JSON. |
 | `notify.language` | `en` | Language for Slack notifications and PR bodies: `en` or `ja`; other values are configuration errors. Generic webhook JSON remains in English. |
@@ -40,14 +40,7 @@ At least one destination is required.
 Configure either `slack_webhook_url` or the bot-token pair, not both. A generic
 webhook can be used alongside either Slack delivery method.
 
-Bot threads are headed `Everything open now` (`未解決の所見の全体` in Japanese)
-and attach to the first channel message when the report spans multiple messages.
-When a thread is posted, that first message ends with the context footer
-`📊 Everything open now is in this message's thread ↓`.
-Without a new thread, a valid previous report link appears as
-`🔗 Everything open as of the last report → thread` and refers to the state
-at the time of that report.
-No footer appears if neither applies or if the previous permalink is too long to display.
+See [Thread reports](slack-display.md#thread-display) for thread placement and how to read the footers.
 
 To use Japanese Slack notifications:
 
@@ -56,8 +49,7 @@ notify:
   language: ja
 ```
 
-The translated text and unchanged content are described in
-[How KestreLynx works](how-it-works.md#notification-language).
+See [Notification language](slack-display.md#notification-language) for the fixed text that is translated and the content that remains in English.
 
 ## Notification mode
 
@@ -66,9 +58,7 @@ The translated text and unchanged content are described in
 | `notify.mode` | `diff` | `diff` reports changes; `full` reports all current findings on every scan. |
 | `notify.full_report_day` | `monday` | Weekday for a full report in diff mode. Use `never` to disable it. |
 
-Diff mode reports new findings, resolved findings, changes in fix availability,
-priority escalations, and resumption after muting. When findings remain open but nothing changed,
-KestreLynx sends a short heartbeat instead of repeating the entire report.
+See [Package changes](diff-logic.md#package-changes) for changes treated as differences, and [Scan notification conditions](notification-conditions.md#notification-conditions) for when notifications are sent.
 
 ## State and Docker
 
@@ -77,9 +67,10 @@ KestreLynx sends a short heartbeat instead of repeating the entire report.
 | `docker.socket` | `/var/run/docker.sock` | Path to the Docker socket. |
 | `state.path` | `/var/lib/kestrelynx/state.json` | File used for scan history and diff calculations. |
 
-Persist the directory containing `state.path` with a Docker volume, or a
-persistent volume in Kubernetes. The intel feed cache lives in an `intel`
-directory beside `state.path`, by default `/var/lib/kestrelynx/intel`.
+The intel feed cache lives in an `intel` directory beside `state.path`.
+The default path is `/var/lib/kestrelynx/intel`.
+
+See [Setup instructions](getting-started.md) for persisting the directory containing `state.path`, and [History continuity](diff-logic.md#state-lifecycle) for how history is handled.
 
 ## Remediation plans and pull requests {#remediation}
 
@@ -107,7 +98,7 @@ See [Plan and PR execution scope](remediation-logic.md#plan-and-pr-execution) fo
 | Creating and managing PRs | Contents and Pull requests: Read and write on a fine-grained token limited to the target repositories |
 
 Restrict the configuration file to its owner.
-See [Credential destinations](how-it-works.md#credential-destinations) for where the token is sent.
+See [Credential destinations](outbound-communication.md#credential-destinations) for where the token is sent.
 
 ### Storage location {#remediation-storage}
 
@@ -135,7 +126,7 @@ See [Stored files](remediation-reference.md#stored-records) for its contents.
 - Credential entries must not have duplicate `host` values after normalization
 - For Docker Hub authentication, set `host: docker.io` and `token_hosts: [auth.docker.io]`
 
-See [Credential destinations](how-it-works.md#credential-destinations) for destination and redirect restrictions, and [Private image authentication](remediation-setup.md#configure-registry-auth) for setup instructions.
+See [Credential destinations](outbound-communication.md#credential-destinations) for destination and redirect restrictions, and [Private image authentication](remediation-setup.md#configure-registry-auth) for setup instructions.
 
 ### Source mappings {#remediation-mappings}
 
@@ -191,7 +182,7 @@ See [Reason codes](remediation-reference.md#reason-codes) for outcomes caused by
 - Paths use lowercase letters, digits, and the separators `.`, `_`, and `-`
 - The mirror must serve `library/node` and `library/python` with the same contents as the official images under the specified host and path
 
-See [Pinning official images](remediation-logic.md#worker-images) for pinning and handling unavailable images, [Supported runtimes](remediation-reference.md#supported-runtimes) for version series, and [Work image downloads](how-it-works.md#worker-image-downloads) for network destinations.
+See [Pinning official images](remediation-logic.md#worker-images) for pinning and handling unavailable images, [Supported runtimes](remediation-reference.md#supported-runtimes) for version series, and [Work image downloads](outbound-communication.md#worker-image-downloads) for network destinations.
 
 ### Minimum tool release age {#remediation-tool-release-age}
 
@@ -311,7 +302,7 @@ re-notify existing findings.
 | `triage.epss_url` | empty | Override the EPSS feed URL, for example with a local mirror. |
 | `triage.discussion_links` | `true` | Look up Hacker News discussions for act-now CVEs. |
 
-See [Outbound communication](how-it-works.md#outbound-communication) for where KestreLynx connects and what it sends.
+See [Outbound communication](outbound-communication.md#outbound-communication) for where KestreLynx connects and what it sends.
 
 Thresholds must satisfy:
 

@@ -5,13 +5,10 @@
     Sensor (runtime usage) is an experimental feature.
     Its configuration, display, and evidence formats may change, and the feature may be frozen.
 
-An optional Sensor container on a Docker host marks findings for packages in use
-and puts those packages and their images first within the same priority.
-It does not change priority.
+An optional Sensor container on a Docker host observes packages used by running programs.
+KestreLynx includes the observations in Slack and webhook notifications.
 
-The Sensor observes packages used by running programs, and KestreLynx includes
-the results in Slack and webhook notifications. With triage disabled, usage is
-still shown, but results are not reordered.
+Runtime usage does not change vulnerability priority.
 
 [Remediation plans and pull requests (experimental)](remediation.md) do not require
 the Sensor and can be used with `runtime.enabled: false`.
@@ -35,13 +32,8 @@ Treating all packages in an ecosystem as in use because its runtime process is r
 Function calls and module imports are not checked. Reading a data file does not
 count as evidence of use.
 
-With `notify.language: en`, Slack shows `Runtime: ▶ in use` in package cards.
-Detailed cards put the observed activity on an `Evidence:` line, while compact
-cards use a short line such as `Runtime: ▶ in use (running)`.
-Threads also show `Runtime: ▷ not observed` or
-`Runtime: ▷ runtime evidence unavailable (<reason>)`.
-The notification text, ordering, and webhook fields are described in
-[How KestreLynx works](how-it-works.md).
+See [Runtime usage display](slack-display.md#runtime-display) for Slack text and observed evidence, and [Current report ordering](slack-display.md#current-order) for ordering.
+Webhook fields are described in [Runtime fields](webhook-reference.md#runtime).
 
 ## Requirements
 
@@ -173,42 +165,18 @@ Packages with any `fixed` or EOL groups are not muted. EOL is always
 notified. Image references with failed scans or unconfirmed identities are not
 muted for that cycle.
 
-Muting does not change priority. Slack omits the matching lines and excludes
-them from priority counts in the Priority line and Open now. It shows a count:
+Muting does not change priority.
+For the same image and package, muting ends when any of the following applies.
 
-```text
-🔇 Muted — no fix available and not in use for 7+ days: N
-```
+- A group is in use
+- A group has Act now priority
+- A group has `fixed` status with a fix available
+- A group has `end_of_life` status
+- Usage cannot be assessed, or a container included in the assessment has been observed for fewer than 7 days
+- The fix status is no longer eligible for muting
 
-The generic webhook retains all muted findings. Its additional fields are
-described in [How KestreLynx works](how-it-works.md).
-
-When the muting conditions no longer hold, notification resumes on a `Change:`
-line (`変化:` in Japanese).
-Newly available fixes, priority escalation, and added CVEs use
-`fix now available`, `⬆️ escalated to <priority>` (e.g. ACT NOW or WATCH),
-and `new CVEs: CVE-…` on that line.
-Other changes show `Change: ↩️ Unmuted (<reason>)`
-(`変化: ↩️ 通知を再開 (<理由>)` in Japanese).
-
-| Reason | Japanese notification |
-| --- | --- |
-| `now in use` | 使用中になった |
-| `act now` | 今すぐ対応 |
-| `fix available` | 修正版あり |
-| `now end-of-life` | サポート終了(EOL)となった |
-| `insufficient observation` | 観測不足 |
-| `not an eligible status` | 対象外の状態 |
-
-```text
-Image: web:1.0
-◆ curl
-Change: ↩️ Unmuted (now in use)
-Installed: 8.0.0 · Fixed in: none
-Findings: CRITICAL 0 / HIGH 1
-Top CVE: CVE-CURL · EPSS n/a
-Runtime: ▶ in use (running)
-```
+See [Muted findings display](slack-display.md#muted-display) for Slack display and counts, and [Normal package changes](diff-logic.md#normal-changes) for the evaluation order when other changes occur at the same time.
+The generic webhook retains all muted findings; additional fields are described in [Packages](webhook-reference.md#package-fields) and [Normal package changes](webhook-reference.md#new-fields).
 
 ### Observation options
 
@@ -228,8 +196,7 @@ With runtime usage enabled, the main agent also uses Docker API
 
 ## Sensor status
 
-Sensor problems produce a warning at the beginning of the notification.
-The webhook reports the status as `runtime.sensor_status`.
+See [Sensor warnings](slack-display.md#sensor-warnings) for warning text by status, and [Sensor information](webhook-reference.md#sensor-fields) for webhook fields.
 
 | Status | Meaning |
 | --- | --- |

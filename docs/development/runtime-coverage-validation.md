@@ -156,7 +156,7 @@ Evaluate package coverage before deciding whether to adopt runtime evidence for 
 - **Recall**: The proportion of packages established as used by ground truth whose use was correctly confirmed.
 - **False positives**: The number of packages established as unused by ground truth but confirmed as used.
 - **Matching**: The process of linking observed file paths (executables and libraries visible through procfs, or targets of recorded open events) to the names and versions of the packages that own them, with “Unsupported package mapping” under “Reasons for misses” referring to limitations of this process.
-- **Act now (act-now) and Watch (watch)**: Remediation priority categories KestreLynx assigns to vulnerability findings under the [CVE priority rules](../documentation/how-it-works.md#cve-priority-rules), where Act now means a CISA KEV listing or EPSS at or above the threshold (10% by default), and Watch means a finding that does not qualify for Act now but has a weaker signal (EPSS at or above the lower threshold (1% by default) or CRITICAL severity), with the lowercase forms act-now and watch used in this development log.
+- **Act now (act-now) and Watch (watch)**: Remediation priority categories KestreLynx assigns to vulnerability findings under the [CVE priority rules](../documentation/scan-logic.md#cve-priority-rules), where Act now means a CISA KEV listing or EPSS at or above the threshold (10% by default), and Watch means a finding that does not qualify for Act now but has a weaker signal (EPSS at or above the lower threshold (1% by default) or CRITICAL severity), with the lowercase forms act-now and watch used in this development log.
 
 **Ground truth**
 

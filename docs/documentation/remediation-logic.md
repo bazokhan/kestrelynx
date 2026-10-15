@@ -19,7 +19,7 @@ Creating a remediation plan and creating fix pull requests involve different ope
 - Enabling fix pull requests does not merge PRs, build application images, or deploy changes
 
 See [Enablement settings](configuration.md#remediation-enablement) for configuration.
-[Notification conditions](how-it-works.md#notification-conditions) explains when notifications are sent.
+[Notification conditions](notification-conditions.md#notification-conditions) explains when notifications are sent.
 
 ### Source verification {#source-verification}
 
@@ -284,7 +284,7 @@ KestreLynx retrieves the selected npm, pnpm, or uv version and passes the verifi
 | Files passed to the container | Must match the recorded sizes and hashes |
 
 Hash mismatches and inconsistent distributions are not ignored to proceed with execution.
-See [Outbound communication](how-it-works.md#outbound-communication) for destinations and credential transmission.
+See [Outbound communication](outbound-communication.md#outbound-communication) for destinations and credential transmission.
 
 ### Waiting after tool release {#tool-release-age}
 
@@ -319,7 +319,7 @@ Files needed for the update, the bundled work program, and retrieved and verifie
 | GitHub token and image registry credentials | Not passed. |
 | KestreLynx configuration file and Docker socket | Not passed. |
 
-See [Credential destinations](how-it-works.md#credential-destinations) for where credentials are sent.
+See [Credential destinations](outbound-communication.md#credential-destinations) for where credentials are sent.
 
 ### Execution restrictions {#worker-restrictions}
 
@@ -334,7 +334,7 @@ Work containers have restrictions on privileges, resources, writable locations, 
 Docker's root filesystem setting itself is not read-only.
 File ownership, permissions, and temporary mounts restrict where the non-root process can write.
 
-See [Processing limits](configuration.md#remediation-limits) for workload settings and [Work container networking](how-it-works.md#worker-network) for network restrictions.
+See [Processing limits](configuration.md#remediation-limits) for workload settings and [Work container networking](outbound-communication.md#worker-network) for network restrictions.
 
 ### Result collection {#worker-results}
 

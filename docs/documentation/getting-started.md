@@ -35,9 +35,10 @@ docker compose up -d
 docker compose logs -f
 ```
 
-The included Compose file persists scan history in the `kestrelynx-state`
-volume. This state is required to preserve change-based notifications and
-first-seen dates after the container is recreated.
+The included Compose file mounts the `kestrelynx-state` volume at `/var/lib/kestrelynx`.
+Persist this volume to retain scan history and the intel feed cache.
+
+See [Configuration](configuration.md) for storage settings, and [History continuity](diff-logic.md#state-lifecycle) for how history affects change detection.
 
 ## Run with Docker
 
@@ -129,5 +130,5 @@ The same setting applies to the `TZ` environment variable in
 
 ## Reference pages
 
-- See [Configuration](configuration.md) for configuration options.
-- See [Notification logic](how-it-works.md) for notification logic.
+- [Configuration](configuration.md) — configuration options and defaults
+- [Scan notification conditions](notification-conditions.md#notification-conditions) — delivery conditions for each notification mode

@@ -49,7 +49,15 @@ nav:
       - Overview: documentation/index.md
       - Setup: documentation/getting-started.md
       - Configuration: documentation/configuration.md
-      - How it works: documentation/how-it-works.md
+      - How it works:
+          - Overview: documentation/how-it-works.md
+          - Scan and priority decisions: documentation/scan-logic.md
+          - Change and history decisions: documentation/diff-logic.md
+          - Notification conditions: documentation/notification-conditions.md
+          - Reading Slack notifications: documentation/slack-display.md
+          - Webhook field reference: documentation/webhook-reference.md
+          - Webhook remediation fields: documentation/webhook-remediation-reference.md
+          - Outbound communication: documentation/outbound-communication.md
       - Remediation plans and pull requests (experimental):
           - Overview: documentation/remediation.md
           - Enabling remediation: documentation/remediation-setup.md

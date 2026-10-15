@@ -157,14 +157,14 @@ Dependency installation and application behavior have not been checked.
 
 | Information needed | Field specification |
 | --- | --- |
-| Plan status, comparison conditions, processing limits, and usage | [Common remediation plan fields](how-it-works.md#remediation-fields) |
-| Distributed image candidates and comparison results | [Distributed image fields](how-it-works.md#remediation-image-fields) |
-| Base image candidates and layer verification results | [Base image fields](how-it-works.md#remediation-dockerfile-fields) |
-| Versions, processing, and exclusion reasons for each package, runtimes, tools, and update checks | [Language package fields](how-it-works.md#remediation-language-fields) |
-| PR status and packages left out of the PR that still need handling | [PR processing fields](how-it-works.md#remediation-pr-fields) |
-| Results of operations such as PR creation and reconciliation | [PR operation event fields](how-it-works.md#remediation-operation-fields) |
-| Problems that stopped PR writes | [Write-stopping problem fields](how-it-works.md#remediation-problem-fields) |
-| Example notification data including a partial PR | [Remediation plan JSON example](how-it-works.md#remediation-json-example) |
+| Plan status, comparison conditions, processing limits, and usage | [Common remediation plan fields](webhook-remediation-reference.md#remediation-fields) |
+| Distributed image candidates and comparison results | [Distributed image fields](webhook-remediation-reference.md#remediation-image-fields) |
+| Base image candidates and layer verification results | [Base image fields](webhook-remediation-reference.md#remediation-dockerfile-fields) |
+| Versions, processing, and exclusion reasons for each package, runtimes, tools, and update checks | [Language package fields](webhook-remediation-reference.md#remediation-language-fields) |
+| PR status and packages left out of the PR that still need handling | [PR processing fields](webhook-remediation-reference.md#remediation-pr-fields) |
+| Results of operations such as PR creation and reconciliation | [PR operation event fields](webhook-remediation-reference.md#remediation-operation-fields) |
+| Problems that stopped PR writes | [Write-stopping problem fields](webhook-remediation-reference.md#remediation-problem-fields) |
+| Example notification data including a partial PR | [Remediation plan JSON example](webhook-remediation-reference.md#remediation-json-example) |
 
 ### Saved record details {#saved-details}
 

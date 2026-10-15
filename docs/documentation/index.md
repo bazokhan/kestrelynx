@@ -9,8 +9,7 @@ This section covers installing, configuring, and operating KestreLynx.
 - [Configuration](configuration.md) — configure the schedule, notification
   destinations, Kubernetes, environment name, state management, and vulnerability
   prioritization.
-- [How KestreLynx works](how-it-works.md) — learn about scanning,
-  prioritization, change detection, and notification processing.
+- [How KestreLynx works](how-it-works.md) — feature overview and a contents guide to decision logic, reading Slack notifications, webhook field specifications, and outbound communication
 - [Remediation plans and pull requests (experimental)](remediation.md#contents) — find setup instructions, guidance on reading results, decision logic, and supported formats
 - [Runtime usage (experimental)](runtime-usage.md) — add the optional Docker Sensor to mark
   packages in use without changing their priority.

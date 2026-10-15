@@ -46,6 +46,6 @@ For details, see [Execution scope of plans and PRs](remediation-logic.md#plan-an
 Related configuration and specifications are on the following pages.
 
 - [Configuration: Remediation plans and fix pull requests](configuration.md#remediation)
-- [How KestreLynx works: Notification conditions](how-it-works.md#notification-conditions)
-- [How KestreLynx works: Generic webhook remediation fields](how-it-works.md#remediation-fields)
-- [How KestreLynx works: Outbound connections](how-it-works.md#outbound-communication)
+- [How KestreLynx works: Notification conditions](notification-conditions.md#notification-conditions)
+- [How KestreLynx works: Generic webhook remediation fields](webhook-remediation-reference.md#remediation-fields)
+- [How KestreLynx works: Outbound connections](outbound-communication.md#outbound-communication)
