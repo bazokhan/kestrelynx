@@ -103,13 +103,51 @@ func litMrkdwn(s string) string {
 	return "`" + strings.ReplaceAll(e, "`", "'") + "`"
 }
 
+// hostPath reports whether s starts with a host name and a path
+// (ghcr.io/org/app:tag, github.com/org/module). Slack turns such a name into
+// a link, and in a bold line the link would take the closing mark with it.
+// A scoped npm name (@scope.v1/pkg) starts with "@" and is not a host.
+func hostPath(s string) bool {
+	i := strings.IndexByte(s, '/')
+	return i > 0 && s[0] != '@' && strings.ContainsAny(s[:i], ".:") && !strings.ContainsAny(s[:i], " \t")
+}
+
+// codeSpan puts s in an inline code span on one line, a backtick shown as an
+// apostrophe.
+func codeSpan(s string) string {
+	return "`" + strings.ReplaceAll(escMrkdwn(strings.NewReplacer("\r", " ", "\n", " ").Replace(s)), "`", "'") + "`"
+}
+
 // refMrkdwn shows an image reference. One that starts with a registry host
-// (ghcr.io/org/app:tag) is put in an inline code span: Slack turns such a
-// name into a link, and the link would take the closing mark of a bold line
-// with it.
+// is put in an inline code span (see hostPath).
 func refMrkdwn(ref string) string {
-	if i := strings.IndexByte(ref, '/'); i > 0 && strings.ContainsAny(ref[:i], ".:") {
-		return "`" + strings.ReplaceAll(escMrkdwn(strings.NewReplacer("\r", " ", "\n", " ").Replace(ref)), "`", "'") + "`"
+	if hostPath(ref) {
+		return codeSpan(ref)
 	}
 	return litMrkdwn(ref)
+}
+
+// boldMrkdwn escapes a name shown in a bold line. When its first word starts
+// with a host and a path (see hostPath), that word is put in an inline code
+// span and the rest is escaped as usual.
+func boldMrkdwn(s string) string {
+	head, rest := s, ""
+	if i := strings.IndexByte(s, ' '); i > 0 {
+		head, rest = s[:i], s[i:]
+	}
+	if !hostPath(head) {
+		return escMrkdwn(s)
+	}
+	return codeSpan(head) + escMrkdwn(rest)
+}
+
+// boldMrkdwnCapped is boldMrkdwn shortened to max units. A name that starts
+// with a host and a path is put in a code span whole, so the cut cannot leave
+// the span open.
+func boldMrkdwnCapped(s string, max int) string {
+	if !hostPath(s) {
+		return capEscaped(escMrkdwn(s), max)
+	}
+	e := strings.ReplaceAll(escMrkdwn(strings.NewReplacer("\r", " ", "\n", " ").Replace(s)), "`", "'")
+	return "`" + capEscaped(e, max) + "`"
 }
