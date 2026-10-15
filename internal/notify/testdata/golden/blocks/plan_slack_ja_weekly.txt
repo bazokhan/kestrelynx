@@ -5,7 +5,7 @@ TEXT: KestreLynx 2026-06-24 09:00 修正計画 — Pull Request: 作成 2件 · 
 Pull Request: 作成 2件 · オープン中 1件 · 延期 1件
 --- divider ---
 --- section ---
-*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*
+*イメージ:* `ghcr.io/yyac-project/regfis-backend:latest`
 修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml
 Pull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)
 更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0

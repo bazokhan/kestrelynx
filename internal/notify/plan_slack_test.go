@@ -159,7 +159,7 @@ func TestPlanMessage_Lines(t *testing.T) {
 		LanguageJA: {
 			"*🔧 修正計画*",
 			"Pull Request: 作成 2件 · オープン中 1件 · マージ済み 1件 · 未マージでクローズ 1件 · 延期 1件",
-			"*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml\nPull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)\n更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0\n⚠️ メジャーバージョンの変更: sharp 0.34.5 → 0.35.5 (0.x のマイナー変更)\n要判断: multer 2.1.1 → 2.3.0 は候補または更新後の版が依存関係の制約を満たさないため除外",
+			"*イメージ:* `ghcr.io/yyac-project/regfis-backend:latest`\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml\nPull Request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (今回作成)\n更新: proxy-addr 2.0.7 → 2.0.8、sharp 0.34.5 → 0.35.5、undici 6.27.0 → 6.29.0\n⚠️ メジャーバージョンの変更: sharp 0.34.5 → 0.35.5 (0.x のマイナー変更)\n要判断: multer 2.1.1 → 2.3.0 は候補または更新後の版が依存関係の制約を満たさないため除外",
 			"*イメージ: regfis-infra-elasticsearch*\n修正するファイル: YYAC-project/regfis-infra の elasticsearch/Dockerfile\nPull Request: <https://github.com/YYAC-project/regfis-infra/pull/1|#1> (オープン中)\n更新: ベースイメージ docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23",
 			"Pull Request: <https://github.com/ex/deploy/pull/7|#7> (マージ済み)",
 			"Pull Request: <https://github.com/ex/deploy/pull/3|#3> (未マージでクローズ)",
@@ -170,7 +170,7 @@ func TestPlanMessage_Lines(t *testing.T) {
 		LanguageEN: {
 			"*🔧 Fix plan*",
 			"Pull requests: 2 created · 1 open · 1 merged · 1 closed without merging · 1 deferred",
-			"*Image: `ghcr.io/yyac-project/regfis-backend:latest`*\nFile to change: pnpm-lock.yaml in YYAC-project/regfis-backend\nPull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)\nUpdate: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0\n⚠️ Major version change: sharp 0.34.5 → 0.35.5 (0.x minor change)\nNeeds a decision: multer 2.1.1 → 2.3.0 left out because the candidate or the updated version does not satisfy the dependency constraints",
+			"*Image:* `ghcr.io/yyac-project/regfis-backend:latest`\nFile to change: pnpm-lock.yaml in YYAC-project/regfis-backend\nPull request: <https://github.com/YYAC-project/regfis-backend/pull/2|#2> (opened now)\nUpdate: proxy-addr 2.0.7 → 2.0.8, sharp 0.34.5 → 0.35.5, undici 6.27.0 → 6.29.0\n⚠️ Major version change: sharp 0.34.5 → 0.35.5 (0.x minor change)\nNeeds a decision: multer 2.1.1 → 2.3.0 left out because the candidate or the updated version does not satisfy the dependency constraints",
 			"Update: base image docker.elastic.co/elasticsearch/elasticsearch 8.19.16 → 8.19.23",
 			"Needs a decision: the candidate resolves only some of the findings",
 			"Deferred: the limit on pull requests of a run was reached",
@@ -325,7 +325,7 @@ func TestPlanMessage_ImagesSideBySide(t *testing.T) {
 	p.LanguageItems[0].Workloads = []string{"compose/regfis/backend", "compose/shop/web"}
 	p.PullRequests[0].Workloads = p.LanguageItems[0].Workloads
 	got := slackPlanText(r, &PlanInfo{Plan: &p}, LanguageJA)
-	want := "*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n*イメージ: nginx:1.25.3*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml"
+	want := "*イメージ:* `ghcr.io/yyac-project/regfis-backend:latest`\n*イメージ: nginx:1.25.3*\n修正するファイル: YYAC-project/regfis-backend の pnpm-lock.yaml"
 	if !strings.Contains(got, want) {
 		t.Errorf("missing %q in\n%s", want, got)
 	}
@@ -1061,7 +1061,7 @@ func TestPlanMessage_ImageHeadingWithARegistryHost(t *testing.T) {
 		}
 	}
 	got := slackPlanText(planReport(), slackPlanInfo(), LanguageJA)
-	if !strings.Contains(got, "*イメージ: `ghcr.io/yyac-project/regfis-backend:latest`*\n") {
+	if !strings.Contains(got, "*イメージ:* `ghcr.io/yyac-project/regfis-backend:latest`\n") {
 		t.Errorf("heading in\n%s", got)
 	}
 }

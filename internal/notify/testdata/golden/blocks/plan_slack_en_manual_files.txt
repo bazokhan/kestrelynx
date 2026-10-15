@@ -5,12 +5,12 @@ TEXT: KestreLynx 2026-06-24 09:00 fix plan — 2 need a decision
 2 need a decision
 --- divider ---
 --- section ---
-*Image: `ghcr.io/yyac-project/regfis-backend:latest`*
+*Image:* `ghcr.io/yyac-project/regfis-backend:latest`
 File to change: pnpm-lock.yaml in YYAC-project/regfis-backend
 Needs a decision: multer could not be raised to 2.3.0, which fixes the vulnerability, and stays at 2.1.1 in pnpm-lock.yaml (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on multer)
 --- divider ---
 --- section ---
-*Image: `ghcr.io/yyac-project/regfis-frontend:latest`*
+*Image:* `ghcr.io/yyac-project/regfis-frontend:latest`
 File to change: pnpm-lock.yaml in YYAC-project/regfis-frontend
 Needs a decision: packages that are not in pnpm-lock.yaml (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)
   • brace-expansion 2.0.2

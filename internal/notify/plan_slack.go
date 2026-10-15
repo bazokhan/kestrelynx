@@ -141,14 +141,14 @@ func buildPlanView(p *PlanInfo, msg messages, o planOpts) planView {
 			g := planGroup{}
 			if len(e.images) > 0 {
 				for _, ref := range e.images {
-					g.headings = append(g.headings, "*"+msg.LblImage+": "+refMrkdwn(ref)+"*")
+					g.headings = append(g.headings, boldLine(msg.LblImage+": ", refMrkdwn(ref)))
 				}
 			} else {
 				names := make([]string, len(e.services))
 				for j, s := range e.services {
 					names[j] = litMrkdwn(s)
 				}
-				g.headings = []string{"*" + msg.PlanLblService + ": " + strings.Join(names, msg.PlanListSep) + "*"}
+				g.headings = []string{boldLine(msg.PlanLblService+": ", strings.Join(names, msg.PlanListSep))}
 			}
 			v.groups = append(v.groups, g)
 			i = len(v.groups) - 1

@@ -24,7 +24,7 @@ func kv(label, value string) string { return label + ": " + value }
 // titleLine is the card's bold name line, with the ecosystem of a language
 // package in brackets after one space.
 func (c pkgCard) titleLine() string {
-	s := "*◆ " + boldMrkdwn(c.Name) + "*"
+	s := boldLine("◆ ", boldMrkdwn(c.Name))
 	if c.Ecosystem != "" {
 		s += " [" + escMrkdwn(c.Ecosystem) + "]"
 	}
@@ -261,7 +261,7 @@ func (rd renderer) threadCard(c pkgCard) []Block {
 // The name and version are shortened: the heading must stay small however
 // long they are.
 func (rd renderer) contTitle(c pkgCard) string {
-	name := "*◆ " + boldMrkdwnCapped(c.Name, contNameUnits) + "*"
+	name := boldLine("◆ ", boldMrkdwnCapped(c.Name, contNameUnits))
 	if c.Ecosystem != "" {
 		name += " [" + capEscaped(escMrkdwn(c.Ecosystem), contNameUnits) + "]"
 	}
@@ -292,7 +292,7 @@ func capEscaped(s string, max int) string {
 // imageHeadingCapped is imageHeading with the label shortened, for the
 // heading a continuation message repeats.
 func (rd renderer) imageHeadingCapped(label string) string {
-	return "*" + rd.msg.LblImage + ": " + boldMrkdwnCapped(label, contNameUnits) + "*"
+	return boldLine(rd.msg.LblImage+": ", boldMrkdwnCapped(label, contNameUnits))
 }
 
 // compactLines are the lines of a card shown as one section: name, change,
@@ -323,5 +323,5 @@ func (rd renderer) compactLines(c pkgCard) []string {
 
 // imageHeading is the bold image line that opens an image's cards.
 func (rd renderer) imageHeading(label string) string {
-	return "*" + rd.msg.LblImage + ": " + boldMrkdwn(label) + "*"
+	return boldLine(rd.msg.LblImage+": ", boldMrkdwn(label))
 }

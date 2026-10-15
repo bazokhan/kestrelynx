@@ -127,6 +127,18 @@ func refMrkdwn(ref string) string {
 	return litMrkdwn(ref)
 }
 
+// boldLine makes the bold line prefix+value from a value already rendered
+// for mrkdwn. Slack drops the bold marks of a line whose text starts or ends
+// with a code span, so when value starts or ends with one (see boldMrkdwn,
+// refMrkdwn, litMrkdwn) only the prefix is bold and the value follows it:
+// "*Image:* `ghcr.io/org/app`".
+func boldLine(prefix, value string) string {
+	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") {
+		return "*" + strings.TrimRight(prefix, " ") + "* " + value
+	}
+	return "*" + prefix + value + "*"
+}
+
 // boldMrkdwn escapes a name shown in a bold line. When its first word starts
 // with a host and a path (see hostPath), that word is put in an inline code
 // span and the rest is escaped as usual.
