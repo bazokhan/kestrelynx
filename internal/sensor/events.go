@@ -41,15 +41,30 @@ type pathKey struct {
 	ino     uint64
 }
 
-// maxPathIndexEntries bounds pathIndex's size: a defensive cap against
-// unbounded growth over a long session, evicting the least-recently-used
-// entry once crossed (see pathIndex's own doc comment for why this must be a
-// true LRU, unlike cgroupRoute's own plain-FIFO maxCgroupRouteEntries cap).
+// maxPathIndexEntries bounds pathIndex's total size across all mount
+// namespaces: a defensive cap against unbounded growth over a long session.
+// Once crossed, an entry unused for longer than pathIndexStaleAfter is
+// evicted first; failing that, the least-recently-used entry of whichever
+// mount namespace currently holds the most entries is (see pathIndex's own
+// doc comment for why the victim is chosen per namespace, and why this must
+// be a true LRU within a namespace, unlike cgroupRoute's own plain-FIFO
+// maxCgroupRouteEntries cap).
 // ASSUMED: large enough that a legitimately still-in-use path (a shared
 // library actively being mmap'd, say) is never pushed out by an unrelated
-// burst of once-only opens on a real container; revisit once real-world
+// burst of once-only opens in the same container; revisit once real-world
 // dogfooding shows otherwise.
 const maxPathIndexEntries = 65_536
+
+// pathIndexStaleAfter is how long an entry can go without being recorded or
+// looked up before the cap may evict it ahead of the fairness rule. It
+// matches bpf/kestrelynx.c's KL_DEDUP_WINDOW_NS: once that long has passed
+// the kernel's own kl_dedup_path suppression for the file has expired too, so
+// the next open of it is sent again and re-teaches this table the path (and
+// onEvict deletes the kernel-side key at eviction anyway). Without this, a
+// small mount namespace that will never be used again (a container that
+// exited before discovery, an excluded one) would never be the largest and so
+// would hold its entries forever.
+const pathIndexStaleAfter = 10 * time.Minute
 
 // pathIndex is loop's own correlation table from pathKey to the path a
 // fentry/security_file_open event most recently reported for it — what
@@ -58,21 +73,47 @@ const maxPathIndexEntries = 65_536
 // to a container-relative path at all. Read and written only by loop's own
 // goroutine.
 //
-// Capacity is enforced as a true LRU, not a plain FIFO the way cgroupRoute's
-// own maxCgroupRouteEntries cap is (see that field's own doc comment on why
-// a FIFO is an acceptable trade there): every lookup promotes the entry it
-// hits to most-recently-used, so a library actually being mmap'd again and
-// again survives a burst of once-only opens on unrelated files around it (a
-// container indexing many on-disk segments, say), and it is exactly those
-// once-only entries that get pushed out first instead.
+// Capacity is enforced per mount namespace, not as one global LRU, in two
+// steps. Once the table holds more than its capacity in total, the entry
+// pushed out is, first, the least-recently-used entry overall if it has gone
+// unused for longer than pathIndexStaleAfter (so a namespace nobody will use
+// again ages out); otherwise it is the least-recently-used entry of the mount
+// namespace that currently holds the most entries (ties go to the namespace
+// whose own least-recently-used entry is oldest, so the choice is
+// deterministic). One container opening tens of
+// thousands of distinct files (a scanner extracting image layers, say) can
+// therefore only push out its own once-only entries; a global LRU would let
+// that burst evict a neighbouring container's entries too, and that
+// container's exec_success/mmap_success events would then find no path, with
+// the short-lived processes needed for the maps fallback already gone.
 //
-// A container that opens far more distinct files than this table's own
-// capacity within one bpf/kestrelynx.c KL_DEDUP_WINDOW_NS window can still
-// evict a path this table needs again before the kernel's own kl_dedup_path
-// suppression for that same file has expired — the kernel would then go on
-// suppressing a resend of a path this table has already forgotten, for the
-// rest of that window, with no way for either side to notice the other has
-// moved on. onEvict exists to close exactly that gap: set (by
+// A restarted container's old mount namespace is deliberately not pruned at
+// once: late events of the ended generation may still need its paths, and
+// resolving them would otherwise fall to the maps fallback with the old
+// processes already gone. Its entries are reclaimed by the stale-first rule
+// once they have gone unused for pathIndexStaleAfter.
+//
+// Within a namespace the order is a true LRU, not a plain FIFO the way
+// cgroupRoute's own maxCgroupRouteEntries cap is (see that field's own doc
+// comment on why a FIFO is an acceptable trade there): every lookup promotes
+// the entry it hits to most-recently-used, so a library actually being
+// mmap'd again and again survives a burst of once-only opens on unrelated
+// files around it (a container indexing many on-disk segments, say), and it
+// is exactly those once-only entries that get pushed out first instead.
+//
+// Cost: record, lookup and pruneMountNamespace's per-entry work are O(1);
+// every eviction scans the namespaces once to find the largest, so a burst of
+// n inserts over a full table costs O(n * namespaces). Namespaces here are
+// live containers' mount namespaces (tens to hundreds), keeping a 60,000
+// insert burst to a few million cheap steps, well under a second.
+//
+// A container that opens far more distinct files than its share of this
+// table's capacity within one bpf/kestrelynx.c KL_DEDUP_WINDOW_NS window can
+// still evict a path this table needs again before the kernel's own
+// kl_dedup_path suppression for that same file has expired — the kernel would
+// then go on suppressing a resend of a path this table has already forgotten,
+// for the rest of that window, with no way for either side to notice the
+// other has moved on. onEvict exists to close exactly that gap: set (by
 // Session.deletePathSeenKey) once eBPF is actually attached, it deletes the
 // matching kl_dedup_path entry the moment this table forgets a path, so the
 // kernel resends it the very next time that file is opened instead of
@@ -80,13 +121,26 @@ const maxPathIndexEntries = 65_536
 // test that never exercises eviction.
 type pathIndex struct {
 	byKey map[pathKey]*list.Element // Element.Value is always *pathIndexEntry
-	order *list.List                // most-recently-used at Front, least at Back
+	byNs  map[uint32]*pathIndexNs   // only namespaces holding at least one entry
+	// tick is a counter bumped on every insert and promotion; each entry
+	// records the value at its own last use, so the least-recently-used
+	// entries of two namespaces can be compared without a clock.
+	tick uint64
+	// now is the clock used to stamp entries and judge staleness; nil means
+	// time.Now. A unit test overrides it to age entries without sleeping.
+	now func() time.Time
 	// maxEntries overrides maxPathIndexEntries when nonzero — a unit test's
 	// own way of forcing eviction after only a handful of insertions, the
 	// same purpose LoadWithRingBufferBytes's own ring-buffer-size override
 	// serves for kl_events.
 	maxEntries int
 	onEvict    func(evictedPathKey)
+}
+
+// pathIndexNs is one mount namespace's own share of a pathIndex: its entries
+// in recency order, so Len() is that namespace's entry count.
+type pathIndexNs struct {
+	order *list.List // most-recently-used at Front, least at Back
 }
 
 // pathIndexEntry is one pathIndex.byKey element's own list.Element.Value.
@@ -102,6 +156,9 @@ type pathIndexEntry struct {
 	key        pathKey
 	path       string
 	rawRootDev uint64
+	ns         *pathIndexNs // the namespace list this entry sits in
+	used       uint64       // pathIndex.tick at this entry's last insert or promotion
+	usedAt     time.Time    // pathIndex.clock() at that same moment
 }
 
 // evictedPathKey is what pathIndex's own onEvict hook receives once an entry
@@ -126,6 +183,23 @@ func (p *pathIndex) limit() int {
 	return maxPathIndexEntries
 }
 
+// clock returns the current time from p.now, or time.Now if unset.
+func (p *pathIndex) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+// touch promotes el to most-recently-used within its own namespace.
+func (p *pathIndex) touch(el *list.Element) {
+	entry := el.Value.(*pathIndexEntry)
+	p.tick++
+	entry.used = p.tick
+	entry.usedAt = p.clock()
+	entry.ns.order.MoveToFront(el)
+}
+
 // record stores path for the given (mount namespace, root identity, dev,
 // inode) tuple, promoting it to most-recently-used whether this is a fresh
 // insert or an update of an already-recorded key. rawRootDev is the same
@@ -139,34 +213,68 @@ func (p *pathIndex) record(mntNsID uint32, rootDev string, rawRootDev, rootIno, 
 	key := pathKey{mntNsID: mntNsID, rootDev: rootDev, rootIno: rootIno, dev: dev, ino: ino}
 	if p.byKey == nil {
 		p.byKey = map[pathKey]*list.Element{}
-		p.order = list.New()
+		p.byNs = map[uint32]*pathIndexNs{}
 	}
 	if el, exists := p.byKey[key]; exists {
 		entry := el.Value.(*pathIndexEntry)
 		entry.path = path
 		entry.rawRootDev = rawRootDev
-		p.order.MoveToFront(el)
+		p.touch(el)
 		return
 	}
-	el := p.order.PushFront(&pathIndexEntry{key: key, path: path, rawRootDev: rawRootDev})
+	ns := p.byNs[mntNsID]
+	if ns == nil {
+		ns = &pathIndexNs{order: list.New()}
+		p.byNs[mntNsID] = ns
+	}
+	p.tick++
+	el := ns.order.PushFront(&pathIndexEntry{key: key, path: path, rawRootDev: rawRootDev, ns: ns, used: p.tick, usedAt: p.clock()})
 	p.byKey[key] = el
 	for len(p.byKey) > p.limit() {
 		p.evictLeastRecentlyUsed()
 	}
 }
 
-// evictLeastRecentlyUsed removes p.order's own back element (the least
-// recently inserted-or-looked-up entry) and, if p.onEvict is set, hands it
+// evictLeastRecentlyUsed removes one entry and, if p.onEvict is set, hands it
 // the raw values needed to delete the matching kernel-side suppression entry
-// too — see pathIndex's own doc comment for why that second step matters.
+// too — see pathIndex's own doc comment for why that second step matters. One
+// pass over p.byNs finds both the namespace holding the most entries (ties:
+// the one whose own least-recently-used entry is oldest) and the namespace
+// whose least-recently-used entry is oldest overall. If that oldest entry is
+// older than pathIndexStaleAfter it is the one removed; otherwise the
+// largest namespace's least-recently-used entry is.
 func (p *pathIndex) evictLeastRecentlyUsed() {
-	back := p.order.Back()
-	if back == nil {
+	var (
+		victimID, oldestID uint32
+		victim, oldest     *pathIndexNs
+	)
+	for id, ns := range p.byNs {
+		back := ns.order.Back().Value.(*pathIndexEntry)
+		if oldest == nil || back.used < oldest.order.Back().Value.(*pathIndexEntry).used {
+			oldestID, oldest = id, ns
+		}
+		if victim == nil {
+			victimID, victim = id, ns
+			continue
+		}
+		n, vn := ns.order.Len(), victim.order.Len()
+		if n > vn || (n == vn && back.used < victim.order.Back().Value.(*pathIndexEntry).used) {
+			victimID, victim = id, ns
+		}
+	}
+	if victim == nil {
 		return
 	}
-	p.order.Remove(back)
+	if p.clock().Sub(oldest.order.Back().Value.(*pathIndexEntry).usedAt) > pathIndexStaleAfter {
+		victimID, victim = oldestID, oldest
+	}
+	back := victim.order.Back()
+	victim.order.Remove(back)
 	entry := back.Value.(*pathIndexEntry)
 	delete(p.byKey, entry.key)
+	if victim.order.Len() == 0 {
+		delete(p.byNs, victimID)
+	}
 	if p.onEvict != nil {
 		p.onEvict(evictedPathKey{
 			mntNsID:    entry.key.mntNsID,
@@ -187,14 +295,15 @@ func (p *pathIndex) lookup(mntNsID uint32, rootDev string, rootIno, dev, ino uin
 	if !ok {
 		return "", false
 	}
-	p.order.MoveToFront(el)
+	p.touch(el)
 	return el.Value.(*pathIndexEntry).path, true
 }
 
 // pruneMountNamespace removes every entry keyed under mntNsID — this table's
 // own routine cleanup once a generation whose mount namespace this is has
 // ended (see reconcileGenerations' own call site), working alongside (not
-// replacing) maxPathIndexEntries' own safety-net cap.
+// replacing) maxPathIndexEntries' own safety-net cap. Cost is proportional
+// to that namespace's own entry count, not the whole table's.
 //
 // Deliberately never calls onEvict, unlike evictLeastRecentlyUsed: by the
 // time this runs, mntNsID's own generation is confirmed gone and its mount
@@ -212,16 +321,14 @@ func (p *pathIndex) lookup(mntNsID uint32, rootDev string, rootIno, dev, ino uin
 // this table's own eviction bug was found under), for no observable
 // benefit.
 func (p *pathIndex) pruneMountNamespace(mntNsID uint32) {
-	if len(p.byKey) == 0 {
+	ns := p.byNs[mntNsID]
+	if ns == nil {
 		return
 	}
-	for key, el := range p.byKey {
-		if key.mntNsID != mntNsID {
-			continue
-		}
-		p.order.Remove(el)
-		delete(p.byKey, key)
+	for el := ns.order.Front(); el != nil; el = el.Next() {
+		delete(p.byKey, el.Value.(*pathIndexEntry).key)
 	}
+	delete(p.byNs, mntNsID)
 }
 
 // pendingRouteEvent is one usage-evidence eBPF event (exec_success or

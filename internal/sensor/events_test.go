@@ -130,10 +130,11 @@ func TestPathIndexPruneMountNamespace(t *testing.T) {
 	if got, ok := idx.lookup(2, testRoot, 1, 10, 1); !ok || got != "/c" {
 		t.Errorf("lookup(2,10,1) = (%q, %v), want (\"/c\", true) -- a different mount namespace must survive pruning", got, ok)
 	}
-	for el := idx.order.Front(); el != nil; el = el.Next() {
-		if entry := el.Value.(*pathIndexEntry); entry.key.mntNsID == 1 {
-			t.Errorf("order still references pruned mount namespace 1: %+v", entry.key)
-		}
+	if idx.byNs[1] != nil {
+		t.Error("byNs still references pruned mount namespace 1")
+	}
+	if len(idx.byKey) != 1 {
+		t.Errorf("len(byKey) = %d, want 1", len(idx.byKey))
 	}
 }
 
