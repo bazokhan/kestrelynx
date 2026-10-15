@@ -86,8 +86,13 @@ func TestLoop_ShortIntervalDrivesHeartbeatFasterThanFloor(t *testing.T) {
 	defer f.Close()
 
 	const shortInterval = 15 * time.Millisecond
-	const slowFloor = 300 * time.Millisecond // stands in for production's 60s ceiling
-	const testWindow = 200 * time.Millisecond
+	const slowFloor = 10 * time.Second // stands in for production's 60s ceiling
+	// testWindow is only an upper bound: the loop is stopped as soon as the
+	// writes this test looks for have arrived, so a slow machine waits longer
+	// without making the test flaky, and the floor alone cannot write more
+	// than once within it.
+	const testWindow = 3 * time.Second
+	const wantWrites = 3
 
 	s := &Session{
 		// cfg.Interval is deliberately sub-second here purely to keep this
@@ -108,6 +113,12 @@ func TestLoop_ShortIntervalDrivesHeartbeatFasterThanFloor(t *testing.T) {
 		writerCh:         make(chan writerJob, 1),
 		writerReportCh:   make(chan writeReport, 1),
 		heartbeatEvery:   slowFloor,
+		// No containers are found, so every write counted below comes from
+		// the heartbeat and none from a sample of whatever runs on this
+		// machine.
+		discoverFn: func() (map[string]containerGroup, []cgroupSeed, int, error) {
+			return map[string]containerGroup{}, nil, 0, nil
+		},
 	}
 	go runWriter(s.evidenceFD, s.writerCh, s.writerReportCh)
 	var writes int32
@@ -122,18 +133,23 @@ func TestLoop_ShortIntervalDrivesHeartbeatFasterThanFloor(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- s.loop(ctx, evidence.SensorOK) }()
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+	for atomic.LoadInt32(&writes) < wantWrites && ctx.Err() == nil {
+		<-poll.C
+	}
+	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("loop: %v", err)
 	}
 
 	// heartbeatPeriod(shortInterval, slowFloor) == shortInterval (15ms), so
-	// the heartbeat ticker alone should fire roughly testWindow/shortInterval
-	// times (~13) — the slower 300ms floor could not have produced more
-	// than one write in this 200ms window on its own, so seeing
-	// meaningfully more than that proves --interval's own faster cadence
-	// drove it, not the floor.
+	// the heartbeat ticker fires every 15ms. The 10s floor could not have
+	// produced more than one write within the 3s window on its own, so
+	// several writes prove --interval's own faster cadence drove them, not
+	// the floor.
 	got := atomic.LoadInt32(&writes)
-	if got < 3 {
+	if got < wantWrites {
 		t.Errorf("writer received %d snapshots in %v, want several — --interval's own %v cadence should be driving the heartbeat here, not the slower %v floor", got, testWindow, shortInterval, slowFloor)
 	}
 }
