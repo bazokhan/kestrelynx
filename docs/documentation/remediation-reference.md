@@ -233,7 +233,7 @@ See [Runtime selection](remediation-logic.md#runtime-and-tool-versions) for sele
 | `pr_candidate` | A candidate that passed checks and can be proposed as a PR |
 | `dependency_update_candidate` | A dependency update candidate selected from source and fixed-version information, with update results not yet verified |
 | `pull_again` | A compared candidate expected to improve findings by retrieving new content under the same tag |
-| `rebuild_expected` | A dependency range is expected to install a fixed version on rebuild, or guidance recommends retrieving a floating-tag base again |
+| `rebuild_expected` | A dependency range is expected to install a fixed version on rebuild (Slack's "Rebuild" also shows guidance for a floating-tag base, whose category is `not_comparable`) |
 | `manual` | Requires a user's decision or manual handling without proceeding automatically |
 | `not_comparable` | Required comparison information or conditions are missing |
 | `deferred` | Processing is deferred because of limits, waiting periods, retrieval problems, or similar conditions |
@@ -333,10 +333,10 @@ The following tables give each code's meaning and related decision rules or chec
 | `base_layers_unusable` | The layers of the running image and base image cannot be compared | [Base layer matching](remediation-logic.md#base-layer-matching) |
 | `base_onbuild` | The base image has `ONBUILD` triggers | [Base image selection](remediation-logic.md#base-image-selection) |
 | `no_base_derived_findings` | No fixable finding lies in the base image's layers | [Base layer matching](remediation-logic.md#base-layer-matching) |
-| `base_unchanged` | The tag still points to the base image the running image was built from | [Base layer matching](remediation-logic.md#base-layer-matching) |
+| `base_unchanged` | The layers of the base the tag points to now match the start of the running image, so no base update is visible | [Base layer matching](remediation-logic.md#base-layer-matching) |
 | `floating_base_unconfirmed` | The base image the running image was built from cannot be confirmed | [Base layer matching](remediation-logic.md#base-layer-matching) |
-| `dockerfile_set_not_adopted` | The workloads sharing the Dockerfile do not agree on one candidate | [Base image selection](remediation-logic.md#base-image-selection) |
-| `compose_set_not_adopted` | The services sharing the image do not agree on one candidate | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
+| `dockerfile_set_not_adopted` | The same candidate could not be adopted for every workload sharing the Dockerfile (check each workload's own reason too) | [Base image selection](remediation-logic.md#base-image-selection) |
+| `compose_set_not_adopted` | The same candidate could not be adopted for every service sharing the image (check each service's own reason too) | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
 
 ### Source reasons {#source-reasons}
 
@@ -396,7 +396,7 @@ The following tables give each code's meaning and related decision rules or chec
 | `forced_by_override` | The package version is forced by an override | |
 | `marker_not_evaluated` | The requirement's environment marker has not been evaluated | |
 | `invalid_marker` | The requirement's environment marker is invalid | |
-| `multiple_versions` | The same package is required in more than one way | |
+| `multiple_versions` | Several versions or occurrences of the same package cannot be handled as one update | |
 | `unparsable_version` | A package version cannot be parsed | |
 | `source_not_found` | The source repository or branch was not found | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `source_access_denied` | Access to the source repository was denied | [Preparing GitHub access](remediation-setup.md#prepare-github-access) |
@@ -505,7 +505,7 @@ The following tables give each code's meaning and related decision rules or chec
 
 | Code | Meaning | Details |
 | --- | --- | --- |
-| `pr_limit` | The limit on PRs created in a run was reached | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
+| `pr_limit` | The limit on PRs created in a run, or on open PRs, was reached (`detail` says which) | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
 | `candidate_changed` | The candidate changed while the PR was being prepared | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
 | `base_moved` | The base branch advanced while the PR was being prepared | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
 | `github_rate_limited` | GitHub limited the request rate | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |

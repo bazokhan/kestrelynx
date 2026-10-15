@@ -2,7 +2,7 @@
 
 - **Status:** Minimal release implementation complete.
 - **Started:** October 8, 2026
-- **Last updated:** October 11, 2026
+- **Last updated:** October 15, 2026
 
 ## Purpose
 
@@ -248,9 +248,27 @@ Language package update PRs for npm, pnpm, uv, and pip are implemented, completi
 
 The results for all four package managers and QEMU with the previous job image do not establish equivalent verification coverage for the current approach.
 
+### Runtime selection based on project declarations
+
+- **Select Node.js for npm and pnpm from project declarations**
+    - Read `.nvmrc`, `.node-version`, `engines.node`, `devEngines.runtime`, and `engines.runtime`, and select a job image that also satisfies the package manager's requirements
+    - Prefer the series specified by a version file when present, the oldest supported series satisfying the constraints when only ranges are declared, or the latest series currently in LTS when no version is declared
+    - Check whether the `engines.node` constraints of added or changed dependencies allow the lowest Node.js version permitted by the project's declarations, requiring manual action if they do not
+- **Align uv and pip operations with the Python version declared by the project or used in the running image**
+    - For uv, select the oldest supported Python series satisfying `.python-version` and `requires-python`
+    - For pip, check dependency resolution against the running image's Python version, requiring manual action for Python 3.10 and earlier
+- **Cover all supported series in the bundled table**
+    - Currently include Node.js 22, 24, and 26 and Python 3.11–3.15, requiring manual action for updates on series that have reached end of support
+    - Add new series to the table only after integration tests pass for those series
+- **Verified in a project in active use on October 14, 2026**
+    - At startup, loaded Node.js 22, 24, and 26 and Python 3.11–3.15 as supported series for job images
+    - For a backend without a Node.js version declaration, selected the default Node.js 24 (LTS) and ran the update with the declared pnpm 10.34.4
+    - Confirmed in actual use that multiple supported series were loaded and that, without a runtime declaration, the latest LTS was selected and the update ran with the specified package manager
+
 ## Unverified areas and next steps
 
 - Verify execution environments and limits
+    - Updates in actual projects remain unverified for Node.js series other than 24 and for each supported Python series
     - Execution on physical arm64 hardware and rootless Docker, which runs Docker itself without administrator privileges, remain unverified with the current approach
     - Measurements supporting the default limits on update counts, execution time, and similar constraints remain unverified
     - The glibc version mapping used to determine pip's target environment needs to be checked against measurements beyond Debian 12 x86_64, where glibc is a core Linux library
@@ -260,15 +278,16 @@ The results for all four package managers and QEMU with the previous job image d
 - Verify the workflow that updates the official image digest table
     - Verify the workflow that creates update PRs weekly or on manual request, from execution in actual use through merging the update PR
     - Confirm that it proposes updates only after checks of image versions, configuration, and writable locations, vulnerability scans, and update job tests have passed
-- Add runtime version selection
-    - Select Node and Python versions according to project declarations and add verification for each version
-- Update the user documentation
-    - Document removed settings, mirrors of official images, tool fetching and caching, supported declarations and versions, and the handling of partial PRs
 - Expand the supported change targets
     - Add Kubernetes definition files and automatic source identification in turn, guided by user feedback
     - Defer emergency patching that generates patched images
 
 ## Update history
+
+### October 15, 2026
+
+- Documented Node.js and Python runtime selection and supported series.
+- Recorded verification results in actual use and the remaining unverified scope.
 
 ### October 13, 2026
 

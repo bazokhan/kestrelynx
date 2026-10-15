@@ -50,7 +50,7 @@ See [Configuration](configuration.md) for language settings and their scope.
 | Headings, sections, changes, warnings, runtime usage, and guidance | Displayed in Japanese |
 | CVE IDs, package names, versions, paths, commands, and image names | Original notation preserved |
 | Severities such as `CRITICAL` and `HIGH` | Original notation preserved |
-| Trivy descriptions, scan failure errors, and discussion link titles | Displayed without translation |
+| Trivy descriptions, scan failure errors, and discussion link labels | Displayed without translation |
 
 ## Section order {#section-order}
 
@@ -260,7 +260,7 @@ These tags appear whether or not the Sensor is enabled.
 | --- | --- |
 | `advisory` | Primary advisory provided by Trivy |
 | `vendor advisory` | Vendor or CISA information from KEV notes |
-| Discussion title | Related Hacker News discussion |
+| `💬 HN (N pts)` | Related Hacker News discussion (N is its points) |
 
 CVE IDs on the `Top CVE:`, `Other CVEs:`, and `Change:` lines link to NVD.
 Non-CVE identifiers such as GHSA and DLA IDs appear as plain text.
@@ -341,7 +341,8 @@ Channel messages show runtime usage for findings in use.
 Detailed thread cards also show when use was not observed or could not be determined.
 
 Compact cards use a short display such as `Runtime: ▶ in use (running)`.
-Low findings have no individual cards; the section count includes the number in use.
+In current-state reports and the thread, Low findings have no individual cards; the section count includes the number in use.
+In the changes, new Low findings and added CVEs are shown as compact cards.
 
 The following phrases describe why usage cannot be determined.
 

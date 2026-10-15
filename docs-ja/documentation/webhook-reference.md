@@ -80,7 +80,7 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 | フィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
 | `image` | string | 表示用のイメージ参照 |
-| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数 |
+| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数（対象の深刻度を広げた場合、`HIGH`にはCRITICAL以外のすべてを含む） |
 | `findings` | objectの配列 | このイメージと修正状態に属する[パッケージグループ](#package-fields) |
 | `containers` | objectの配列 | この実体に一致する[コンテナ](#containers)で、該当なしは`[]` |
 | `content_id` | string | 実体を確認できたDockerのconfig digest指定スキャンの`sha256:<hex>`で、それ以外は省略 |
@@ -122,7 +122,7 @@ Slackの注釈との対応は、[スキャンの警告](slack-display.md#scan-wa
 | `installed` | string | インストール済みバージョン |
 | `fixed` | string | 修正版バージョンで、なければ`""` |
 | `status` | string | `fixed`、`affected`、`will_not_fix`、`end_of_life`のいずれか |
-| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数 |
+| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数（対象の深刻度を広げた場合、`HIGH`にはCRITICAL以外のすべてを含む） |
 | `upgrade_risk` | string | `""`、`distro_update`、`safe`、`caution`、`unknown`のいずれか |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、トリアージ無効時は省略 |
 | `vuln_ids` | stringの配列 | 並べ替え済みの脆弱性ID |
@@ -310,7 +310,7 @@ Sensorの状態の意味と観測の限界は、[稼働時の使用状況](runti
 | `new_cve_count` | integer | `new_cves`の場合の追加CVE件数で、`0`なら省略 |
 | `new_cve_ids` | stringの配列 | `new_cves`の場合の追加IDで、空なら省略 |
 | `critical` | integer | CRITICAL件数 |
-| `high` | integer | HIGH件数 |
+| `high` | integer | HIGH件数（CRITICAL以外の深刻度を含む） |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、優先度がなければ省略 |
 | `reason` | string | `escalated`の判定根拠または`unmuted`の理由で、空なら省略 |
 
@@ -373,7 +373,7 @@ Slackで畳み込むEOLパッケージの変化も含めます。
 | `runtime_usage` | string | `in_use`、`not_observed`、`unavailable`のいずれかで、使用状況の判定がなければ省略 |
 | `new_cve_ids` | stringの配列 | `eol_new_cves`の場合の並べ替え済み追加IDで、空なら省略 |
 | `critical` | integer | 今回のEOLグループのCRITICAL件数 |
-| `high` | integer | 今回のEOLグループのHIGH件数 |
+| `high` | integer | 今回のEOLグループのHIGH件数（CRITICAL以外の深刻度を含む） |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、トリアージ無効時は省略 |
 | `reason` | string | `eol_escalated`の場合の英語の判定根拠で、空なら省略 |
 

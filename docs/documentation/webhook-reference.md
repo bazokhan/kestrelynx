@@ -80,7 +80,7 @@ Each element of `actionable`, `watch`, `wont_fix`, and `eol_packages` represents
 | Field | Type | Meaning and omission conditions |
 | --- | --- | --- |
 | `image` | string | Image reference for display. |
-| `severity_counts` | object | Integer counts named `CRITICAL` and `HIGH`. |
+| `severity_counts` | object | Integer counts named `CRITICAL` and `HIGH` (when the scanned severities are widened, `HIGH` counts every severity other than CRITICAL). |
 | `findings` | array of objects | [Package groups](#package-fields) belonging to this image and fix status. |
 | `containers` | array of objects | [Containers](#containers) matching this content identity; `[]` when none apply. |
 | `content_id` | string | `sha256:<hex>` for a Docker scan targeting a config digest whose content identity was verified; omitted otherwise. |
@@ -122,7 +122,7 @@ Even when one reference points to multiple content identities, each element incl
 | `installed` | string | Installed version. |
 | `fixed` | string | Fixed version; `""` when none is available. |
 | `status` | string | `fixed`, `affected`, `will_not_fix`, or `end_of_life`. |
-| `severity_counts` | object | Integer counts named `CRITICAL` and `HIGH`. |
+| `severity_counts` | object | Integer counts named `CRITICAL` and `HIGH` (when the scanned severities are widened, `HIGH` counts every severity other than CRITICAL). |
 | `upgrade_risk` | string | `""`, `distro_update`, `safe`, `caution`, or `unknown`. |
 | `priority` | string | `act_now`, `watch`, or `low`; omitted when triage is disabled. |
 | `vuln_ids` | array of strings | Sorted vulnerability IDs. |
@@ -310,7 +310,7 @@ See [Change and history decisions](diff-logic.md#comparison-baseline) for the co
 | `new_cve_count` | integer | Added CVE count for `new_cves`; omitted when `0`. |
 | `new_cve_ids` | array of strings | Added IDs for `new_cves`; omitted when empty. |
 | `critical` | integer | CRITICAL count. |
-| `high` | integer | HIGH count. |
+| `high` | integer | HIGH count (includes every severity other than CRITICAL). |
 | `priority` | string | `act_now`, `watch`, or `low`; omitted when no priority is available. |
 | `reason` | string | Evidence for `escalated` or the reason for `unmuted`; omitted when empty. |
 
@@ -373,7 +373,7 @@ Changes to EOL packages folded in Slack are also included.
 | `runtime_usage` | string | `in_use`, `not_observed`, or `unavailable`; omitted when no usage assessment is available. |
 | `new_cve_ids` | array of strings | Sorted added IDs for `eol_new_cves`; omitted when empty. |
 | `critical` | integer | CRITICAL count across current EOL groups. |
-| `high` | integer | HIGH count across current EOL groups. |
+| `high` | integer | HIGH count across current EOL groups (includes every severity other than CRITICAL). |
 | `priority` | string | `act_now`, `watch`, or `low`; omitted when triage is disabled. |
 | `reason` | string | Evidence in English for `eol_escalated`; omitted when empty. |
 

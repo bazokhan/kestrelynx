@@ -233,7 +233,7 @@
 | `pr_candidate` | 検査を通り、PRでの変更を提案できる候補 |
 | `dependency_update_candidate` | ソースと修正版情報から選んだ依存更新候補で、更新結果は未検証 |
 | `pull_again` | 同じタグの内容を再取得することで改善が見込める、比較済みの候補 |
-| `rebuild_expected` | 依存範囲から再ビルドで修正版が入る見込み、または浮動タグのベースを再取得する案内 |
+| `rebuild_expected` | 依存範囲から、再ビルドで修正版が入る見込み（Slackの「再ビルド」には、分類が`not_comparable`の浮動タグのベースの案内も表示される） |
 | `manual` | 自動では進めず、利用者の判断や手動対応が必要 |
 | `not_comparable` | 比較に必要な情報や条件がそろわない |
 | `deferred` | 上限、待機、取得の問題などで処理を保留 |
@@ -333,10 +333,10 @@ PR記録の`state`には、次の値があります。
 | `base_layers_unusable` | 稼働イメージとベースイメージのレイヤーを比較できない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
 | `base_onbuild` | ベースイメージに`ONBUILD`トリガーがある | [ベースイメージの特定](remediation-logic.md#base-image-selection) |
 | `no_base_derived_findings` | 修正可能な所見が、ベースイメージのレイヤーにない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
-| `base_unchanged` | タグが指すベースが、稼働イメージの作成時から変わっていない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
+| `base_unchanged` | タグが指す現在のベースのレイヤーが稼働イメージの先頭と一致し、ベースの更新を確認できない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
 | `floating_base_unconfirmed` | 稼働イメージの作成元のベースを確認できない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
-| `dockerfile_set_not_adopted` | 同じDockerfileを使うWorkloadの間で候補が一致しない | [ベースイメージの特定](remediation-logic.md#base-image-selection) |
-| `compose_set_not_adopted` | 同じイメージを使うサービスの間で候補が一致しない | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
+| `dockerfile_set_not_adopted` | 同じDockerfileを使うWorkloadのすべてで、同じ候補を採用できなかった（個々のWorkloadの理由も確認する） | [ベースイメージの特定](remediation-logic.md#base-image-selection) |
+| `compose_set_not_adopted` | 同じイメージを使うサービスのすべてで、同じ候補を採用できなかった（個々のサービスの理由も確認する） | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
 
 ### ソースの理由 {#source-reasons}
 
@@ -396,7 +396,7 @@ PR記録の`state`には、次の値があります。
 | `forced_by_override` | パッケージの版がoverrideで固定されている | |
 | `marker_not_evaluated` | 依存指定の環境マーカーを評価していない | |
 | `invalid_marker` | 依存指定の環境マーカーが不正である | |
-| `multiple_versions` | 同じパッケージが複数の指定方法で要求されている | |
+| `multiple_versions` | 同名パッケージの複数の版や出現箇所を、1つの更新として扱えない | |
 | `unparsable_version` | パッケージの版を解釈できない | |
 | `source_not_found` | 取得元のリポジトリまたはブランチが見つからない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `source_access_denied` | 取得元のリポジトリにアクセスできない | [GitHubアクセスの準備](remediation-setup.md#prepare-github-access) |
@@ -505,7 +505,7 @@ PR記録の`state`には、次の値があります。
 
 | コード | 意味 | 詳しい説明 |
 | --- | --- | --- |
-| `pr_limit` | 1回の実行で作成できるPR数の上限に達した | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
+| `pr_limit` | 1回の実行で作成するPR数、またはオープン中のPR数の上限に達した（どちらかは`detail`で確認する） | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
 | `candidate_changed` | PRの準備中に候補が変わった | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
 | `base_moved` | PRの準備中にベースブランチが進んだ | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
 | `github_rate_limited` | GitHubのレート制限に掛かった | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
