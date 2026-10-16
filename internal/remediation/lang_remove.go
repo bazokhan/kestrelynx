@@ -144,24 +144,110 @@ func removePnpmTargets(ctx context.Context, lock []byte, targets map[string]bool
 		}
 	}
 
+	lock, problem := pnpmWriteWithout(root, targets, nil)
+	if problem != nil {
+		return nil, problem
+	}
+	out.lock = lock
+	return out, nil
+}
+
+// removePnpmEntries is removePnpmTargets for an update that also resolves again
+// the packages that require a held back package: the snapshots at the given
+// keys are taken out with the package records they leave without a snapshot,
+// and the tops (direct dependencies by name) are taken out of every group of
+// the importer, which is what makes pnpm resolve them again from the ranges in
+// package.json. Every snapshot has to be in the lockfile, and a package record
+// is taken out only when every one of its snapshots is.
+func removePnpmEntries(ctx context.Context, lock []byte, targets, snapshots, tops map[string]bool) (*pnpmRemoval, *removalProblem) {
+	if len(targets) == 0 || len(targets) > maxRemovalTargets || len(snapshots) > maxChainAncestors || len(tops) == 0 || len(tops) > maxChainTops {
+		return nil, removalFailure("%d packages and %d snapshots are taken out of pnpm-lock.yaml", len(targets), len(snapshots))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, &removalProblem{reason: ReasonCycleDeadline, detail: err.Error()}
+	}
+	root, err := readYAMLRoot(lock)
+	if err != nil {
+		return nil, removalFailure("pnpm-lock.yaml cannot be read: %v", err)
+	}
+	imp := yamlGet(yamlGet(root, "importers"), ".")
+	if imp == nil {
+		return nil, removalFailure("pnpm-lock.yaml has no importer \".\"")
+	}
+	out := &pnpmRemoval{}
+	drop := func(name string) bool { return targets[name] || tops[name] }
+	for _, g := range pnpmImporterGroups {
+		out.direct = append(out.direct, yamlDelete(yamlGet(imp, g), drop)...)
+	}
+	sort.Strings(out.direct)
+	for _, g := range pnpmImporterGroups {
+		if m := yamlGet(imp, g); m != nil && len(m.Content) == 0 {
+			yamlDelete(imp, func(key string) bool { return key == g })
+		}
+	}
+	data, problem := pnpmWriteWithout(root, targets, snapshots)
+	if problem != nil {
+		return nil, problem
+	}
+	out.lock = data
+	return out, nil
+}
+
+// pnpmWriteWithout takes the records and snapshots of the targets (in every
+// version) and the snapshots at the given keys out of the lockfile and writes
+// it. A package record goes with the snapshots only when none of its snapshots
+// is left.
+func pnpmWriteWithout(root *yaml.Node, targets, snapshots map[string]bool) ([]byte, *removalProblem) {
 	found := map[string]bool{}
-	for _, section := range []string{"packages", "snapshots"} {
-		yamlDelete(yamlGet(root, section), func(key string) bool {
-			name, _, ok := splitPnpmKey(pnpmBase(key))
-			if !ok || !targets[name] {
-				return false
-			}
+	foundSnap := map[string]bool{}
+	left := map[string]bool{} // package records (name@version) that keep a snapshot
+	gone := map[string]bool{} // package records whose snapshots are all taken out
+	for _, e := range snapshotKeys(yamlGet(root, "snapshots")) {
+		name, _, ok := splitPnpmKey(pnpmBase(e))
+		switch {
+		case ok && targets[name]:
+			gone[pnpmBase(e)] = true
+		case snapshots[e]:
+			gone[pnpmBase(e)] = true
+		default:
+			left[pnpmBase(e)] = true
+		}
+	}
+	for base := range left {
+		delete(gone, base)
+	}
+	yamlDelete(yamlGet(root, "snapshots"), func(key string) bool {
+		name, _, ok := splitPnpmKey(pnpmBase(key))
+		if snapshots[key] {
+			foundSnap[key] = true
+			return true
+		}
+		if !ok || !targets[name] {
+			return false
+		}
+		found[name] = true
+		return true
+	})
+	yamlDelete(yamlGet(root, "packages"), func(key string) bool {
+		name, _, ok := splitPnpmKey(pnpmBase(key))
+		if ok && targets[name] {
 			found[name] = true
 			return true
-		})
-	}
+		}
+		return gone[pnpmBase(key)]
+	})
 	for name := range targets {
 		if !found[name] {
 			return nil, &removalProblem{reason: ReasonTargetNotInLockfile, name: name,
 				detail: fmt.Sprintf("%s has no entry in pnpm-lock.yaml", name)}
 		}
 	}
-
+	for key := range snapshots {
+		if !foundSnap[key] {
+			return nil, &removalProblem{reason: ReasonTargetNotInLockfile, name: key,
+				detail: fmt.Sprintf("%s has no snapshot in pnpm-lock.yaml", key)}
+		}
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -171,11 +257,22 @@ func removePnpmTargets(ctx context.Context, lock []byte, targets map[string]bool
 	if err := enc.Close(); err != nil {
 		return nil, removalFailure("pnpm-lock.yaml cannot be written again: %v", err)
 	}
-	out.lock = buf.Bytes()
-	if _, err := readPnpmLock(out.lock); err != nil {
+	if _, err := readPnpmLock(buf.Bytes()); err != nil {
 		return nil, removalFailure("the pnpm-lock.yaml made for the update cannot be read: %v", err)
 	}
-	return out, nil
+	return buf.Bytes(), nil
+}
+
+// snapshotKeys lists the keys of a mapping node.
+func snapshotKeys(n *yaml.Node) []string {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []string
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		out = append(out, n.Content[i].Value)
+	}
+	return out
 }
 
 // pnpmTrigger chooses the direct dependency to take out of the importer when
@@ -334,6 +431,7 @@ func normalizedGraph(ctx context.Context, raw *depGraph, names map[string]bool) 
 		}
 		taken[nk], mapped[k] = k, nk
 	}
+	var carryErr error
 	carry := func(es []depEdge) []depEdge {
 		out := append([]depEdge(nil), es...)
 		for i := range out {
@@ -341,6 +439,17 @@ func normalizedGraph(ctx context.Context, raw *depGraph, names map[string]bool) 
 			// stays so.
 			if out[i].key != "" {
 				out[i].key = mapped[out[i].key]
+			}
+			// What a requirement for a registry version says it points to carries
+			// the same contexts. A reference to a link, a file, a repository or a
+			// tarball is kept as it is written: a change in it is a change of
+			// source.
+			if !out[i].local {
+				ref, err := p.text(out[i].ref)
+				if err != nil && carryErr == nil {
+					carryErr = err
+				}
+				out[i].ref = ref
 			}
 			out[i].to = -1
 		}
@@ -353,6 +462,9 @@ func normalizedGraph(ctx context.Context, raw *depGraph, names map[string]bool) 
 		g.nodes[mapped[k]] = &c
 	}
 	g.roots = carry(raw.roots)
+	if carryErr != nil {
+		return nil, carryErr
+	}
 	return g, nil
 }
 

@@ -152,7 +152,7 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		chain.Outcome, chain.Reason, chain.Detail = ChainRejected, cfail.reason, cfail.detail
 		heldBy = held(ReasonDependentsRejected, cfail.detail)
 	}
-	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff, g0, nil)
+	chain.Moves, chain.Truncated = chainMovesIn(ctx, it.Manager, cr.chainGraphNames(), scope, cr.upd.Diff, g0, nil)
 	u.finishFirst(workCtx, ctx, it, n, set, first, firstFail, chain, heldBy)
 	return true
 }
@@ -393,7 +393,7 @@ func (u *LangUpdater) adoptChain(ctx context.Context, it *LanguageItem, cr, firs
 	chain.Outcome = ChainAdopted
 	g1, _ := buildGraph(ctx, it.Manager, cr.newLock)
 	chain.Tops = topMoves(scope, g0, g1)
-	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff, g0, g1)
+	chain.Moves, chain.Truncated = chainMovesIn(ctx, it.Manager, cr.chainGraphNames(), scope, cr.upd.Diff, g0, g1)
 	if sh := cr.shared; sh != nil {
 		chain.Usage = sh.usage()
 	}
@@ -436,6 +436,29 @@ func topMoves(scope *chainScope, g0, g1 *depGraph) []ChainMove {
 	return out
 }
 
+// chainMovesIn is chainMoves for the graphs and scope as the update's difference
+// names the entries. For pnpm that is the keys with the peer contexts of the
+// given packages left out, so the graphs and the scope are written that way
+// first; when that cannot be done no entry is listed and the list is marked cut.
+func chainMovesIn(ctx context.Context, m DependencyManager, names map[string]bool, scope *chainScope, diff *DependencyDiff, g0, g1 *depGraph) ([]ChainMove, bool) {
+	if m == ManagerPnpm && diff != nil {
+		sc, err := scope.inGraph(ctx, names)
+		n0, e0 := normalizedGraph(ctx, g0, names)
+		var n1 *depGraph
+		var e1 error
+		if g1 != nil {
+			n1, e1 = normalizedGraph(ctx, g1, names)
+		}
+		if err != nil || e0 != nil || e1 != nil {
+			// The entries of the difference cannot be matched to the graphs, so
+			// none is listed; the list is marked as cut.
+			return nil, true
+		}
+		scope, g0, g1 = sc, n0, n1
+	}
+	return chainMoves(scope, diff, g0, g1)
+}
+
 // chainMoves lists the entries the update added, changed or removed other than
 // the direct dependencies it moved and the packages updated, with the names and
 // versions the graphs give (g1 is nil when there is no result to read), cut at
@@ -445,6 +468,17 @@ func chainMoves(scope *chainScope, diff *DependencyDiff, g0, g1 *depGraph) ([]Ch
 		return nil, false
 	}
 	tops := scope.topNames()
+	// The entries the project's requirements for the tops point to after the
+	// update: a top is listed with the tops, not among the moves.
+	topNow := map[string]bool{}
+	if g1 != nil {
+		g1.link()
+		for _, e := range g1.roots {
+			if tops[e.name] && e.key != "" {
+				topNow[e.key] = true
+			}
+		}
+	}
 	var out []ChainMove
 	add := func(k, kind string) {
 		mv := ChainMove{Name: k, Kind: kind}
@@ -463,7 +497,7 @@ func chainMoves(scope *chainScope, diff *DependencyDiff, g0, g1 *depGraph) ([]Ch
 			name = to.name
 		}
 		if name != "" {
-			if scope.Targets[name] || (tops[name] && scope.Anc[k]) {
+			if scope.Targets[name] || (tops[name] && (scope.Anc[k] || topNow[k])) {
 				return
 			}
 			mv.Name = name

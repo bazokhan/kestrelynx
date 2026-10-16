@@ -80,6 +80,56 @@ type chainScope struct {
 	peers map[string]map[string]bool
 }
 
+// inGraph returns the scope with its keys written as a comparison graph writes
+// them: a pnpm graph for comparison has the peer contexts of the given packages
+// taken out of its keys (see normalizedGraph), and so does the copy. The keys
+// of the entries are mapped one by one; if that cannot be done for the
+// peer-only requirements they are left out, which makes the comparison stricter
+// (every requirement counts), and if it cannot be done for the others the error
+// is returned.
+func (s *chainScope) inGraph(ctx context.Context, names map[string]bool) (*chainScope, error) {
+	p := &peerStripper{ctx: ctx, names: names, budget: maxPeerStripBytes}
+	var firstErr error
+	mapKey := func(k string) string {
+		out, err := p.text(k)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return out
+	}
+	mapSet := func(in map[string]bool) map[string]bool {
+		out := make(map[string]bool, len(in))
+		for k, v := range in {
+			out[mapKey(k)] = v
+		}
+		return out
+	}
+	c := *s
+	c.Be, c.Anc, c.RAnc, c.RTgt, c.RNest = mapSet(s.Be), mapSet(s.Anc), mapSet(s.RAnc), mapSet(s.RTgt), mapSet(s.RNest)
+	c.Tops = append([]chainTop(nil), s.Tops...)
+	for i := range c.Tops {
+		c.Tops[i].Key = mapKey(c.Tops[i].Key)
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	c.peers = map[string]map[string]bool{}
+	for k, v := range s.peers {
+		nk, err := p.text(k)
+		if err != nil {
+			c.peers = nil
+			break
+		}
+		if c.peers[nk] == nil {
+			c.peers[nk] = map[string]bool{}
+		}
+		for name := range v {
+			c.peers[nk][name] = true
+		}
+	}
+	return &c, nil
+}
+
 // markPeerOnly marks, in a graph of the original lockfile, the requirements
 // the registry declares as peer-only, for the entries that have the keys the
 // scope was built with.

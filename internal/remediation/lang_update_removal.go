@@ -26,16 +26,7 @@ func (r *updateRun) buildGraphs(ctx context.Context, newLock []byte) (before, af
 	}
 	// The contexts of the chain's packages are left out like the updated
 	// packages': they are what the update makes again.
-	names := r.full.targets
-	if r.chain != nil {
-		names = map[string]bool{}
-		for n := range r.full.targets {
-			names[n] = true
-		}
-		for n := range r.chain.Names {
-			names[n] = true
-		}
-	}
+	names := r.chainGraphNames()
 	if errBefore == nil {
 		before, errBefore = normalizedGraph(ctx, before, names)
 	}
@@ -310,4 +301,21 @@ func deprecationKind(old, n *depNode) string {
 		return DeprecationPresent
 	}
 	return ""
+}
+
+// chainGraphNames are the packages whose peer contexts are left out of the
+// keys of the graphs compared: the packages being updated, and for a chain
+// update the packages of the chain too.
+func (r *updateRun) chainGraphNames() map[string]bool {
+	if r.chain == nil {
+		return r.full.targets
+	}
+	names := map[string]bool{}
+	for n := range r.full.targets {
+		names[n] = true
+	}
+	for n := range r.chain.Names {
+		names[n] = true
+	}
+	return names
 }

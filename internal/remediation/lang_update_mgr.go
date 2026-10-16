@@ -592,6 +592,9 @@ func (r *updateRun) runPnpm(ctx context.Context) *updateFailure {
 	if fail != nil {
 		return fail
 	}
+	if baselineVerified(out, r.src.lock, r.src.lockName) {
+		r.baseOK = out
+	}
 	return r.finishLockfile(ctx, out, steps, nil)
 }
 
@@ -898,8 +901,15 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 	var reason Reason
 	var detail string
 	if r.chain != nil {
-		r.chain.markPeerOnly(gb)
-		diff, reason, detail = diffGraphsChain(ctx, gb, ga, r.chain)
+		sc := r.chain
+		if m == ManagerPnpm {
+			var err error
+			if sc, err = r.chain.inGraph(ctx, r.chainGraphNames()); err != nil {
+				return manualFailure(ReasonOutputFilesInvalid, "the entries of the chain cannot be matched to the graph compared: %v", err)
+			}
+		}
+		sc.markPeerOnly(gb)
+		diff, reason, detail = diffGraphsChain(ctx, gb, ga, sc)
 	} else {
 		diff, reason, detail = diffGraphs(ctx, gb, ga, r.targetSet())
 	}

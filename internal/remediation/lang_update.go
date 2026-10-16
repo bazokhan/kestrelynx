@@ -132,7 +132,7 @@ func NewLangUpdater(cfg LangUpdateConfig) (*LangUpdater, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return nil, fmt.Errorf("remediation: job id: %w", err)
 	}
-	return &LangUpdater{cfg: cfg, runID: hex.EncodeToString(b[:]), chainRunners: map[DependencyManager]chainRunner{ManagerNpm: runNpmChain}}, nil
+	return &LangUpdater{cfg: cfg, runID: hex.EncodeToString(b[:]), chainRunners: map[DependencyManager]chainRunner{ManagerNpm: runNpmChain, ManagerPnpm: runPnpmChain}}, nil
 }
 
 // LangUpdateUsage records what a pass spent.

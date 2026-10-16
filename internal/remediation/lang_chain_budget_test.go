@@ -154,6 +154,7 @@ func (h *harness) runChain(run chainRunner, tune func(*LangUpdater, *LanguageIte
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	up.chainRunners = nil
 	if run != nil {
 		up.chainRunners = map[DependencyManager]chainRunner{ManagerPnpm: run}
 	}
