@@ -494,6 +494,9 @@ type PRLanguage struct {
 	Root          string              `json:"root"`
 	Packages      []PRLanguagePackage `json:"packages"`
 	ManifestEdits []LangEdit          `json:"manifest_edits,omitempty"`
+	// Chain are the direct dependencies a chain update moved along with the
+	// packages.
+	Chain []LangChainMove `json:"chain,omitempty"`
 	// Remaining are the packages the update was planned for and left out, with
 	// why. The pull request does not change them.
 	Remaining []PRLanguageRemaining `json:"remaining,omitempty"`
@@ -521,6 +524,9 @@ type PRLanguagePackage struct {
 	To        string `json:"to"`
 	// Major marks a move to another major version (for 0.x, another minor).
 	Major bool `json:"major,omitempty"`
+	// Through names the direct dependencies a chain update moved to bring the
+	// package to its version.
+	Through []string `json:"through,omitempty"`
 }
 
 // PRStageResult is what one run of the pull request stage reports.

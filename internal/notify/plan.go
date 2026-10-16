@@ -500,6 +500,10 @@ type languageItemPayload struct {
 	UpdateExecuted          bool `json:"update_executed"`
 	PostUpdateCheckExecuted bool `json:"post_update_check_executed"`
 
+	// RetryAfter is when an item deferred for the age of a release is tried
+	// again.
+	RetryAfter *time.Time `json:"retry_after,omitempty"`
+
 	PackageCount      int                      `json:"package_count"`
 	Packages          []languagePackagePayload `json:"packages,omitempty"`
 	PackagesTruncated bool                     `json:"packages_truncated,omitempty"`
@@ -542,6 +546,9 @@ type languagePackagePayload struct {
 	// LeftOut marks a package that was planned for an update and left out of
 	// the update.
 	LeftOut bool `json:"left_out,omitempty"`
+	// Through names the direct dependencies a chain update moved to bring the
+	// package to its version.
+	Through []string `json:"through,omitempty"`
 
 	OccurrenceCount      int                            `json:"occurrence_count"`
 	Occurrences          []remediation.SourceOccurrence `json:"occurrences,omitempty"`
@@ -562,8 +569,8 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 		Manager: string(li.Manager), Priority: string(li.Priority), Workloads: li.Workloads,
 		Source: li.Source, RuntimeEOL: li.RuntimeEOL,
 		UpdateExecuted: li.UpdateExecuted, PostUpdateCheckExecuted: li.PostUpdateCheckExecuted,
-		PackageCount: len(li.Packages),
-		Update:       li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,
+		PackageCount: len(li.Packages), RetryAfter: li.RetryAfter,
+		Update: li.Update, SourceCheck: li.SourceCheck, Artifacts: li.Artifacts,
 	}
 	if li.Update != nil {
 		// The webhook keeps the fields it has always had: the names of the
@@ -587,14 +594,29 @@ func languageItemPayloadOf(li remediation.LanguageItem, units []remediation.PRUn
 	if u != nil && u.Language != nil {
 		leftOut = u.Language.Remaining
 	}
+	var moved []remediation.PRLanguagePackage
+	if u != nil && u.Language != nil {
+		moved = u.Language.Packages
+	}
 	for _, p := range pkgs {
 		pp := languagePackagePayload{
 			Name: p.Name, Normalized: p.Normalized, Ecosystem: p.Ecosystem, Installed: p.Installed,
 			SelectionLowerBound: p.SelectionLowerBound, AdoptedVersion: p.AdoptedVersion,
-			Relation: string(p.Relation), Action: string(p.Action), Reason: string(p.Reason), Detail: p.Detail, LeftOut: p.LeftOut,
+			Relation: string(p.Relation), Action: string(p.Action), Reason: string(p.Reason), Detail: p.Detail, LeftOut: p.LeftOut, Through: p.Through,
 			OccurrenceCount: len(p.Occurrences), Occurrences: p.Occurrences,
 			CVECount: len(p.CVEs), KEVCount: p.KEVCount(), CVEs: p.CVEs,
 			OriginCount: len(p.Origins), Origins: p.Origins,
+		}
+		// An item tied to a pull request made in an earlier cycle was not
+		// updated again and does not say which direct dependencies the update
+		// moved; the pull request's view does.
+		if len(pp.Through) == 0 {
+			for _, x := range moved {
+				if x.Name == p.Name && x.Ecosystem == p.Ecosystem && len(x.Through) > 0 {
+					pp.Through = x.Through
+					break
+				}
+			}
 		}
 		// An item tied to a pull request made in an earlier cycle was not
 		// updated again and holds no left-out marks; the pull request's view

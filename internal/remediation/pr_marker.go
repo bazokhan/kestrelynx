@@ -199,6 +199,11 @@ func (l LangRecord) wellFormed() error {
 	if t := l.Tool; t != nil && (t.Name == "" || t.Version == "" || t.SHA256 == "") {
 		return errors.New("the tool record has no name, version or hash")
 	}
+	for _, c := range l.Chain {
+		if c.Name == "" || c.To == "" {
+			return errors.New("a chain move has no name or version")
+		}
+	}
 	for _, e := range l.ManifestEdits {
 		if !github.ValidPath(e.File, false) || e.Section == "" || e.Name == "" || e.From == "" || e.To == "" {
 			return errors.New("a manifest edit is malformed")
@@ -216,7 +221,7 @@ func (m PRMarker) verify(repoID int64) error {
 	tk := TargetKeyOf(kindOf(m.Kind), m.RepoID, m.BaseBranch, m.Path, m.Locations)
 	var uk string
 	if m.Lang != nil {
-		uk = LangUpdateKey(tk, m.Lang.Packages, m.Lang.ManifestEdits)
+		uk = LangUpdateKey(tk, m.Lang.Packages, m.Lang.ManifestEdits, m.Lang.Chain...)
 	} else {
 		uk = UpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest)
 	}

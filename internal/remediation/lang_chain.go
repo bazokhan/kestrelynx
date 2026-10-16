@@ -268,8 +268,9 @@ func minFixed(c CVERef) (string, bool) {
 //     or one set of comparators (no ||) with an upper bound that is not above
 //     the lowest version some vulnerability is fixed in, so it allows no fixed
 //     version.
-//   - Allows the fix: the range can be evaluated and allows the lowest fixed
-//     version, which fixes every vulnerability.
+//   - Allows the fix: the range can be evaluated and allows a version that
+//     fixes every vulnerability (the lowest fixed version, or the first fixed
+//     version of a line of releases).
 //   - Unevaluable: anything else, a range with || that is not the former, a
 //     tag, a range that cannot be read, no lowest fixed version.
 func classifyEdge(spec string, lower string, cves []CVERef) edgeClass {
@@ -306,15 +307,23 @@ func classifyEdgeProof(spec, lower string, cves []CVERef) (edgeClass, string) {
 			}
 		}
 	}
-	if lv, ok := parseSemver(lower); ok {
+	// The range can be shown to allow a fixed version: the lowest one chosen
+	// for the package, or the first fixed version of a line of releases the
+	// vulnerabilities report (the lowest one may be in an older line than the
+	// range's).
+	candidates := []string{lower}
+	for _, c := range cves {
+		for _, f := range c.FixedVers {
+			candidates = append(candidates, splitFixed(f)...)
+		}
+	}
+	for _, cand := range candidates {
+		lv, ok := parseSemver(cand)
+		if !ok || len(cves) == 0 || !fixedAt(schemeSemver, cand, cves) {
+			continue
+		}
 		if allowed, evaluable := npmRangeAllows(spec, lv); evaluable && allowed {
-			fixes := len(cves) > 0
-			for _, c := range cves {
-				fixes = fixes && meetsFix(schemeSemver, lower, c.FixedVers)
-			}
-			if fixes {
-				return edgeAllowsFix, ""
-			}
+			return edgeAllowsFix, ""
 		}
 	}
 	return edgeUnevaluable, ""
@@ -349,7 +358,15 @@ type chainScoper struct {
 	r     *updateRun
 	g     *depGraph // the working copy of the original graph
 	norms map[int]*chainNorm
+	// names are the packages the scope is built for, and lookups how many
+	// registry documents it has read.
+	names   []string
+	lookups int
 }
+
+// maxScopeLookups bounds the registry documents read to decide whether and
+// where to start a chain update, before the item's budget applies to it.
+const maxScopeLookups = 2*(maxChainTops+maxChainAncestors) + 64
 
 // normalize reads the registry's declaration of the entry and marks the
 // peer-only requirements in the working copy. A failure is a deferral: the
@@ -363,6 +380,9 @@ func (s *chainScoper) normalize(p *depNode) (*chainNorm, *updateFailure) {
 	if p.problem != "" {
 		cn.unknown = p.name + " " + p.version + " is not a registry package"
 		return cn, nil
+	}
+	if s.lookups++; s.lookups > maxScopeLookups {
+		return nil, unsupportedChain(s.names, ReasonDependentsLimit, "deciding where to start the update needs more than %d registry lookups", maxScopeLookups)
 	}
 	d, err := s.r.npmRelease(s.ctx, p.name, p.version)
 	switch {
@@ -417,7 +437,11 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 	sc := m.scheme()
 	g := g0.cloneEdges()
 	rev := g.reverseIndex()
-	s := &chainScoper{ctx: ctx, r: r, g: g, norms: map[int]*chainNorm{}}
+	// The lookups are the item's but not yet bound by its budget, and the
+	// first update's own limit on them does not apply.
+	sr := *r
+	sr.chain = &chainScope{}
+	s := &chainScoper{ctx: ctx, r: &sr, g: g, norms: map[int]*chainNorm{}, names: cand}
 
 	scope := &chainScope{Names: map[string]bool{}, Be: map[string]bool{}, Anc: map[string]bool{},
 		RAnc: map[string]bool{}, RTgt: map[string]bool{}, RNest: map[string]bool{}, Targets: map[string]bool{}, Scheme: sc}
@@ -616,6 +640,26 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 		return nil, unsupportedChain(bn, ReasonDependentsLimit, "re-resolving would start from %d direct dependencies, more than the %d allowed", len(scope.Tops), maxChainTops)
 	}
 
+	// The direct dependencies each pinning parent hangs below.
+	for i := range scope.Blocked {
+		seenNode := map[int]bool{pinParents[i]: true}
+		queue := []int{pinParents[i]}
+		via := map[string]bool{}
+		for len(queue) > 0 {
+			id := queue[len(queue)-1]
+			queue = queue[:len(queue)-1]
+			for _, ri := range rev.roots[id] {
+				via[g.roots[ri].name] = true
+			}
+			for _, ref := range rev.from[id] {
+				if !g.list[ref.node].deps[ref.edge].peerOnly && !seenNode[ref.node] {
+					seenNode[ref.node] = true
+					queue = append(queue, ref.node)
+				}
+			}
+		}
+		scope.Blocked[i].Via = sortedSet(via)
+	}
 	for k := range scope.Anc {
 		scope.RAnc[k] = true
 		scope.Names[g.nodes[k].name] = true

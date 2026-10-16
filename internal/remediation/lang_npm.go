@@ -80,6 +80,16 @@ type NpmRegistry interface {
 	VersionDist(ctx context.Context, name, version string) (NpmDist, error)
 }
 
+// NpmPublishTimes tells when the versions of a package were published. A
+// registry client that has it lets the update stage require the versions a
+// chain update brings in to be a minimum age.
+type NpmPublishTimes interface {
+	// PublishTimes returns when each version of name was published, and how
+	// many bytes of the registry's response were read to find out. An error
+	// wrapping ErrReleaseNotFound says the registry has no such package.
+	PublishTimes(ctx context.Context, name string) (map[string]time.Time, int64, error)
+}
+
 // NpmClient reads version documents from the public npm registry.
 type NpmClient struct {
 	HTTP *http.Client
@@ -87,7 +97,10 @@ type NpmClient struct {
 	BaseURL string
 }
 
-var _ NpmRegistry = (*NpmClient)(nil)
+var (
+	_ NpmRegistry     = (*NpmClient)(nil)
+	_ NpmPublishTimes = (*NpmClient)(nil)
+)
 
 // maxNpmBody bounds a version document, and maxDeclaredDeps the dependencies
 // one version declares.
@@ -135,6 +148,118 @@ func (c *NpmClient) VersionDist(ctx context.Context, name, version string) (NpmD
 	d, err := parseNpmVersion(body, name, version)
 	d.BodyBytes = len(body)
 	return d, err
+}
+
+// maxPackumentBytes bounds what is read of the document the registry keeps for
+// a whole package, which lists every version of it.
+const maxPackumentBytes = 32 << 20
+
+// countingReader counts the bytes read through it.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// PublishTimes implements NpmRegistry with GET <base>/<name>. Only the "time"
+// member of the document is kept: the rest is read past without being held,
+// and reading stops at maxPackumentBytes.
+func (c *NpmClient) PublishTimes(ctx context.Context, name string) (map[string]time.Time, int64, error) {
+	if !worker.ValidNpmName(name) {
+		return nil, 0, fmt.Errorf("%q is not a package name this client looks up", name)
+	}
+	base := c.BaseURL
+	if base == "" {
+		base = "https://registry.npmjs.org"
+	}
+	u := strings.TrimRight(base, "/") + "/" + strings.Replace(url.PathEscape(name), "/", "%2F", 1)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "kestrelynx")
+	resp, err := boundedClient(c.HTTP).Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("registry request: %w", err)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, 0, ErrReleaseNotFound
+	case resp.StatusCode != http.StatusOK:
+		return nil, 0, fmt.Errorf("registry answered %s", resp.Status)
+	}
+	cr := &countingReader{r: io.LimitReader(resp.Body, maxPackumentBytes+1)}
+	times, err := readPublishTimes(cr)
+	if cr.n > maxPackumentBytes {
+		return nil, cr.n, fmt.Errorf("registry response is over %d bytes", maxPackumentBytes)
+	}
+	return times, cr.n, err
+}
+
+// readPublishTimes reads the "time" member of a package document, which maps
+// each version to the time it was published, without holding the other members.
+func readPublishTimes(r io.Reader) (map[string]time.Time, error) {
+	dec := json.NewDecoder(r)
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, errors.New("registry response is not a JSON object")
+	}
+	var times map[string]time.Time
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("registry response cannot be read: %w", err)
+		}
+		key, _ := tok.(string)
+		if key != "time" {
+			if err := skipJSONValue(dec); err != nil {
+				return nil, fmt.Errorf("registry response cannot be read: %w", err)
+			}
+			continue
+		}
+		var raw map[string]string
+		if err := dec.Decode(&raw); err != nil {
+			return nil, fmt.Errorf("registry response has a time member that cannot be read: %w", err)
+		}
+		times = make(map[string]time.Time, len(raw))
+		for v, s := range raw {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				continue // "created" and "modified" are times too; a version without one is not judged
+			}
+			times[v] = t
+		}
+		// The rest of the document is not needed.
+		return times, nil
+	}
+	return nil, errors.New("registry response has no time member")
+}
+
+// skipJSONValue reads one JSON value from dec and drops it.
+func skipJSONValue(dec *json.Decoder) error {
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if d, ok := tok.(json.Delim); ok {
+			if d == '{' || d == '[' {
+				depth++
+			} else {
+				depth--
+			}
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
 }
 
 func parseNpmVersion(body []byte, name, version string) (NpmDist, error) {

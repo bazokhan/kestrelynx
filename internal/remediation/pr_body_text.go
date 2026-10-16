@@ -29,8 +29,9 @@ func (l BodyLanguage) validate() error {
 // never part of the text.
 type prText struct {
 	// Section headings, without the Markdown prefix.
-	HeadWhat, HeadChange, HeadVerification string
-	HeadVulnTargets, HeadManifestEdits     string
+	HeadWhat, HeadChange, HeadVerification                          string
+	HeadVulnTargets, HeadManifestEdits                              string
+	HeadChain, LChainIntro, LChainLine, LChainViaLine, LSourceBasis string
 
 	// Shared pieces.
 	ListSep      string // between items of a code list
@@ -110,6 +111,11 @@ var enPRText = prText{
 	HeadVerification:  "Verification",
 	HeadVulnTargets:   "Vulnerabilities this update targets",
 	HeadManifestEdits: "Manifest edits",
+	HeadChain:         "Packages updated along with the fix",
+	LChainIntro:       "These packages required older versions of the packages above and were updated within the ranges in %s.\n\n",
+	LChainLine:        "- %[1]s: %[2]s to %[3]s (it required %[4]s %[5]s)\n",
+	LChainViaLine:     "- %[1]s: %[2]s to %[3]s (%[6]s, which it brings in, required %[4]s %[5]s)\n",
+	LSourceBasis:      "- The findings of the two scans were compared by package, version and vulnerability ID, and the number of lockfile entries and of requirements that point to a version with a vulnerability was compared too\n",
 
 	ListSep:      ", ",
 	ListMore:     " and %d more",
@@ -246,6 +252,11 @@ var jaPRText = prText{
 	HeadVerification:  "確認したこと",
 	HeadVulnTargets:   "この更新が対象とする脆弱性",
 	HeadManifestEdits: "manifest の編集",
+	HeadChain:         "あわせて更新したパッケージ",
+	LChainIntro:       "上のパッケージの古い版を要求していたため、%s の範囲内で更新しました。\n\n",
+	LChainLine:        "- %[1]s: %[2]s から %[3]s へ（%[4]s %[5]s を要求していた）\n",
+	LChainViaLine:     "- %[1]s: %[2]s から %[3]s へ（これが使う %[6]s が %[4]s %[5]s を要求していた）\n",
+	LSourceBasis:      "- 2 つのスキャンの所見は、パッケージ・版・脆弱性 ID で比べたほか、脆弱性のある版を指す lockfile のエントリ数と依存の数も比べました\n",
 
 	ListSep:      "、",
 	ListMore:     "、ほか %d 件",

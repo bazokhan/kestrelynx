@@ -2,6 +2,7 @@ package remediation
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -26,8 +27,8 @@ func TestClassifyEdge(t *testing.T) {
 		{"0.0.x", edgePinning, "an x-range"},
 		{">=0.0.1 <0.1.0", edgePinning, "one set of comparators with an upper bound"},
 		{"0.0.1 - 0.1.0", edgePinning, "a hyphen range"},
-		{"<=0.2.4", edgeUnevaluable, "an inclusive upper bound at the lowest fixed version allows it"},
-		{"<0.2.5", edgeUnevaluable, "an upper bound above the lowest fixed version"},
+		{"<=0.2.4", edgeAllowsFix, "an inclusive upper bound at the lowest fixed version allows it"},
+		{"<0.2.5", edgeAllowsFix, "an upper bound above the lowest fixed version"},
 		{"^1.2.0", edgeAllowsFix, "a range that allows the lowest fixed version"},
 		{"*", edgeAllowsFix, "any version"},
 		{">=1.0.0", edgeAllowsFix, "a lower bound only"},
@@ -48,8 +49,14 @@ func TestClassifyEdge(t *testing.T) {
 			}
 		})
 	}
-	t.Run("no lowest fixed version", func(t *testing.T) {
-		if got := classifyEdge("^1.2.0", "", cves); got != edgeUnevaluable {
+	t.Run("no fixed version to judge by", func(t *testing.T) {
+		if got := classifyEdge("^1.2.0", "", []CVERef{{VulnID: "CVE-1"}}); got != edgeUnevaluable {
+			t.Errorf("got %v", got)
+		}
+	})
+	t.Run("a range of a later line allows the first fix of that line", func(t *testing.T) {
+		// The lowest fixed version is in 0.x; ^1.2.0 allows 1.2.6, the first fix of 1.x.
+		if got := classifyEdge("^1.2.0", "0.2.4", cves); got != edgeAllowsFix {
 			t.Errorf("got %v", got)
 		}
 	})
@@ -159,7 +166,7 @@ func TestBuildChainScope(t *testing.T) {
 		if !scope.Be["node_modules/minimist"] || scope.Be["node_modules/rc/node_modules/minimist"] {
 			t.Errorf("Be = %v", scope.Be)
 		}
-		if len(scope.Blocked) != 1 || scope.Blocked[0] != (ChainBlock{Package: "minimist", Version: "0.0.8", Parent: "mkdirp", ParentVersion: "0.5.1", Range: "0.0.8", Proof: "exact"}) {
+		if len(scope.Blocked) != 1 || !reflect.DeepEqual(scope.Blocked[0], ChainBlock{Package: "minimist", Version: "0.0.8", Parent: "mkdirp", ParentVersion: "0.5.1", Range: "0.0.8", Proof: "exact", Via: []string{"mkdirp"}}) {
 			t.Errorf("Blocked = %+v", scope.Blocked)
 		}
 		if !scope.RTgt["node_modules/minimist"] || !scope.RTgt["node_modules/rc/node_modules/minimist"] || !scope.RAnc["node_modules/mkdirp"] {
@@ -280,7 +287,7 @@ func TestBuildChainScope(t *testing.T) {
 	})
 	t.Run("the item's lookups run out", func(t *testing.T) {
 		r := chainRun(t, mkdirpManifest, mkdirpLock(), mkdirpDists, minimistPkg())
-		r.shared.budget.maxLookups = 1
+		r.shared.budget.maxLookups, r.shared.budget.enforced = 1, true
 		g0, _ := buildGraph(bg, ManagerNpm, r.src.lock)
 		_, fail := buildChainScope(bg, r, g0, []string{"minimist"})
 		if fail == nil || fail.category != CategoryDeferred || fail.reason != ReasonChainItemBudget || fail.wait == nil || fail.wait.Kind != budgetLookupWait {
@@ -699,5 +706,24 @@ func TestAncestorsOf(t *testing.T) {
 	}
 	if got := keys(ancestorsOf(bg, g, []string{"node_modules/c"})); got != "node_modules/a,node_modules/b,node_modules/c" {
 		t.Errorf("a peer-only requirement was followed: %s", got)
+	}
+}
+
+func TestBuildChainScopeNamesTheDirectDependencyAboveAPinningParent(t *testing.T) {
+	// top requires middle, which requires t exactly: the evidence names middle
+	// as the parent and top as the direct dependency it hangs below.
+	lock, dists := fanLock([]string{"top"}, map[string][]string{"top": {"middle"}, "middle": nil})
+	r := chainRun(t, manifestOf("top"), lock, dists, tPkg())
+	g0, _ := buildGraph(bg, ManagerNpm, lock)
+	scope, fail := buildChainScope(bg, r, g0, []string{"t"})
+	if fail != nil || scope == nil {
+		t.Fatalf("scope = %v, failure = %+v", scope, fail)
+	}
+	if len(scope.Blocked) != 1 || scope.Blocked[0].Parent != "middle" || strings.Join(scope.Blocked[0].Via, ",") != "top" || len(scope.Tops) != 1 || scope.Tops[0].Name != "top" {
+		t.Errorf("Blocked = %+v, Tops = %+v", scope.Blocked, scope.Tops)
+	}
+	moves := chainMovesOf(&ChainUpdate{Blocked: scope.Blocked, Tops: []ChainMove{{Name: "top", From: "1.0.0", To: "1.1.0"}}})
+	if len(moves) != 1 || moves[0].Held != "t" || moves[0].HeldRange != "0.5.0" || moves[0].HeldBy != "middle" {
+		t.Errorf("moves = %+v", moves)
 	}
 }

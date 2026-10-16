@@ -583,6 +583,7 @@ func TestItemBudget(t *testing.T) {
 	})
 	t.Run("spending takes from what was set aside, up to the limit", func(t *testing.T) {
 		b := newItemBudget()
+		b.enforced = true
 		b.reserve(1, 1, 10)
 		for i := 0; i < maxItemContainers; i++ {
 			if err := b.spendContainer(); err != nil {

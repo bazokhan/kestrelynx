@@ -100,6 +100,7 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		f := &updateFailure{category: CategoryDeferred, reason: ReasonChainItemBudget, detail: (&itemBudgetError{kind}).Error() + " for the update of the packages that hold " + strings.Join(scope.Bn, ", ") + " back", wait: &langWaitIntent{Kind: kind}}
 		return u.chainDeferred(ctx, it, set, first, firstFail, scope, scope.Bn, f)
 	}
+	sh.budget.enforced = true
 	workCtx, cancel := sh.budget.workCtx(ctx, u.cfg.JobTimeout)
 	defer cancel()
 
@@ -151,7 +152,7 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		chain.Outcome, chain.Reason, chain.Detail = ChainRejected, cfail.reason, cfail.detail
 		heldBy = held(ReasonDependentsRejected, cfail.detail)
 	}
-	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff)
+	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff, g0, nil)
 	u.finishFirst(workCtx, ctx, it, n, set, first, firstFail, chain, heldBy)
 	return true
 }
@@ -392,7 +393,7 @@ func (u *LangUpdater) adoptChain(ctx context.Context, it *LanguageItem, cr, firs
 	chain.Outcome = ChainAdopted
 	g1, _ := buildGraph(ctx, it.Manager, cr.newLock)
 	chain.Tops = topMoves(scope, g0, g1)
-	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff)
+	chain.Moves, chain.Truncated = chainMoves(scope, cr.upd.Diff, g0, g1)
 	if sh := cr.shared; sh != nil {
 		chain.Usage = sh.usage()
 	}
@@ -436,24 +437,57 @@ func topMoves(scope *chainScope, g0, g1 *depGraph) []ChainMove {
 }
 
 // chainMoves lists the entries the update added, changed or removed other than
-// the tops and the packages updated, cut at maxDiffEntries.
-func chainMoves(scope *chainScope, diff *DependencyDiff) ([]ChainMove, bool) {
+// the direct dependencies it moved and the packages updated, with the names and
+// versions the graphs give (g1 is nil when there is no result to read), cut at
+// maxDiffEntries.
+func chainMoves(scope *chainScope, diff *DependencyDiff, g0, g1 *depGraph) ([]ChainMove, bool) {
 	if diff == nil {
 		return nil, false
 	}
+	tops := scope.topNames()
 	var out []ChainMove
+	add := func(k, kind string) {
+		mv := ChainMove{Name: k, Kind: kind}
+		var from, to *depNode
+		if g0 != nil {
+			from = g0.nodes[k]
+		}
+		if g1 != nil {
+			to = g1.nodes[k]
+		}
+		name := ""
+		switch {
+		case from != nil:
+			name = from.name
+		case to != nil:
+			name = to.name
+		}
+		if name != "" {
+			if scope.Targets[name] || (tops[name] && scope.Anc[k]) {
+				return
+			}
+			mv.Name = name
+		}
+		if from != nil {
+			mv.From = from.version
+		}
+		if to != nil {
+			mv.To = to.version
+		}
+		out = append(out, mv)
+	}
 	for _, k := range diff.Added {
-		out = append(out, ChainMove{Name: k, Kind: "added"})
+		add(k, "added")
 	}
 	for _, k := range diff.Changed {
 		kind := "followed"
 		if scope.Anc[k] {
 			kind = "ancestor"
 		}
-		out = append(out, ChainMove{Name: k, Kind: kind})
+		add(k, kind)
 	}
 	for _, k := range diff.Removed {
-		out = append(out, ChainMove{Name: k, Kind: "removed"})
+		add(k, "removed")
 	}
 	if len(out) > maxDiffEntries {
 		return out[:maxDiffEntries], true

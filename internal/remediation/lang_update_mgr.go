@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
@@ -462,6 +463,7 @@ func (r *updateRun) runNpm(ctx context.Context) *updateFailure {
 	if fail := r.checkNpmBaseline(out); fail != nil {
 		return fail
 	}
+	r.baseOK = out
 	return r.finishLockfile(ctx, out, nil, nil)
 }
 
@@ -948,7 +950,70 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 			return fail
 		}
 	}
-	return r.checkRanges(ctx, ga, newLock, check)
+	if fail := r.checkRanges(ctx, ga, newLock, check); fail != nil {
+		return fail
+	}
+	if r.chain != nil {
+		return r.checkReleaseAge(ctx, gb, ga, diff.touched)
+	}
+	return nil
+}
+
+// chainMinReleaseAge is how long ago a version has to have been published for
+// a chain update to bring it in.
+const chainMinReleaseAge = 72 * time.Hour
+
+// checkReleaseAge requires every version the chain update brings in (an entry
+// added or changed whose package and version are in no entry of the original
+// file) to have been published at least chainMinReleaseAge ago. When some were
+// not, the item waits until the youngest reaches that age.
+func (r *updateRun) checkReleaseAge(ctx context.Context, gb, ga *depGraph, touched []string) *updateFailure {
+	had := map[string]bool{}
+	for _, n := range gb.nodes {
+		had[n.name+"@"+n.version] = true
+	}
+	var fresh []string
+	seen := map[string]bool{}
+	for _, k := range touched {
+		n := ga.nodes[k]
+		if n == nil {
+			continue
+		}
+		id := n.name + "@" + n.version
+		if had[id] || seen[id] {
+			continue
+		}
+		seen[id] = true
+		fresh = append(fresh, id)
+	}
+	sort.Strings(fresh)
+	now := r.u.now()
+	var retry time.Time
+	var young []string
+	for _, id := range fresh {
+		at := strings.LastIndex(id, "@")
+		name, version := id[:at], id[at+1:]
+		times, err := r.publishTimes(ctx, name)
+		if err != nil {
+			return lookupFailure(ctx, err, name+" in the npm registry")
+		}
+		published, ok := times[version]
+		if !ok {
+			return manualFailure(ReasonDistributionMismatch, "the npm registry gives no publication time for %s", id)
+		}
+		if due := published.Add(chainMinReleaseAge); now.Before(due) {
+			young = append(young, id)
+			if due.After(retry) {
+				retry = due
+			}
+		}
+	}
+	if len(young) == 0 {
+		return nil
+	}
+	return &updateFailure{category: CategoryDeferred, reason: ReasonReleaseTooNew,
+		detail: fmt.Sprintf("%s was published less than %d hours ago", strings.Join(young, ", "), int(chainMinReleaseAge.Hours())),
+		wait:   &langWaitIntent{Kind: releaseAgeWait, RetryAfter: retry}}
 }
 
 // targetSet is the updated packages' matching names as a set.

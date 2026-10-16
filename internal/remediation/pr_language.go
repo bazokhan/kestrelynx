@@ -205,6 +205,7 @@ func languageViewOfTied(it LanguageItem, rec *PRRecord) *PRLanguage {
 	v := &PRLanguage{Manager: string(it.Manager), Root: root, Packages: []PRLanguagePackage{}}
 	if rec.Lang != nil {
 		v.ManifestEdits = rec.Lang.ManifestEdits
+		v.Chain = rec.Lang.Chain
 	}
 	for _, p := range updatedPackages(&it) {
 		to := p.SelectionLowerBound
@@ -239,10 +240,24 @@ func languageViewOfTied(it LanguageItem, rec *PRRecord) *PRLanguage {
 		}
 		v.Packages = append(v.Packages, PRLanguagePackage{
 			Name: p.Name, Ecosystem: p.Ecosystem, Relation: string(p.Relation), From: p.Installed, To: to,
-			Major: majorChanged(p.Installed, to),
+			Major: majorChanged(p.Installed, to), Through: throughIn(rec.Lang, p),
 		})
 	}
 	return v
+}
+
+// throughIn is the direct dependencies the record says p was brought to its
+// version through.
+func throughIn(l *LangRecord, p LanguagePackage) []string {
+	if l == nil {
+		return nil
+	}
+	for _, e := range l.Packages {
+		if e.Ecosystem == p.Ecosystem && e.Name == p.matchName() {
+			return e.Through
+		}
+	}
+	return nil
 }
 
 // leftOutIn finds the entry of a record that says the update leaves p out.

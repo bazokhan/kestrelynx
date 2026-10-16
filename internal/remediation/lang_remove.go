@@ -398,8 +398,19 @@ func npmPathName(p string) string {
 // every target at every path, with the entries nested below it, taken out of
 // "packages", and out of the tree "dependencies" of a lockfileVersion 2 file.
 func removeNpmTargets(ctx context.Context, lock []byte, targets map[string]bool) (*npmRemoval, *removalProblem) {
+	return removeNpmEntries(ctx, lock, targets, nil)
+}
+
+// removeNpmEntries is removeNpmTargets that also takes out the entries at the
+// given paths, with what is nested below them: the entries of the packages
+// that require a package held back, for an update that resolves those again.
+// Every path has to be in the lockfile.
+func removeNpmEntries(ctx context.Context, lock []byte, targets, paths map[string]bool) (*npmRemoval, *removalProblem) {
 	if len(targets) == 0 || len(targets) > maxRemovalTargets {
 		return nil, removalFailure("%d packages are taken out of package-lock.json", len(targets))
+	}
+	if len(paths) > maxChainAncestors {
+		return nil, removalFailure("%d entries are taken out of package-lock.json by path", len(paths))
 	}
 	top, err := objectEntries(lock)
 	if err != nil {
@@ -407,6 +418,7 @@ func removeNpmTargets(ctx context.Context, lock []byte, targets map[string]bool)
 	}
 	removed := map[string]bool{}
 	found := map[string]bool{}
+	foundPaths := map[string]bool{}
 	out := &npmRemoval{}
 	for ti, e := range top {
 		if e.key != "packages" {
@@ -417,9 +429,16 @@ func removeNpmTargets(ctx context.Context, lock []byte, targets map[string]bool)
 			return nil, removalFailure("package-lock.json packages cannot be read: %v", err)
 		}
 		for _, p := range pkgs {
-			if p.key != "" && targets[npmPathName(p.key)] && strings.HasPrefix(p.key, npmModules) {
+			if p.key == "" || !strings.HasPrefix(p.key, npmModules) {
+				continue
+			}
+			if targets[npmPathName(p.key)] {
 				removed[p.key] = true
 				found[npmPathName(p.key)] = true
+			}
+			if paths[p.key] {
+				removed[p.key] = true
+				foundPaths[p.key] = true
 			}
 		}
 		kept := make([]kv, 0, len(pkgs))
@@ -447,6 +466,12 @@ func removeNpmTargets(ctx context.Context, lock []byte, targets map[string]bool)
 		if !found[name] {
 			return nil, &removalProblem{reason: ReasonTargetNotInLockfile, name: name,
 				detail: fmt.Sprintf("%s has no entry in package-lock.json", name)}
+		}
+	}
+	for p := range paths {
+		if !foundPaths[p] {
+			return nil, &removalProblem{reason: ReasonTargetNotInLockfile, name: p,
+				detail: fmt.Sprintf("%s has no entry in package-lock.json", p)}
 		}
 	}
 	gone := map[string]bool{}

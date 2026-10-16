@@ -128,6 +128,26 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 		}
 	}
 
+	if chain := in.Record.Chain; len(chain) > 0 {
+		b.WriteString("\n### " + t.HeadChain + "\n\n")
+		fmt.Fprintf(&b, t.LChainIntro, mdCode(manifestFileName(it.Manager)))
+		for i, m := range chain {
+			if i == maxListedEntries {
+				fmt.Fprintf(&b, t.LineMore, len(chain)-maxListedEntries)
+				break
+			}
+			format := t.LChainLine
+			if m.HeldBy != "" {
+				format = t.LChainViaLine
+			}
+			line := fmt.Sprintf(format, mdCode(m.Name), mdCode(m.From), mdCode(m.To), mdCode(m.Held), mdCode(m.HeldRange), mdCode(m.HeldBy))
+			if majorChanged(m.From, m.To) {
+				line = strings.TrimSuffix(line, "\n") + t.LMajor + "\n"
+			}
+			b.WriteString(line)
+		}
+	}
+
 	if edits := in.Record.ManifestEdits; len(edits) > 0 {
 		b.WriteString("\n### " + t.HeadManifestEdits + "\n\n")
 		b.WriteString(t.LEditsIntro)
@@ -221,6 +241,9 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 		fmt.Fprintf(&b, t.LBefore, hashedFileList(t, sc.Before))
 		fmt.Fprintf(&b, t.LAfter, hashedFileList(t, sc.After))
 		fmt.Fprintf(&b, t.LSourceCounts, sc.Counts[0], sc.Counts[1], sc.Counts[2])
+		if sc.Basis != "" {
+			b.WriteString(t.LSourceBasis)
+		}
 		if sc.Truncated {
 			b.WriteString(t.LListCut)
 		}
@@ -411,4 +434,12 @@ func runtimeWhy(t *prText, r *RuntimeRecord) string {
 		}
 	}
 	return strings.Join(parts, t.LEnvWhySep)
+}
+
+// manifestFileName is the file a manager's direct dependencies are declared in.
+func manifestFileName(m DependencyManager) string {
+	if m == ManagerUv {
+		return "pyproject.toml"
+	}
+	return "package.json"
 }

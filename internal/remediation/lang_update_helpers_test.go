@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/github"
@@ -277,6 +278,10 @@ type fakeNpm struct {
 	dists   map[string]NpmDist
 	err     error
 	lookups []string
+	// times are publication times by name and version that replace the ones
+	// the fake gives, and timesErr is returned by the lookup of them.
+	times    map[string]map[string]time.Time
+	timesErr error
 }
 
 func (f *fakeNpm) VersionDist(_ context.Context, name, version string) (NpmDist, error) {
@@ -289,6 +294,22 @@ func (f *fakeNpm) VersionDist(_ context.Context, name, version string) (NpmDist,
 		return NpmDist{}, ErrReleaseNotFound
 	}
 	return d, nil
+}
+
+// PublishTimes answers from times (by name, then version); a version of a
+// release the fake serves that is not listed there was published long ago.
+func (f *fakeNpm) PublishTimes(_ context.Context, name string) (map[string]time.Time, int64, error) {
+	out := map[string]time.Time{}
+	for k := range f.dists {
+		at := strings.LastIndex(k, "@")
+		if k[:at] == name {
+			out[k[at+1:]] = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+	}
+	for v, t := range f.times[name] {
+		out[v] = t
+	}
+	return out, 0, f.timesErr
 }
 
 func (f *fakePyPI) Release(_ context.Context, name, version string) (PyPIRelease, error) {

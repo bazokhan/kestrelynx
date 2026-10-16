@@ -17,6 +17,24 @@ type LangKeyEntry struct {
 	Name      string   `json:"name"`
 	Positions []string `json:"positions"`
 	Adopted   string   `json:"adopted"`
+	// Through names the direct dependencies the package was brought to its
+	// version through (a chain update), none otherwise.
+	Through []string `json:"through,omitempty"`
+}
+
+// LangChainMove is a direct dependency a chain update moved: the package that
+// required an older version of a held back package, from and to the versions
+// it ends at, and the package it held back with the range it asked for.
+type LangChainMove struct {
+	Name      string `json:"name"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Held      string `json:"held,omitempty"`
+	HeldRange string `json:"held_range,omitempty"`
+	// HeldBy is the package between this direct dependency and the held back
+	// package that asked for the range, when that is not the direct dependency
+	// itself.
+	HeldBy string `json:"held_by,omitempty"`
 }
 
 // LangRemaining is one package a language update leaves out: its place in the
@@ -48,6 +66,9 @@ type LangRecord struct {
 	Manager       string         `json:"manager"`
 	Packages      []LangKeyEntry `json:"packages"`
 	ManifestEdits []LangEdit     `json:"manifest_edits,omitempty"`
+	// Chain are the direct dependencies a chain update moved to bring the
+	// packages to their versions; they are part of the update key.
+	Chain []LangChainMove `json:"chain,omitempty"`
 	// Remaining are the packages the update was planned for and left out
 	// because they did not reach their target while the others did. They are
 	// not part of the update key: the key names what the update changes.
@@ -89,6 +110,7 @@ func sortedLangEntries(entries []LangKeyEntry) []LangKeyEntry {
 		if e.Positions == nil {
 			e.Positions = []string{}
 		}
+		e.Through = sortedCopy(e.Through)
 		out[i] = e
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -129,11 +151,39 @@ func sortedLangEdits(edits []LangEdit) []LangEdit {
 	return out
 }
 
+// sortedLangChain returns a sorted copy of moves.
+func sortedLangChain(moves []LangChainMove) []LangChainMove {
+	out := append([]LangChainMove{}, moves...)
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		if a.From != b.From {
+			return a.From < b.From
+		}
+		return a.To < b.To
+	})
+	return out
+}
+
 // LangUpdateKey identifies one proposed update of a lockfile: its target, the
 // packages with their places and versions, and the manifest edits. Like
 // UpdateKey it does not depend on the base commit, so the same update built
 // again on a newer base has the same key.
-func LangUpdateKey(targetKey string, packages []LangKeyEntry, edits []LangEdit) string {
+//
+// The direct dependencies a chain update moved are part of the key, by name and
+// versions; an update without them has the key it always had.
+func LangUpdateKey(targetKey string, packages []LangKeyEntry, edits []LangEdit, chain ...LangChainMove) string {
+	type move struct {
+		Name string `json:"name"`
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	var moves []move
+	for _, m := range sortedLangChain(chain) {
+		moves = append(moves, move{m.Name, m.From, m.To})
+	}
 	type edit struct {
 		File    string `json:"file"`
 		Section string `json:"section"`
@@ -150,7 +200,8 @@ func LangUpdateKey(targetKey string, packages []LangKeyEntry, edits []LangEdit) 
 		Kind      string         `json:"kind"`
 		Packages  []LangKeyEntry `json:"packages"`
 		Edits     []edit         `json:"manifest_edits"`
-	}{targetKey, prKindLanguage, sortedLangEntries(packages), es})
+		Chain     []move         `json:"chain,omitempty"`
+	}{targetKey, prKindLanguage, sortedLangEntries(packages), es, moves})
 }
 
 // LanguageBranchName is the branch of a language attempt:

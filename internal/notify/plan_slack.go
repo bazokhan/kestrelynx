@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 )
@@ -343,6 +344,93 @@ func (b *planBuilder) change(name, from, to string) string {
 	return fmt.Sprintf(b.msg.PlanChange, litMrkdwn(name), litMrkdwn(from), litMrkdwn(to))
 }
 
+// planChainShown is how many direct dependencies a line names before it counts
+// the rest.
+const planChainShown = 3
+
+// changeThrough is change for a package that a chain update brought to its
+// version through the direct dependencies in through; move gives the versions
+// one of them went from and to.
+func (b *planBuilder) changeThrough(name, from, to string, through []string, move func(string) (string, string, bool)) string {
+	if len(through) == 0 {
+		return b.change(name, from, to)
+	}
+	var tops []string
+	for _, t := range through {
+		if f, to, ok := move(t); ok && f != to {
+			tops = append(tops, b.change(t, f, to))
+		} else {
+			tops = append(tops, litMrkdwn(t))
+		}
+	}
+	return fmt.Sprintf(b.msg.PlanChangeWith, litMrkdwn(name), litMrkdwn(from), litMrkdwn(to), b.cut(tops))
+}
+
+// cut joins the items of a list, the first planChainShown of them and the
+// count of the rest.
+func (b *planBuilder) cut(items []string) string {
+	b.detail = append(b.detail, "cut\x00"+strings.Join(items, "\x00"))
+	shown := items
+	if len(shown) > planChainShown {
+		shown = shown[:planChainShown]
+	}
+	out := strings.Join(shown, b.msg.PlanListSep)
+	if n := len(items) - len(shown); n > 0 {
+		out += fmt.Sprintf(b.msg.PlanMore, n)
+	}
+	return out
+}
+
+// chainTops names the direct dependencies of a chain update for a line about a
+// package it did not take to its version: each with the version it has, or the
+// versions it went from and to when it moved.
+func (b *planBuilder) chainTops(c *remediation.ChainUpdate) string {
+	var tops []string
+	if len(c.Tops) > 0 {
+		for _, t := range c.Tops {
+			if t.To != "" && t.To != t.From {
+				tops = append(tops, b.change(t.Name, t.From, t.To))
+			} else {
+				tops = append(tops, litMrkdwn(t.Name)+" "+litMrkdwn(t.From))
+			}
+		}
+	} else {
+		seen := map[string]bool{}
+		for _, k := range c.Blocked {
+			if id := k.Parent + "@" + k.ParentVersion; !seen[id] {
+				seen[id] = true
+				tops = append(tops, litMrkdwn(k.Parent)+" "+litMrkdwn(k.ParentVersion))
+			}
+		}
+	}
+	if len(tops) == 0 {
+		return ""
+	}
+	return b.cut(tops)
+}
+
+// chainLine is the line about a package a chain update was meant for and did
+// not take to its version, "" when the update's record does not say enough.
+func (b *planBuilder) chainLine(x pkgLine) string {
+	if x.chain == nil || x.target == "" {
+		return ""
+	}
+	tops := b.chainTops(x.chain)
+	if tops == "" {
+		return ""
+	}
+	name, from, target := litMrkdwn(x.name), litMrkdwn(x.from), litMrkdwn(x.target)
+	switch x.reason {
+	case remediation.ReasonDependentsNotFixed:
+		return fmt.Sprintf(b.msg.PlanChainNotFixed, name, from, target, tops)
+	case remediation.ReasonDependentsRejected:
+		return fmt.Sprintf(b.msg.PlanChainRejected, name, from, target, tops, b.reason(x.chain.Reason))
+	case remediation.ReasonDependentsUnsupported, remediation.ReasonDependentsLimit:
+		return fmt.Sprintf(b.msg.PlanChainHeld, name, from, target, tops, b.reason(x.chain.Reason))
+	}
+	return ""
+}
+
 // prLine is the pull request line of a unit that has a pull request.
 func (b *planBuilder) prLine(u remediation.PRUnit) string {
 	link := mrkdwnLink(u.URL, fmt.Sprintf("#%d", u.Number))
@@ -563,8 +651,15 @@ func (b *planBuilder) languageUnit(u remediation.PRUnit) planEntry {
 	update := ""
 	if l := u.Language; l != nil {
 		var changes []string
+		moves := map[string]remediation.LangChainMove{}
+		for _, m := range l.Chain {
+			moves[m.Name] = m
+		}
 		for _, p := range l.Packages {
-			changes = append(changes, b.change(p.Name, p.From, p.To))
+			changes = append(changes, b.changeThrough(p.Name, p.From, p.To, p.Through, func(n string) (string, string, bool) {
+				m, ok := moves[n]
+				return m.From, m.To, ok
+			}))
 		}
 		update = b.joined(changes)
 	}
@@ -590,7 +685,7 @@ func (b *planBuilder) languageUnit(u remediation.PRUnit) planEntry {
 	var left []leftOut
 	if l := u.Language; l != nil {
 		for _, x := range l.Remaining {
-			left = append(left, leftOut{x.Name, x.From, x.Target, x.Reason})
+			left = append(left, leftOut{x.Name, x.From, x.Target, x.Reason, nil})
 		}
 	}
 	if len(left) == 0 {
@@ -625,13 +720,18 @@ func (b *planBuilder) lockName(p, itemKey string) string {
 type leftOut struct {
 	name, from, target string
 	reason             remediation.Reason
+	chain              *remediation.ChainUpdate
 }
 
 func leftOutOf(li remediation.LanguageItem) []leftOut {
 	var out []leftOut
+	var chain *remediation.ChainUpdate
+	if li.Update != nil {
+		chain = li.Update.Chain
+	}
 	for _, p := range li.Packages {
 		if p.LeftOut {
-			out = append(out, leftOut{p.Name, p.Installed, p.SelectionLowerBound, p.Reason})
+			out = append(out, leftOut{p.Name, p.Installed, p.SelectionLowerBound, p.Reason, chain})
 		}
 	}
 	return out
@@ -641,8 +741,9 @@ func leftOutOf(li remediation.LanguageItem) []leftOut {
 type pkgLine struct {
 	name, from, target string
 	reason             remediation.Reason
-	unchanged          bool // the update left the lockfile as it was
-	leftOut            bool // the package was left out of an update of the others
+	chain              *remediation.ChainUpdate // what the chain update did, when it was tried
+	unchanged          bool                     // the update left the lockfile as it was
+	leftOut            bool                     // the package was left out of an update of the others
 	// lockVersions are the versions the files list when they list the package
 	// at another version than the image has.
 	lockVersions []string
@@ -652,7 +753,7 @@ type pkgLine struct {
 func (b *planBuilder) leftOutLines(e *planEntry, left []leftOut, file string) {
 	items := make([]pkgLine, len(left))
 	for i, x := range left {
-		items[i] = pkgLine{name: x.name, from: x.from, target: x.target, reason: x.reason, leftOut: true}
+		items[i] = pkgLine{name: x.name, from: x.from, target: x.target, reason: x.reason, leftOut: true, chain: x.chain}
 	}
 	b.packageLines(e, tagDecide, b.msg.PlanLblDecide, file, items)
 }
@@ -707,6 +808,8 @@ func (b *planBuilder) packageLines(e *planEntry, tag planTag, label, file string
 		name, from, target := litMrkdwn(x.name), litMrkdwn(x.from), litMrkdwn(x.target)
 		var line string
 		switch {
+		case b.chainLine(x) != "":
+			line = b.chainLine(x)
 		case x.reason == remediation.ReasonTargetNotUpdated:
 			line = fmt.Sprintf(b.msg.PlanNotUpdated, name, target, from, litMrkdwn(file))
 		case x.leftOut:
@@ -776,9 +879,21 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 		}
 	case remediation.CategoryPRCandidate:
 		var changes []string
+		move := func(string) (string, string, bool) { return "", "", false }
+		if li.Update != nil && li.Update.Chain != nil {
+			tops := li.Update.Chain.Tops
+			move = func(n string) (string, string, bool) {
+				for _, t := range tops {
+					if t.Name == n {
+						return t.From, t.To, true
+					}
+				}
+				return "", "", false
+			}
+		}
 		for _, p := range li.Packages {
 			if p.Action == remediation.ActionUpdate {
-				changes = append(changes, b.change(p.Name, p.Installed, p.AdoptedVersion))
+				changes = append(changes, b.changeThrough(p.Name, p.Installed, p.AdoptedVersion, p.Through, move))
 			}
 		}
 		if len(changes) > 0 {
@@ -797,6 +912,9 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 			}
 		}
 		e.plain(file)
+		if b.chainWaiting(&e, tag, label, li) {
+			break
+		}
 		if pkgs := packagesOfReason(li); len(pkgs) > 0 && li.RuntimeEOL == nil {
 			b.packageReasonLines(&e, tag, label, li, pkgs)
 		} else {
@@ -806,15 +924,59 @@ func (b *planBuilder) languageItem(li remediation.LanguageItem) planEntry {
 	return e
 }
 
+// chainWaiting adds the lines of an item that waits for a version of the chain
+// update to be old enough: one for each package the update was meant for. It
+// reports whether it did.
+func (b *planBuilder) chainWaiting(e *planEntry, tag planTag, label string, li remediation.LanguageItem) bool {
+	if li.Reason != remediation.ReasonReleaseTooNew || li.RetryAfter == nil || li.Update == nil || li.Update.Chain == nil {
+		return false
+	}
+	c := li.Update.Chain
+	tops := b.chainTops(c)
+	if tops == "" {
+		return false
+	}
+	retry := li.RetryAfter.UTC().Format(time.RFC3339)
+	seen := map[string]bool{}
+	wrote := false
+	for _, k := range c.Blocked {
+		if seen[k.Package] {
+			continue
+		}
+		seen[k.Package] = true
+		for _, p := range li.Packages {
+			if p.Action == remediation.ActionUpdate && (p.Name == k.Package || p.Normalized == k.Package) {
+				b.detail = append(b.detail, strings.Join([]string{"chain wait", p.Name, p.Installed, p.SelectionLowerBound, retry}, "\x00"))
+				e.line(tag, kv(label, fmt.Sprintf(b.msg.PlanChainWaiting, litMrkdwn(p.Name), litMrkdwn(p.Installed), litMrkdwn(p.SelectionLowerBound), tops, litMrkdwn(retry))))
+				wrote = true
+			}
+		}
+	}
+	return wrote
+}
+
+// chainPackageReason reports whether a reason is one a package gets when the
+// update of the packages that hold it back was meant for it.
+func chainPackageReason(r remediation.Reason) bool {
+	switch r {
+	case remediation.ReasonDependentsNotFixed, remediation.ReasonDependentsRejected,
+		remediation.ReasonDependentsUnsupported, remediation.ReasonDependentsLimit:
+		return true
+	}
+	return false
+}
+
 // packagesOfReason are the packages of an item whose own reason is the item's
-// reason: the item is manual because of them.
+// reason: the item is manual because of them. The packages the update of the
+// packages that hold them back was meant for are among them, whatever the
+// item's reason is.
 func packagesOfReason(li remediation.LanguageItem) []remediation.LanguagePackage {
 	if li.Reason == "" {
 		return nil
 	}
 	var out []remediation.LanguagePackage
 	for _, p := range li.Packages {
-		if p.Action == remediation.ActionManual && p.Reason == li.Reason {
+		if p.Action == remediation.ActionManual && (p.Reason == li.Reason || chainPackageReason(p.Reason)) {
 			out = append(out, p)
 		}
 	}
@@ -842,9 +1004,13 @@ var lockfileLeftAlone = regexp.MustCompile(`^the (?:update|rewrite) left .+ unch
 // is said not to have changed only when the detail says the update left it
 // unchanged.
 func (b *planBuilder) packageReasonLines(e *planEntry, tag planTag, label string, li remediation.LanguageItem, pkgs []remediation.LanguagePackage) {
+	var chain *remediation.ChainUpdate
+	if li.Update != nil {
+		chain = li.Update.Chain
+	}
 	items := make([]pkgLine, len(pkgs))
 	for i, p := range pkgs {
-		items[i] = pkgLine{name: p.Name, from: p.Installed, target: p.SelectionLowerBound, reason: p.Reason,
+		items[i] = pkgLine{name: p.Name, from: p.Installed, target: p.SelectionLowerBound, reason: p.Reason, chain: chain,
 			unchanged:    lockfileLeftAlone.MatchString(p.Detail) || lockfileLeftAlone.MatchString(li.Detail),
 			lockVersions: lockVersions(p), inFile: len(p.Occurrences) > 0}
 	}

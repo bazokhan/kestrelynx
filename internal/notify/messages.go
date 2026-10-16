@@ -402,6 +402,11 @@ type messages struct {
 	PlanPackageReason     string // "%[1]s %[2]s → %[3]s: %[4]s%[5]s" (name, installed, target, reason, the lockfile note)
 	PlanLockfileUnchanged string // " (the lockfile did not change)"
 	PlanLeftOut           string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
+	PlanChangeWith        string // "%[1]s %[2]s → %[3]s (with %[4]s)" (name, old, new, the direct dependencies updated with it)
+	PlanChainNotFixed     string // "%[1]s %[2]s → %[3]s: re-resolving %[4]s ... did not reach the fixed version this time" (name, installed, target, the direct dependencies)
+	PlanChainRejected     string // "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s" (..., why)
+	PlanChainHeld         string // "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s" (..., why)
+	PlanChainWaiting      string // "... a version it brings in is less than 72 hours old, so it is tried again after %[5]s" (..., the time)
 	PlanNotUpdated        string // "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (...)" (name, target, installed, lockfile)
 	PlanNotInFile         string // "packages that are not in %s (...)" (lockfile)
 	PlanWrongVersion      string // "packages whose version in the image differs from %s (...)" (lockfile)
@@ -747,6 +752,11 @@ var enMessages = messages{
 	PlanPackageReason:     "%[1]s %[2]s → %[3]s: %[4]s%[5]s",
 	PlanLockfileUnchanged: " (the lockfile did not change)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s left out because %[4]s",
+	PlanChangeWith:        "%[1]s %[2]s → %[3]s (with %[4]s)",
+	PlanChainNotFixed:     "%[1]s %[2]s → %[3]s: re-resolving %[4]s within the project's ranges did not reach the fixed version this time",
+	PlanChainRejected:     "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s",
+	PlanChainHeld:         "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s",
+	PlanChainWaiting:      "%[1]s %[2]s → %[3]s needs %[4]s updated as well; a version it brings in is less than 72 hours old, so it is tried again after %[5]s",
 	PlanNotUpdated:        "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on %[1]s)",
 	PlanNotInFile:         "packages that are not in %s (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)",
 	PlanWrongVersion:      "packages whose version in the image differs from %s (the image may not have been built from the current %[1]s, so rebuild it and check again)",
@@ -1088,6 +1098,11 @@ var jaMessages = messages{
 	PlanPackageReason:     "%[1]s %[2]s → %[3]s は%[4]s%[5]s",
 	PlanLockfileUnchanged: " (lockfile は変わらず)",
 	PlanLeftOut:           "%[1]s %[2]s → %[3]s は%[4]sため除外",
+	PlanChangeWith:        "%[1]s %[2]s → %[3]s（%[4]s も更新）",
+	PlanChainNotFixed:     "%[1]s %[2]s → %[3]s: %[4]s をプロジェクトの範囲内で解決し直したが、今回の再解決では修正版に届かなかった",
+	PlanChainRejected:     "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、%[5]sため採用しない",
+	PlanChainHeld:         "%[1]s %[2]s → %[3]s は %[4]s に止められていて、%[5]sため %[4]s の更新を試していない",
+	PlanChainWaiting:      "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、入る版の公開から72時間経っていないため %[5]s 以降に再試行する",
 	PlanNotUpdated:        "%[1]s は脆弱性が直る %[2]s に上げられず、%[4]s では %[3]s のまま（上げられない原因は KestreLynx では調べていないため、%[1]s に依存しているパッケージの版の指定を確認してください）",
 	PlanNotInFile:         "%s に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）",
 	PlanWrongVersion:      "イメージに入っている版が %s と違うパッケージ（イメージが今の %[1]s から作られていない可能性があるため、作り直してから確認してください）",

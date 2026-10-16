@@ -130,7 +130,7 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 		}
 		name := p.matchName()
 		positions := languagePositions(p, ld.lockPath)
-		entry := LangKeyEntry{Ecosystem: p.Ecosystem, Name: name, Positions: positions, Adopted: p.AdoptedVersion}
+		entry := LangKeyEntry{Ecosystem: p.Ecosystem, Name: name, Positions: positions, Adopted: p.AdoptedVersion, Through: p.Through}
 		if k := hashCanonical(entry); !seen[k] {
 			seen[k] = true
 			rec.Packages = append(rec.Packages, entry)
@@ -144,7 +144,7 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 		ld.view = ensureLanguageView(ld.view, it.Manager, root)
 		ld.view.Packages = append(ld.view.Packages, PRLanguagePackage{
 			Name: p.Name, Ecosystem: p.Ecosystem, Relation: string(p.Relation), From: p.Installed, To: p.AdoptedVersion,
-			Major: majorChanged(p.Installed, p.AdoptedVersion),
+			Major: majorChanged(p.Installed, p.AdoptedVersion), Through: p.Through,
 		})
 	}
 	if len(rec.Packages) == 0 {
@@ -166,6 +166,9 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 		rec.DeprecatedNotes = it.Update.DeprecatedNotes
 		if d := it.Update.Diff; d != nil {
 			rec.Followed = d.Followed
+		}
+		if c := it.Update.Chain; c != nil && c.Outcome == ChainAdopted {
+			rec.Chain = chainMovesOf(c)
 		}
 		for _, e := range it.Update.ManifestEdits {
 			rec.ManifestEdits = append(rec.ManifestEdits, LangEdit{File: e.File, Section: e.Section, Name: e.Name, From: e.From, To: e.To, Major: e.MajorChange})
@@ -198,6 +201,7 @@ func buildLanguageUnit(it *LanguageItem, order int) *composeUnit {
 		return a.From < b.From
 	})
 	ld.view.ManifestEdits = rec.ManifestEdits
+	ld.view.Chain = rec.Chain
 	ld.title = languageUnitTitle(ld.view.Packages, ld.lockPath)
 
 	// The marker has to fit in the description with the rest of the text.
@@ -280,4 +284,27 @@ func releaseLineOf(v string) string {
 func majorChanged(from, to string) bool {
 	a, b := releaseLineOf(from), releaseLineOf(to)
 	return a != "" && b != "" && a != b
+}
+
+// chainMovesOf lists the direct dependencies a chain update moved, with the
+// package each held back and the range it asked for.
+func chainMovesOf(c *ChainUpdate) []LangChainMove {
+	var out []LangChainMove
+	for _, t := range c.Tops {
+		if t.From == t.To {
+			continue
+		}
+		m := LangChainMove{Name: t.Name, From: t.From, To: t.To}
+		for _, b := range c.Blocked {
+			if b.Parent == t.Name || containsString(b.Via, t.Name) {
+				m.Held, m.HeldRange = b.Package, b.Range
+				if b.Parent != t.Name {
+					m.HeldBy = b.Parent
+				}
+				break
+			}
+		}
+		out = append(out, m)
+	}
+	return sortedLangChain(out)
 }

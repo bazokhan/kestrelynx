@@ -241,6 +241,9 @@ type ChainBlock struct {
 	ParentVersion string `json:"parent_version"`
 	Range         string `json:"range"`
 	Proof         string `json:"proof"`
+	// Via names the direct dependencies of the project that Parent hangs
+	// below: Parent itself when it is one.
+	Via []string `json:"via,omitempty"`
 }
 
 // ChainMove is an entry the chain moved: From is empty for an added entry and

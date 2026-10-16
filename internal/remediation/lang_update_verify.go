@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
 )
@@ -51,7 +52,9 @@ func (r *updateRun) npmRelease(ctx context.Context, name, version string) (NpmDi
 	if d, ok := r.npmDocs[key]; ok {
 		return d, nil
 	}
-	if sh := r.shared; sh != nil {
+	// Only a chain run reads what other runs of the item looked up; every other
+	// run counts and keeps its own lookups, as it does without a chain update.
+	if sh := r.shared; sh != nil && r.chain != nil {
 		if d, ok := sh.cache.npm[key]; ok {
 			return d, nil
 		}
@@ -88,7 +91,7 @@ func (r *updateRun) pyRelease(ctx context.Context, name, version string) (PyPIRe
 	if d, ok := r.pyDocs[key]; ok {
 		return d, nil
 	}
-	if sh := r.shared; sh != nil {
+	if sh := r.shared; sh != nil && r.chain != nil {
 		if d, ok := sh.cache.py[key]; ok {
 			return d, nil
 		}
@@ -234,6 +237,40 @@ func (r *updateRun) checkRanges(ctx context.Context, g *depGraph, newLock []byte
 		return fail
 	}
 	return r.checkParentRanges(ctx, g, check)
+}
+
+// errNoPublishTimes: the registry client cannot tell when a version was
+// published.
+var errNoPublishTimes = errors.New("the npm registry client cannot tell when a version was published")
+
+// publishTimes looks up when the versions of a package were published once
+// per item, counted as a lookup and by the bytes read.
+func (r *updateRun) publishTimes(ctx context.Context, name string) (map[string]time.Time, error) {
+	if sh := r.shared; sh != nil {
+		if t, ok := sh.cache.times[name]; ok {
+			return t, nil
+		}
+	}
+	pt, ok := r.u.cfg.Npm.(NpmPublishTimes)
+	if !ok {
+		return nil, errNoPublishTimes
+	}
+	if sh := r.shared; sh != nil {
+		if err := sh.budget.spendLookup(); err != nil {
+			return nil, err
+		}
+	}
+	r.lookups++
+	t, n, err := pt.PublishTimes(ctx, name)
+	if sh := r.shared; sh != nil {
+		if berr := sh.budget.addBytes(n); berr != nil {
+			return nil, berr
+		}
+		if err == nil {
+			sh.cache.times[name] = t
+		}
+	}
+	return t, err
 }
 
 // directNames are the names whose declarations in the manifest are judged

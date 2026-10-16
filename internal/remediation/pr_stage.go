@@ -722,7 +722,7 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		c.updateKey = rec.UpdateKey
 		v.Language = languageViewOfTied(*u.lang.item, rec)
 	} else if u.lang != nil {
-		c.updateKey = LangUpdateKey(c.targetKey, u.lang.record.Packages, u.lang.record.ManifestEdits)
+		c.updateKey = LangUpdateKey(c.targetKey, u.lang.record.Packages, u.lang.record.ManifestEdits, u.lang.record.Chain...)
 	} else {
 		c.updateKey = UpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest)
 	}

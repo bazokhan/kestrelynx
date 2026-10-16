@@ -284,7 +284,7 @@ type passResult struct {
 }
 
 func TestOverrunsDuringWorkAreCountedAcrossPasses(t *testing.T) {
-	t.Run("received bytes in the first update", func(t *testing.T) {
+	t.Run("bytes received by the first update leave nothing for the chain update", func(t *testing.T) {
 		h := newChainHarness(t, []string{"minimist", "pinned"}, func(n int) string { return chainLock("1.0.0", "2.0.0", "1.2.8") })
 		for _, k := range []string{"minimist@1.2.8", "mkdirp@0.5.5"} {
 			d := h.npm.dists[k]
@@ -301,15 +301,17 @@ func TestOverrunsDuringWorkAreCountedAcrossPasses(t *testing.T) {
 				t.Fatalf("pass %d: waits = %+v", i+1, w)
 			}
 		}
-		// The third pass stops, and the item is handed to a person instead of
-		// waiting again; the stop is on record and the pass after it completes.
-		wantCategory(t, got[2].item, CategoryManual, ReasonDependentsLimit)
-		if w := got[2].waits; len(w) != 1 || w[0].Kind != chainStoppedKind {
-			t.Fatalf("waits = %+v", w)
-		}
-		wantCategory(t, got[3].item, CategoryManual, ReasonDependentsLimit)
-		if len(got[3].item.Artifacts) != 0 {
-			t.Error("an unchecked output was adopted")
+		// The third pass stops. The first update's own result passed every check,
+		// so it is adopted with the held back package handed to a person; the stop
+		// is on record and the pass after it does the same.
+		for i := 2; i < 4; i++ {
+			wantCategory(t, got[i].item, CategoryPRCandidate, ReasonUpdateVerified)
+			if pin := packageOf(t, got[i].item, "pinned"); pin.Reason != ReasonDependentsLimit || !pin.LeftOut {
+				t.Errorf("pass %d: pinned = %+v", i+1, pin)
+			}
+			if w := got[i].waits; len(w) != 1 || w[0].Kind != chainStoppedKind {
+				t.Fatalf("pass %d: waits = %+v", i+1, w)
+			}
 		}
 	})
 	t.Run("containers used by the chain update", func(t *testing.T) {
@@ -382,6 +384,7 @@ func TestLookupLimitsOfTheFirstUpdateAndTheChain(t *testing.T) {
 	}
 	fresh := func(chain bool) *updateRun {
 		r := &updateRun{u: &LangUpdater{cfg: LangUpdateConfig{Npm: &fakeNpm{}}}, shared: newItemShared()}
+		r.shared.budget.enforced = chain
 		if chain {
 			r.chain = &chainScope{}
 		}
@@ -421,6 +424,7 @@ func TestLookupLimitsOfTheFirstUpdateAndTheChain(t *testing.T) {
 		if err := lookups(first, 200); err != nil {
 			t.Fatal(err)
 		}
+		first.shared.budget.enforced = true
 		chain := &updateRun{u: first.u, shared: first.shared, chain: &chainScope{}}
 		if err := lookups(chain, 184); err != nil {
 			t.Fatalf("184 more: %v", err)
@@ -429,4 +433,40 @@ func TestLookupLimitsOfTheFirstUpdateAndTheChain(t *testing.T) {
 			t.Fatalf("385th: %v", err)
 		}
 	})
+}
+
+func TestRunsThatAreNotChainRunsKeepTheirOwnLookupLimit(t *testing.T) {
+	// The search for where a chain would start fills the item's shared cache;
+	// the second run of the update that follows when no chain is needed counts
+	// every document it uses toward its own 256, as it does without the chain
+	// update.
+	dists := map[string]NpmDist{}
+	const n = maxRegistryChecks + 1
+	for i := 0; i < n; i++ {
+		dists[fmt.Sprintf("p%03d@1.0.0", i)] = NpmDist{}
+	}
+	look := func(r *updateRun) (ok int, err error) {
+		for i := 0; i < n; i++ {
+			if _, err = r.npmRelease(context.Background(), fmt.Sprintf("p%03d", i), "1.0.0"); err != nil {
+				return ok, err
+			}
+			ok++
+		}
+		return ok, nil
+	}
+	u := &LangUpdater{cfg: LangUpdateConfig{Npm: &fakeNpm{dists: dists}}}
+	shared := newItemShared()
+	search := &updateRun{u: u, shared: shared, chain: &chainScope{}}
+	if ok, err := look(search); err != nil || ok != n {
+		t.Fatalf("scope search: %d, %v", ok, err)
+	}
+	withShared, errShared := look(&updateRun{u: u, shared: shared, attempt: 1, noPartial: true})
+	alone, errAlone := look(&updateRun{u: u, attempt: 1, noPartial: true})
+	if errShared != errRegistryBudget || errAlone != errRegistryBudget || withShared != maxRegistryChecks || alone != maxRegistryChecks {
+		t.Errorf("with the shared cache: %d, %v; without: %d, %v", withShared, errShared, alone, errAlone)
+	}
+	// A chain run does read it.
+	if ok, err := look(&updateRun{u: u, shared: shared, chain: &chainScope{}}); err != nil || ok != n {
+		t.Errorf("chain run: %d, %v", ok, err)
+	}
 }

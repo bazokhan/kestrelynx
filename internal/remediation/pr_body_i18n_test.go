@@ -89,6 +89,18 @@ func bodyFixtures(t *testing.T, lang BodyLanguage) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	chain := languageBodyFixture(lang, marker, true)
+	chain.Item.Manager = ManagerNpm
+	chain.LockPath = "svc/package-lock.json"
+	chain.Record.Chain = []LangChainMove{
+		{Name: "mkdirp", From: "0.5.1", To: "0.5.6", Held: "minimist", HeldRange: "0.0.8"},
+		{Name: "optimist", From: "0.6.0", To: "0.6.1", Held: "minimist", HeldRange: "~0.0.1", HeldBy: "wordwrap"},
+	}
+	chain.Item.SourceCheck.Basis = "package_version_vuln_edges"
+	out["language_chain"], err = buildLanguagePRBody(chain)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return out
 }
 

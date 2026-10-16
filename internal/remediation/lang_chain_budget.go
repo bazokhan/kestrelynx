@@ -56,6 +56,10 @@ type itemBudget struct {
 	// reserved are the amounts set aside by reserve and not yet spent.
 	reservedContainers, reservedLookups int
 	reservedBytes                       int64
+	// enforced is set when the item goes on to the chain update. Until then
+	// the budget only records what is spent: the first update and its second
+	// run keep the limits they always had.
+	enforced bool
 	// workDeadline is zero until the work starts (see workCtx).
 	workDeadline time.Time
 	// workLimit, when not zero, replaces the time an item may work for.
@@ -99,7 +103,7 @@ func (b *itemBudget) which(containers, lookups int, bytes int64) string {
 // spendContainer counts a container, taking it from what was set aside when
 // something was.
 func (b *itemBudget) spendContainer() error {
-	if b.containers >= b.maxContainers {
+	if b.enforced && b.containers >= b.maxContainers {
 		return &itemBudgetError{budgetContainerWait}
 	}
 	b.containers++
@@ -111,7 +115,7 @@ func (b *itemBudget) spendContainer() error {
 
 // spendLookup counts a registry lookup.
 func (b *itemBudget) spendLookup() error {
-	if b.lookups >= b.maxLookups {
+	if b.enforced && b.lookups >= b.maxLookups {
 		return &itemBudgetError{budgetLookupWait}
 	}
 	b.lookups++
@@ -131,7 +135,7 @@ func (b *itemBudget) addBytes(n int64) error {
 	if b.reservedBytes > 0 {
 		b.reservedBytes -= min(n, b.reservedBytes)
 	}
-	if b.bytes > b.maxBytes {
+	if b.enforced && b.bytes > b.maxBytes {
 		return &itemBudgetError{budgetBytesWait}
 	}
 	return nil
@@ -183,6 +187,8 @@ func isItemBudget(err error) string {
 type registryCache struct {
 	npm map[string]NpmDist
 	py  map[string]PyPIRelease
+	// times are the publication times of the versions of a package, by name.
+	times map[string]map[string]time.Time
 }
 
 // itemShared is what the runs of one item share when the item goes on to
@@ -197,7 +203,7 @@ type itemShared struct {
 }
 
 func newItemShared() *itemShared {
-	return &itemShared{budget: newItemBudget(), cache: registryCache{npm: map[string]NpmDist{}, py: map[string]PyPIRelease{}}, started: time.Now()}
+	return &itemShared{budget: newItemBudget(), cache: registryCache{npm: map[string]NpmDist{}, py: map[string]PyPIRelease{}, times: map[string]map[string]time.Time{}}, started: time.Now()}
 }
 
 // usage is what the item has spent so far.
