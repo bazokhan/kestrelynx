@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
@@ -32,6 +33,8 @@ type PyPIFile struct {
 	RequiresPython string
 	SHA256         string // lower-case hex
 	Yanked         bool
+	// UploadTime is when the file was uploaded, zero when the index gives none.
+	UploadTime time.Time
 }
 
 // PyPIRelease is what the index publishes for one release: its distribution
@@ -42,6 +45,9 @@ type PyPIRelease struct {
 	// RequiresPython is the release's own requires-python, for a file that
 	// has none of its own.
 	RequiresPython string
+	// BodyBytes is the size of the index's response, for the bytes an item may
+	// receive; the fakes of tests leave it zero.
+	BodyBytes int
 }
 
 // PyPIFiles tells what the index publishes for a release of a package.
@@ -109,7 +115,9 @@ func (c *PyPIClient) Release(ctx context.Context, name, version string) (PyPIRel
 	if len(body) > maxPyPIBody {
 		return PyPIRelease{}, fmt.Errorf("index response is over %d bytes", maxPyPIBody)
 	}
-	return parsePyPIRelease(body, norm, version)
+	rel, err := parsePyPIRelease(body, norm, version)
+	rel.BodyBytes = len(body)
+	return rel, err
 }
 
 // parsePyPIRelease reads the release document: the name and version in its
@@ -128,6 +136,7 @@ func parsePyPIRelease(body []byte, normName, version string) (PyPIRelease, error
 			URL            string  `json:"url"`
 			PackageType    string  `json:"packagetype"`
 			Yanked         bool    `json:"yanked"`
+			UploadTime     string  `json:"upload_time_iso_8601"`
 			RequiresPython *string `json:"requires_python"`
 			Digests        struct {
 				SHA256 string `json:"sha256"`
@@ -153,7 +162,11 @@ func parsePyPIRelease(body []byte, normName, version string) (PyPIRelease, error
 		if f.RequiresPython != nil {
 			rp = strings.TrimSpace(*f.RequiresPython)
 		}
-		out = append(out, PyPIFile{Filename: f.Filename, URL: f.URL, Wheel: wheel, Sdist: f.PackageType == "sdist", RequiresPython: rp, SHA256: f.Digests.SHA256, Yanked: f.Yanked})
+		var uploaded time.Time
+		if f.UploadTime != "" {
+			uploaded, _ = time.Parse(time.RFC3339, f.UploadTime) // a time that cannot be read is no time
+		}
+		out = append(out, PyPIFile{Filename: f.Filename, URL: f.URL, Wheel: wheel, Sdist: f.PackageType == "sdist", RequiresPython: rp, SHA256: f.Digests.SHA256, Yanked: f.Yanked, UploadTime: uploaded})
 	}
 	if len(doc.Info.RequiresDist) > maxDeclaredDeps || len(out) > maxReleaseFiles {
 		return PyPIRelease{}, fmt.Errorf("index response lists more than %d requirements or %d files", maxDeclaredDeps, maxReleaseFiles)

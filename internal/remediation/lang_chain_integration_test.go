@@ -255,3 +255,102 @@ func TestIntegrationPnpmChain(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationUvChain runs the chain update over uv projects in the official
+// Python image the build pins, with the real uv, index and a real Trivy. The
+// expectations are those of the vulnerability database at the time they were
+// written; when a case fails, look at the findings first.
+func TestIntegrationUvChain(t *testing.T) {
+	e := itSetup(t)
+	pyOrigin := func(name, ver string) FindingOrigin {
+		return FindingOrigin{Entity: "img", Workload: "compose/p/web",
+			PkgPath: "usr/local/lib/python3.12/site-packages/" + name + "-" + ver + ".dist-info/METADATA", Target: "Python"}
+	}
+	run := func(t *testing.T, dir string, g *findingGroup) LanguageItem {
+		t.Helper()
+		files := readTestdata(t, dir, "pyproject.toml", "uv.lock")
+		it := itemFor(t, ManagerUv, files, g)
+		if it.Category != CategoryDependencyUpdateCandidate {
+			t.Fatalf("the fixture is not an update candidate: %s %s", it.Category, it.Detail)
+		}
+		plan := &Plan{LanguageItems: []LanguageItem{it}}
+		up, err := NewLangUpdater(e.config(LangUpdateConfig{
+			GitHub: ghFor(files), Images: map[string]ImageEnv{"img": e.image}, MaxJobs: 4, JobIDPrefix: "itu",
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		up.Run(e.ctx, plan)
+		got := plan.LanguageItems[0]
+		t.Logf("%s: category=%s reason=%s detail=%q took=%s", dir, got.Category, got.Reason, got.Detail, time.Since(start).Round(time.Second))
+		if got.Update != nil {
+			t.Logf("chain=%+v", got.Update.Chain)
+		}
+		if got.SourceCheck != nil {
+			t.Logf("introduced=%+v new=%+v entries=%+v edges=%+v", got.SourceCheck.Introduced, got.SourceCheck.ChainNewTriples, got.SourceCheck.ChainEntryGrowth, got.SourceCheck.ChainEdgeGrowth)
+		}
+		for _, p := range got.Packages {
+			t.Logf("package %s: %s %s %s", p.Name, p.Action, p.Reason, clip(p.Detail, 300))
+		}
+		return got
+	}
+
+	t.Run("uv_chain_first_run", func(t *testing.T) {
+		// requests holds urllib3 below the fix. Asking for the fixed urllib3 makes
+		// uv move requests as well, which the ordinary update's difference check
+		// refuses; the same lockfile is judged again by the chain's rules and
+		// passes, with no container run for it.
+		got := run(t, "uv_chain_first_run", group(typePythonPkg, "urllib3", "1.26.20", pyOrigin("urllib3", "1.26.20"),
+			CVERef{VulnID: "CVE-2025-66418", FixedVers: []string{"2.6.0"}}, CVERef{VulnID: "CVE-2025-66471", FixedVers: []string{"2.6.0"}},
+			CVERef{VulnID: "CVE-2026-21441", FixedVers: []string{"2.6.3"}}, CVERef{VulnID: "CVE-2026-44431", FixedVers: []string{"2.7.0"}},
+			CVERef{VulnID: "CVE-2026-97687", FixedVers: []string{"2.8.0"}}, CVERef{VulnID: "CVE-2026-97689", FixedVers: []string{"2.8.0"}}))
+		wantCategory(t, got, CategoryPRCandidate, ReasonUpdateVerified)
+		c := got.Update.Chain
+		if c == nil || c.Outcome != ChainAdopted || c.Source != "first_run" || c.Usage.Containers != 1 {
+			t.Fatalf("chain = %+v: the first update's lockfile is judged again and no container is added", c)
+		}
+		if len(c.Tops) != 1 || c.Tops[0].Name != "requests" || c.Tops[0].From != "2.25.1" || c.Tops[0].To == "" || c.Tops[0].To == "2.25.1" {
+			t.Errorf("tops = %+v", c.Tops)
+		}
+		u := packageOf(t, got, "urllib3")
+		if strings.Join(u.Through, ",") != "requests" {
+			t.Errorf("urllib3 = %+v", u)
+		}
+		if cmp, _ := compareVersions(schemePEP440, u.AdoptedVersion, "2.8.0"); cmp < 0 {
+			t.Errorf("adopted = %s", u.AdoptedVersion)
+		}
+		if got.Update.Runtime == nil || got.Update.Tool == nil || len(got.Update.Steps) == 0 {
+			t.Errorf("the record of the first update's run is lost: %+v", got.Update)
+		}
+		if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges" {
+			t.Errorf("source check = %+v", got.SourceCheck)
+		}
+	})
+	t.Run("uv_chain_introduces_findings", func(t *testing.T) {
+		got := run(t, "uv_chain_introduces_findings", group(typePythonPkg, "cryptography", "41.0.7", pyOrigin("cryptography", "41.0.7"),
+			CVERef{VulnID: "CVE-2024-26130", FixedVers: []string{"42.0.4"}}))
+		if got.Category == CategoryPRCandidate {
+			t.Fatalf("a result was proposed: %s", got.Detail)
+		}
+		c := got.Update.Chain
+		if c == nil || c.Outcome != ChainRejected || c.Reason != ReasonSourceIntroduced {
+			t.Fatalf("chain = %+v", c)
+		}
+		if p := packageOf(t, got, "cryptography"); p.Reason != ReasonDependentsRejected {
+			t.Errorf("cryptography = %+v", p)
+		}
+	})
+	t.Run("uv_chain_no_solution", func(t *testing.T) {
+		got := run(t, "uv_chain_no_solution", group(typePythonPkg, "cryptography", "41.0.7", pyOrigin("cryptography", "41.0.7"),
+			CVERef{VulnID: "CVE-2024-26130", FixedVers: []string{"42.0.4"}}))
+		wantCategory(t, got, CategoryManual, ReasonUpdateStepFailed)
+		c := got.Update.Chain
+		if c == nil || c.Outcome != ChainFailed || c.Source != "chain_job" || c.Usage.Containers != 2 {
+			t.Fatalf("chain = %+v: the chain job failed too and the first update's reason stands", c)
+		}
+		if p := packageOf(t, got, "cryptography"); p.Reason != ReasonUpdateStepFailed {
+			t.Errorf("cryptography = %+v", p)
+		}
+	})
+}

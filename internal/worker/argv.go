@@ -80,6 +80,19 @@ func Argv(j Job, s Step) ([]string, error) {
 			a = append(a, "--upgrade-package", p.Name+"=="+p.Version)
 		}
 		a = append(a, "--no-build", "--no-config", "--no-python-downloads", "--python", python)
+	case OpUvUpgradeChain:
+		a = []string{"uv", "lock"}
+		for _, p := range s.Packages {
+			switch {
+			case p.Version != "":
+				a = append(a, "--upgrade-package", p.Name+"=="+p.Version)
+			case p.AtLeast != "":
+				a = append(a, "--upgrade-package", p.Name+">="+p.AtLeast)
+			default:
+				a = append(a, "--upgrade-package", p.Name)
+			}
+		}
+		a = append(a, "--no-build", "--no-config", "--no-python-downloads", "--python", python)
 	case OpPipDryRun:
 		a = []string{spec.InterpreterName(), "-m", "pip", "--isolated", "install", "--dry-run", "--ignore-installed",
 			"--only-binary=:all:", "--disable-pip-version-check", "--no-input",

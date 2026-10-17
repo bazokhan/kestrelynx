@@ -57,7 +57,7 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		if sfail.category == CategoryDeferred {
 			return u.chainDeferred(ctx, it, set, first, firstFail, nil, unreached, sfail)
 		}
-		chain := &ChainUpdate{Outcome: ChainNotTried, Reason: sfail.reason, Detail: sfail.detail, Source: "chain_job", Blocked: []ChainBlock{}, Tops: []ChainMove{}}
+		chain := &ChainUpdate{Outcome: ChainNotTried, Reason: sfail.reason, Detail: sfail.detail, Source: chainSource(it, firstFail), Blocked: []ChainBlock{}, Tops: []ChainMove{}}
 		u.finishFirst(ctx, ctx, it, n, set, first, firstFail, chain, sfail.pkgs)
 		return true
 	}
@@ -73,7 +73,7 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 	}
 	if stop := it.chainStopped; stop != nil {
 		reason, detail := stoppedReason(stop.StopReason)
-		chain := &ChainUpdate{Outcome: ChainNotTried, Reason: stop.StopReason, Detail: detail, Source: "chain_job", Blocked: scope.Blocked, Tops: topMoves(scope, g0, nil)}
+		chain := &ChainUpdate{Outcome: ChainNotTried, Reason: stop.StopReason, Detail: detail, Source: chainSource(it, firstFail), Blocked: scope.Blocked, Tops: topMoves(scope, g0, nil)}
 		if stop.StopReason == ReasonReleaseTooNew {
 			chain.Outcome = ChainRejected
 		}
@@ -90,7 +90,11 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 			entries++
 		}
 	}
+	recheck := it.Manager == ManagerUv && firstFail != nil && firstFail.rejectedLock != nil
 	containers, lookups := 1, 2*(len(scope.Tops)+len(scope.Anc)+entries)+64
+	if recheck {
+		containers = 0 // the first update's lockfile is judged again; nothing is run
+	}
 	if firstFail != nil && len(firstFail.retryWithout) > 0 {
 		containers++
 		lookups += first.lookups
@@ -117,16 +121,24 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		chain: scope, shared: sh, leftOut: drop, baseOK: first.baseOK,
 	}
 	var cfail *updateFailure
-	if it.Manager == ManagerNpm || it.Manager == ManagerPnpm {
-		// The direct dependencies among the packages updated get the same edits
-		// of their declarations as in the first update.
+	// The direct dependencies among the packages updated get the same edits of
+	// their declarations as in the first update.
+	switch it.Manager {
+	case ManagerNpm, ManagerPnpm:
 		cfail = cr.planNodeManifest(workCtx)
+	case ManagerUv:
+		cfail = cr.planUvProject(workCtx)
+	}
+	source := chainSource(it, firstFail)
+	if recheck {
+		cr.recheck = firstFail.rejectedLock
+		cr.upd.Steps, cr.upd.Runtime, cr.upd.Tool = first.upd.Steps, first.upd.Runtime, first.upd.Tool
 	}
 	if cfail == nil {
 		cfail = run(workCtx, cr, scope)
 	}
 	cr.upd.Notes = uniqueSorted(cr.upd.Notes)
-	chain := &ChainUpdate{Source: "chain_job", Blocked: scope.Blocked, Tops: topMoves(scope, g0, nil)}
+	chain := &ChainUpdate{Source: source, Blocked: scope.Blocked, Tops: topMoves(scope, g0, nil)}
 	if cfail != nil {
 		u.expired(ctx, workCtx, sh, cfail)
 	}
@@ -146,13 +158,23 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 	case cfail.reason == ReasonTargetNotUpdated:
 		chain.Outcome, chain.Reason, chain.Detail = ChainNotFixed, "", cfail.detail
 		heldBy = held(ReasonDependentsNotFixed, cfail.detail)
-	case cfail.category == CategoryFailed:
+	case cfail.category == CategoryFailed || cfail.reason == ReasonUpdateStepFailed:
 		chain.Outcome, chain.Reason, chain.Detail = ChainFailed, cfail.reason, cfail.detail
 	default:
 		chain.Outcome, chain.Reason, chain.Detail = ChainRejected, cfail.reason, cfail.detail
 		heldBy = held(ReasonDependentsRejected, cfail.detail)
 	}
-	chain.Moves, chain.Truncated = chainMovesIn(ctx, it.Manager, cr.chainGraphNames(), scope, cr.upd.Diff, g0, nil)
+	// What the update would have made, when there is a lockfile to read: the one
+	// the checks refused, or the one that failed the comparison of findings.
+	var g1 *depGraph
+	lock := cr.newLock
+	if lock == nil {
+		lock = cr.recheck
+	}
+	if len(lock) > 0 {
+		g1, _ = buildGraph(ctx, it.Manager, lock)
+	}
+	chain.Moves, chain.Truncated = chainMovesIn(ctx, it.Manager, cr.chainGraphNames(), scope, cr.upd.Diff, g0, g1)
 	u.finishFirst(workCtx, ctx, it, n, set, first, firstFail, chain, heldBy)
 	return true
 }
@@ -216,7 +238,7 @@ func (u *LangUpdater) chainDeferred(ctx context.Context, it *LanguageItem, set u
 	if scope != nil {
 		blocked = scope.Blocked
 	}
-	chain := &ChainUpdate{Outcome: ChainDeferred, Reason: f.reason, Detail: f.detail, Source: "chain_job", Blocked: blocked, Tops: []ChainMove{}}
+	chain := &ChainUpdate{Outcome: ChainDeferred, Reason: f.reason, Detail: f.detail, Source: chainSource(it, firstFail), Blocked: blocked, Tops: []ChainMove{}}
 	if blocked == nil {
 		chain.Blocked = []ChainBlock{}
 	}
@@ -579,4 +601,14 @@ func throughOf(scope *chainScope, g0, g1 *depGraph) []string {
 		return nil
 	}
 	return []string{best}
+}
+
+// chainSource says what a chain attempt rests on: "first_run" when the first
+// update's own lockfile is judged again by the chain's rules, "chain_job" when
+// a job of its own is run.
+func chainSource(it *LanguageItem, firstFail *updateFailure) string {
+	if it.Manager == ManagerUv && firstFail != nil && firstFail.rejectedLock != nil {
+		return "first_run"
+	}
+	return "chain_job"
 }

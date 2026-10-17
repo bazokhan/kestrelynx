@@ -679,7 +679,13 @@ func (r *updateRun) runUv(ctx context.Context) *updateFailure {
 	out, fail := r.exec(ctx, worker.ManagerUv, inputs, steps, "update")
 	if fail != nil {
 		fail.baselineVerified = fail.reason == ReasonUpdateStepFailed && baselineVerified(out, r.src.lock, r.src.lockName)
+		if fail.baselineVerified {
+			r.baseOK = out
+		}
 		return fail
+	}
+	if baselineVerified(out, r.src.lock, r.src.lockName) {
+		r.baseOK = out
 	}
 	return r.finishLockfile(ctx, out, steps, nil)
 }
@@ -726,6 +732,7 @@ func (r *updateRun) finishLockfile(ctx context.Context, out *jobOutput, checked 
 		// The baseline and the check of the updated file were both consistent
 		// before the difference was judged.
 		fail.baselineVerified = true
+		fail.rejectedLock = newLock
 	}
 	return fail
 }
@@ -983,17 +990,17 @@ func (r *updateRun) checkReleaseAge(ctx context.Context, gb, ga *depGraph, touch
 		had[n.name+"@"+n.version] = true
 	}
 	var fresh []string
-	seen := map[string]bool{}
+	nodeOf := map[string]*depNode{}
 	for _, k := range touched {
 		n := ga.nodes[k]
 		if n == nil {
 			continue
 		}
 		id := n.name + "@" + n.version
-		if had[id] || seen[id] {
+		if had[id] || nodeOf[id] != nil {
 			continue
 		}
-		seen[id] = true
+		nodeOf[id] = n
 		fresh = append(fresh, id)
 	}
 	sort.Strings(fresh)
@@ -1001,15 +1008,9 @@ func (r *updateRun) checkReleaseAge(ctx context.Context, gb, ga *depGraph, touch
 	var retry time.Time
 	var young []string
 	for _, id := range fresh {
-		at := strings.LastIndex(id, "@")
-		name, version := id[:at], id[at+1:]
-		times, err := r.publishTimes(ctx, name)
-		if err != nil {
-			return lookupFailure(ctx, err, name+" in the npm registry")
-		}
-		published, ok := times[version]
-		if !ok {
-			return manualFailure(ReasonDistributionMismatch, "the npm registry gives no publication time for %s", id)
+		published, fail := r.publishedAt(ctx, nodeOf[id])
+		if fail != nil {
+			return fail
 		}
 		if due := published.Add(chainMinReleaseAge); now.Before(due) {
 			young = append(young, id)
@@ -1294,3 +1295,42 @@ func lineOf(v version) string {
 // maxVersionsPerPackage bounds how many different versions of one package an
 // updated file may hold.
 const maxVersionsPerPackage = 256
+
+// publishedAt is when the version an entry stands for was published. For npm
+// and pnpm that is the time the registry gives for the version; for uv the
+// earliest upload time of the files of the release that the entry records.
+func (r *updateRun) publishedAt(ctx context.Context, n *depNode) (time.Time, *updateFailure) {
+	id := n.name + "@" + n.version
+	if r.it.Manager == ManagerUv {
+		rel, err := r.pyRelease(ctx, n.name, n.version)
+		if err != nil {
+			return time.Time{}, lookupFailure(ctx, err, id+" on PyPI")
+		}
+		recorded := map[string]bool{}
+		for _, d := range n.dist {
+			recorded[strings.TrimPrefix(d.hash, "sha256:")] = true
+		}
+		var earliest time.Time
+		for _, f := range rel.Files {
+			if f.UploadTime.IsZero() || !recorded[f.SHA256] {
+				continue
+			}
+			if earliest.IsZero() || f.UploadTime.Before(earliest) {
+				earliest = f.UploadTime
+			}
+		}
+		if earliest.IsZero() {
+			return time.Time{}, manualFailure(ReasonDistributionMismatch, "PyPI gives no upload time for the files %s records", id)
+		}
+		return earliest, nil
+	}
+	times, err := r.publishTimes(ctx, n.name)
+	if err != nil {
+		return time.Time{}, lookupFailure(ctx, err, n.name+" in the npm registry")
+	}
+	published, ok := times[n.version]
+	if !ok {
+		return time.Time{}, manualFailure(ReasonDistributionMismatch, "the npm registry gives no publication time for %s", id)
+	}
+	return published, nil
+}

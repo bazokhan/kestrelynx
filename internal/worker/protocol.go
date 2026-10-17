@@ -64,7 +64,11 @@ const (
 	OpPnpmRelock Op = "pnpm.relock"
 	OpUvCheck    Op = "uv.check"
 	OpUvUpgrade  Op = "uv.upgrade"
-	OpPipDryRun  Op = "pip.dry_run"
+	// OpUvUpgradeChain is uv.upgrade for an update that also lets uv move the
+	// packages that require a pinned one: a package is given an exact version, a
+	// lowest version, or neither (uv then picks the newest it can).
+	OpUvUpgradeChain Op = "uv.upgrade_chain"
+	OpPipDryRun      Op = "pip.dry_run"
 )
 
 // PipReportName is the file pip.dry_run writes its install report to, in the
@@ -181,8 +185,9 @@ type Step struct {
 	ID      string `json:"id"`
 	Op      Op     `json:"op"`
 	Scratch bool   `json:"scratch,omitempty"`
-	// Packages are the update targets of uv.upgrade, each a name and a
-	// version.
+	// Packages are the update targets of uv.upgrade and uv.upgrade_chain, each
+	// a name and a version (uv.upgrade_chain: a version, a lowest version or
+	// neither).
 	Packages []Package `json:"packages,omitempty"`
 	// RequireHashes and Target are for pip.dry_run.
 	RequireHashes bool    `json:"require_hashes,omitempty"`
@@ -193,6 +198,9 @@ type Step struct {
 type Package struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
+	// AtLeast is a lowest version, for uv.upgrade_chain: the package may be
+	// moved to any version from it up.
+	AtLeast string `json:"at_least,omitempty"`
 }
 
 // Target is the environment pip resolves for.

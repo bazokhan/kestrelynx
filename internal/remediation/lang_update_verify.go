@@ -115,6 +115,9 @@ func (r *updateRun) pyRelease(ctx context.Context, name, version string) (PyPIRe
 	r.pyDocs[key] = d
 	if sh := r.shared; sh != nil {
 		sh.cache.py[key] = d
+		if err := sh.budget.addBytes(int64(d.BodyBytes)); err != nil {
+			return PyPIRelease{}, err
+		}
 	}
 	return d, nil
 }

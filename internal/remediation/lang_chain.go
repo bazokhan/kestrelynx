@@ -293,16 +293,19 @@ func exactVersionOf(spec string) (string, bool) {
 }
 
 // minFixed is the lowest of the versions a vulnerability is reported fixed in.
-func minFixed(c CVERef) (string, bool) {
+func minFixed(c CVERef) (string, bool) { return minFixedIn(schemeSemver, c) }
+
+// minFixedIn is minFixed for versions ordered by the scheme.
+func minFixedIn(sc scheme, c CVERef) (string, bool) {
 	best := ""
 	for _, f := range c.FixedVers {
 		for _, one := range splitFixed(f) {
-			if _, ok := parseSemver(one); !ok {
+			if _, ok := parseVersion(sc, one); !ok {
 				return "", false
 			}
 			if best == "" {
 				best = one
-			} else if cmp, _ := compareVersions(schemeSemver, one, best); cmp < 0 {
+			} else if cmp, _ := compareVersions(sc, one, best); cmp < 0 {
 				best = one
 			}
 		}
@@ -331,6 +334,15 @@ func classifyEdge(spec string, lower string, cves []CVERef) edgeClass {
 // classifyEdgeProof is classifyEdge with the proof a pinning requirement is
 // established by.
 func classifyEdgeProof(spec, lower string, cves []CVERef) (edgeClass, string) {
+	return classifyEdgeProofIn(schemeSemver, spec, lower, cves)
+}
+
+// classifyEdgeProofIn is classifyEdgeProof for versions ordered by the scheme:
+// semver ranges for npm and pnpm, PEP 440 specifiers for uv.
+func classifyEdgeProofIn(sc scheme, spec, lower string, cves []CVERef) (edgeClass, string) {
+	if sc == schemePEP440 {
+		return classifyPyEdge(spec, lower, cves)
+	}
 	if v, ok := exactVersionOf(spec); ok {
 		for _, c := range cves {
 			if !meetsFix(schemeSemver, v, c.FixedVers) {
@@ -434,6 +446,9 @@ func (s *chainScoper) normalize(p *depNode) (*chainNorm, *updateFailure) {
 	if s.lookups++; s.lookups > maxScopeLookups {
 		return nil, unsupportedChain(s.names, ReasonDependentsLimit, "deciding where to start the update needs more than %d registry lookups", maxScopeLookups)
 	}
+	if s.r.it.Manager == ManagerUv {
+		return s.normalizeUv(p, cn)
+	}
 	d, err := s.r.npmRelease(s.ctx, p.name, p.version)
 	switch {
 	case err == nil:
@@ -477,7 +492,7 @@ func unsupportedChain(names []string, reason Reason, format string, args ...any)
 // ran out (a deferral).
 func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string) (*chainScope, *updateFailure) {
 	m := r.it.Manager
-	if m != ManagerNpm && m != ManagerPnpm {
+	if m != ManagerNpm && m != ManagerPnpm && m != ManagerUv {
 		return nil, nil
 	}
 	cand := excludeDeclared(m, r.src.manifest, g0, U)
@@ -544,7 +559,7 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 					ok = false
 					break occurrences
 				}
-				cls, proof := classifyEdgeProof(ne.spec, lower, cves)
+				cls, proof := classifyEdgeProofIn(sc, ne.spec, lower, cves)
 				p.deps[ref.edge].class = cls
 				switch cls {
 				case edgeUnevaluable:
@@ -598,11 +613,20 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 	// The ancestors: walk the requirements backwards from the parents of the
 	// pinning requirements, reading each parent's declaration as it is met so
 	// that a peer-only requirement is not followed.
+	// An entry of a pnpm package that is an ancestor in one peer context is one in
+	// all of them, and a uv package that is one at a version is one at every
+	// version the file holds (the versions belong to different forks of the
+	// resolution): the entries of the same package version, or the same package,
+	// are added with their ancestors.
 	var bases map[string][]int
-	if m == ManagerPnpm {
+	baseOf := func(n *depNode) string { return pnpmBase(n.key) }
+	if m == ManagerUv {
+		baseOf = func(n *depNode) string { return n.name }
+	}
+	if m == ManagerPnpm || m == ManagerUv {
 		bases = map[string][]int{}
 		for _, n := range g.list {
-			b := pnpmBase(n.key)
+			b := baseOf(n)
 			bases[b] = append(bases[b], n.id)
 		}
 	}
@@ -630,7 +654,7 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 			return nil, unsupportedChain(bn, ReasonDependentsLimit, "re-resolving would move more than %d packages that require the held back packages", maxChainAncestors)
 		}
 		if bases != nil {
-			for _, sib := range bases[pnpmBase(x.key)] {
+			for _, sib := range bases[baseOf(x)] {
 				push(sib)
 			}
 		}
@@ -662,7 +686,7 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 	if len(rootEdges) == 0 {
 		return nil, unsupportedChain(bn, ReasonDependentsUnsupported, "no direct dependency of the project leads to the held back packages")
 	}
-	pj, err := readManifest(r.src.manifest)
+	decl, err := newTopDeclarations(m, r.src.manifest)
 	if err != nil {
 		return nil, unsupportedChain(bn, ReasonDependentsUnsupported, "%v", err)
 	}
@@ -677,11 +701,8 @@ func buildChainScope(ctx context.Context, r *updateRun, g0 *depGraph, U []string
 		}
 		seenTop[e.name] = true
 		top := chainTop{Name: e.name, Key: e.key, Spec: e.ref}
-		for _, f := range manifestDepFields {
-			if spec, ok := pj.deps[f][e.name]; ok {
-				top.Group, top.Spec = f, spec
-				break
-			}
+		if group, spec, ok := decl.of(e.name); ok {
+			top.Group, top.Spec = group, spec
 		}
 		scope.Tops = append(scope.Tops, top)
 	}

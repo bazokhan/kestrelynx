@@ -245,6 +245,9 @@ type fakePyPI struct {
 	// requiresPython the requires-python of a release.
 	requires       map[string][]string
 	requiresPython map[string]string
+	// uploaded are upload times by name==version that replace the ancient one
+	// every file of a release the fake serves has.
+	uploaded map[string]time.Time
 }
 
 // fakeWheelURL and fakeWheelSHA are the wheel the fake index and the fake pip
@@ -328,7 +331,15 @@ func (f *fakePyPI) Release(_ context.Context, name, version string) (PyPIRelease
 		}
 		r = []PyPIFile{fakeWheel(name, version)}
 	}
-	return PyPIRelease{Files: r, RequiresDist: f.requires[key], RequiresPython: f.requiresPython[key]}, nil
+	files := make([]PyPIFile, len(r))
+	for i, file := range r {
+		file.UploadTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		if at, ok := f.uploaded[key]; ok {
+			file.UploadTime = at
+		}
+		files[i] = file
+	}
+	return PyPIRelease{Files: files, RequiresDist: f.requires[key], RequiresPython: f.requiresPython[key]}, nil
 }
 
 var fsConds = func() scanner.ScanConditions {

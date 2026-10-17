@@ -26,12 +26,13 @@ var optionalInputNames = map[Manager][]string{
 
 // opManager is the manager each operation belongs to.
 var opManager = map[Op]Manager{
-	OpNpmRelock:  ManagerNpm,
-	OpPnpmFrozen: ManagerPnpm,
-	OpPnpmRelock: ManagerPnpm,
-	OpUvCheck:    ManagerUv,
-	OpUvUpgrade:  ManagerUv,
-	OpPipDryRun:  ManagerPip,
+	OpNpmRelock:      ManagerNpm,
+	OpPnpmFrozen:     ManagerPnpm,
+	OpPnpmRelock:     ManagerPnpm,
+	OpUvCheck:        ManagerUv,
+	OpUvUpgrade:      ManagerUv,
+	OpUvUpgradeChain: ManagerUv,
+	OpPipDryRun:      ManagerPip,
 }
 
 // RequiredInputNames returns the file names a job for m must carry.
@@ -408,7 +409,7 @@ func (s *Step) Validate(m Manager) error {
 	if len(s.Packages) > MaxPackages {
 		return fmt.Errorf("%d packages exceed %d", len(s.Packages), MaxPackages)
 	}
-	needPkgs := s.Op == OpUvUpgrade
+	needPkgs := s.Op == OpUvUpgrade || s.Op == OpUvUpgradeChain
 	if needPkgs != (len(s.Packages) > 0) {
 		if needPkgs {
 			return fmt.Errorf("%s needs packages", s.Op)
@@ -420,7 +421,7 @@ func (s *Step) Validate(m Manager) error {
 	}
 	pkgSeen := map[string]bool{}
 	for _, p := range s.Packages {
-		if err := validatePackage(p); err != nil {
+		if err := validatePackage(s.Op, p); err != nil {
 			return err
 		}
 		if pkgSeen[p.Name] {
@@ -434,21 +435,35 @@ func (s *Step) Validate(m Manager) error {
 	return nil
 }
 
-// validatePackage checks a package of a uv.upgrade step: a Python project
-// name and a normalized version.
-func validatePackage(p Package) error {
-	if strings.HasPrefix(p.Name, "-") || strings.HasPrefix(p.Version, "-") {
+// validatePackage checks a package of a uv.upgrade or uv.upgrade_chain step: a
+// Python project name and normalized versions. uv.upgrade needs a version and
+// takes no lowest version; uv.upgrade_chain takes a version, a lowest version
+// or neither, and not both.
+func validatePackage(op Op, p Package) error {
+	if strings.HasPrefix(p.Name, "-") || strings.HasPrefix(p.Version, "-") || strings.HasPrefix(p.AtLeast, "-") {
 		return fmt.Errorf("value starting with '-' is refused")
 	}
-	nameOK, verOK := ValidPythonName, ValidPythonVersion
-	if !nameOK(p.Name) {
+	if !ValidPythonName(p.Name) {
 		return fmt.Errorf("invalid package name %q", p.Name)
 	}
-	switch {
-	case p.Version == "":
-		return fmt.Errorf("package %q needs a version", p.Name)
-	case !verOK(p.Version):
+	if p.Version != "" && !ValidPythonVersion(p.Version) {
 		return fmt.Errorf("invalid version %q for %q", p.Version, p.Name)
+	}
+	if p.AtLeast != "" && !ValidPythonVersion(p.AtLeast) {
+		return fmt.Errorf("invalid lowest version %q for %q", p.AtLeast, p.Name)
+	}
+	switch op {
+	case OpUvUpgrade:
+		if p.AtLeast != "" {
+			return fmt.Errorf("%s takes no lowest version", op)
+		}
+		if p.Version == "" {
+			return fmt.Errorf("package %q needs a version", p.Name)
+		}
+	case OpUvUpgradeChain:
+		if p.Version != "" && p.AtLeast != "" {
+			return fmt.Errorf("package %q has both a version and a lowest version", p.Name)
+		}
 	}
 	return nil
 }

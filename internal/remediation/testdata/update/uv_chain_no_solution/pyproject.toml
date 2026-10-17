@@ -1,0 +1,8 @@
+[project]
+name = "fixture-uv"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = ["pyopenssl>=23.2,<24"]
+
+[tool.uv]
+package = false

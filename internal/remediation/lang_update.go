@@ -132,7 +132,7 @@ func NewLangUpdater(cfg LangUpdateConfig) (*LangUpdater, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return nil, fmt.Errorf("remediation: job id: %w", err)
 	}
-	return &LangUpdater{cfg: cfg, runID: hex.EncodeToString(b[:]), chainRunners: map[DependencyManager]chainRunner{ManagerNpm: runNpmChain, ManagerPnpm: runPnpmChain}}, nil
+	return &LangUpdater{cfg: cfg, runID: hex.EncodeToString(b[:]), chainRunners: map[DependencyManager]chainRunner{ManagerNpm: runNpmChain, ManagerPnpm: runPnpmChain, ManagerUv: runUvChain}}, nil
 }
 
 // LangUpdateUsage records what a pass spent.
@@ -187,6 +187,9 @@ type updateFailure struct {
 	// original lockfile. They tell the chain update which packages the first
 	// update did not take to their target without reading the detail.
 	lockUnchanged, allUnreached, baselineVerified bool
+	// rejectedLock is the lockfile a uv update made whose difference from the
+	// original the checks refused, after its baseline was found consistent.
+	rejectedLock []byte
 	// wait, when set, says the item is to be tried again later and why (see
 	// RecordLanguageWaits).
 	wait *langWaitIntent
@@ -662,6 +665,9 @@ type updateRun struct {
 	// when it was found consistent: a later run of the item uses it in place of
 	// checking again.
 	baseOK *jobOutput
+	// recheck is a lockfile a chain run judges by the chain's rules in place of
+	// making one: the first update's, which its difference check refused.
+	recheck []byte
 }
 
 // succeed records a passed update on the item.
