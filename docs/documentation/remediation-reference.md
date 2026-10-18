@@ -76,6 +76,76 @@ See [Base image selection](remediation-logic.md#base-image-selection) for determ
 | Bundled dependencies and package-specific shrinkwrap | Unsupported for automatic updates of target packages |
 | Versions forced by `overrides` | Affected packages require manual handling |
 | Private registry settings in `.npmrc` | Unsupported |
+| Re-resolution through dependent packages | Limited to transitive dependencies that do not reach fixed versions through normal updates and whose dependent packages are confirmed to require older versions |
+
+#### Re-resolution support and limits {#dependent-reresolution-limits}
+
+This mechanism applies to transitive dependencies whose dependent packages' version requirements prevent updates to fixed versions.
+The following examples assume a lowest fixed version of `1.2.8` for npm and pnpm, and `2.0.0` for uv.
+
+| Example requirement from a dependent package | Use of this mechanism | Notes |
+| --- | --- | --- |
+| npm or pnpm `0.0.8` | Yes | Exact requirement for a version before the fix |
+| npm or pnpm `<1.0` | Yes | The upper bound excludes fixed versions |
+| uv `==1.2.3` or `<1.0` | Yes | The exact requirement or upper bound excludes fixed versions |
+| uv `~=1.4` | Yes | Allows versions from 1.4 up to but excluding 2.0 when fixed versions start at 2.0 |
+| npm or pnpm `^1.2.0` | No | The range allows a fixed version |
+| npm or pnpm ranges containing `\|\|`, or tags such as `latest` | No | These specifications do not establish grounds for re-resolution |
+| uv `!=1.2.3`, `===1.2.3`, or `==1.2.*` | No | Exclusions, arbitrary equality, and wildcards do not establish grounds for re-resolution |
+
+The following cases are excluded.
+
+- The project itself declares the package to fix as a direct dependency.
+- The target or a required dependent package uses an alias, local, Git, or URL reference, or has its version forced by `overrides`.
+- Conflicting declarations for the same dependency prevent a single version requirement from being determined.
+- The project uses pip or a pnpm version outside series 9, 10, 11, and 12.x from 12.10.0.
+
+| Limited resource | Limit and handling |
+| --- | --- |
+| Direct dependencies used as starting points for re-resolution | Up to 5 packages; exceeding this limit requires manual handling with `dependents_update_limit` |
+| Packages added, changed, or removed outside the update targets | Up to 64 in total; results exceeding this limit fail with `chain_move_limit` |
+| Work per item | Execution counts, communication volume, work time, and other resources have limits; repeated deferrals require manual handling with `dependents_update_limit` |
+
+#### Re-resolution check conditions {#dependent-reresolution-rules}
+
+Results with the following changes are not adopted.
+In webhooks, check both the per-package `packages[].reason` and `update.chain.reason`, which gives the detailed reason.
+
+| Example change | Recorded reason code |
+| --- | --- |
+| A version decreases on any path, or versions before and after the update cannot be matched | `chain_downgrade` |
+| The version or reference of a direct dependency changes when it is neither a normal update target nor a starting point for re-resolution | `unexplained_dependency_diff` |
+| The number of packages changed outside the update targets exceeds the limit | `chain_move_limit` |
+| The vulnerability targeted for fixing remains detectable in the post-update scan | `source_target_still_detected` |
+| A new vulnerable package appears | `source_introduced_findings` |
+| More dependent packages use a vulnerable package | `source_introduced_findings` |
+| A new version contains a vulnerability absent from the corresponding old version | `source_introduced_findings` |
+| One version splits into multiple vulnerable versions, or multiple paths merge so that a single old version of the vulnerable package cannot be determined | `source_introduced_findings` |
+| A KEV-listed vulnerability is introduced or is involved in the increases, splits, merges, or similar changes above | `source_introduced_kev` |
+
+A vulnerability may qualify as carried when only the version changes at the same dependency position and vulnerabilities present in the old version remain without an increase.
+See [Carried vulnerabilities](remediation-logic.md#dependent-reresolution-carried-findings) for an example.
+
+These checks have the following limits.
+
+- The checks cannot identify vulnerabilities absent from scan results or outside the configured severity range.
+- Carried vulnerabilities remain unfixed, and a vulnerability targeted for fixing cannot pass by qualifying as carried.
+- The checks do not compare the total number of paths from the project to vulnerable packages.
+
+#### Release waiting periods and retries {#dependent-reresolution-waits}
+
+Newly introduced versions must wait 72 hours after publication.
+A package version already present in the original lockfile is exempt, and a version whose publication time cannot be confirmed is not adopted.
+
+- The webhook's `retry_after` field shows the retry time for a release waiting period.
+- Three consecutive deferrals caused by release waiting periods or by the same type of processing limit stop re-resolution for the same inputs.
+- Cycles skipped before the retry time do not count toward the three deferrals.
+- After re-resolution stops, normal update results that pass the checks are still adopted, and remaining targets require manual handling with the following reason codes.
+
+| Stop cause | Reason code for remaining targets |
+| --- | --- |
+| Three consecutive release waits | `dependents_update_rejected` |
+| Three consecutive deferrals caused by the same type of processing limit | `dependents_update_limit` |
 
 ### pnpm dependency files {#pnpm-inputs}
 
@@ -89,6 +159,7 @@ See [Base image selection](remediation-logic.md#base-image-selection) for determ
 | Lockfiles recording automatic runtime downloads | Unsupported |
 | `resolutions`, `configDependencies`, `executionEnv`, and similar settings | Unsupported settings that alter resolution or additional downloads |
 | pnpm 12 | Supported from 12.10.0; 12.x releases before 12.10.0 require manual handling |
+| Re-resolution through dependent packages | Limited to transitive dependencies that do not reach fixed versions through normal updates and whose dependent packages are confirmed to require older versions |
 
 A `pnpm-workspace.yaml` in the same directory can be read if it contains only the following settings.
 The file's presence alone does not establish a workspace.
@@ -138,6 +209,7 @@ See [pip verification environment](remediation-logic.md#pip-target-environment) 
 | `[tool.uv]` | `required-version`, `dev-dependencies`, `sources`, and `package` can be read |
 | Other `[tool.uv]` settings | Unsupported |
 | `uv.toml` | Unsupported if present anywhere from the dependency directory to the repository root |
+| Re-resolution through dependent packages | Limited to transitive dependencies whose dependent packages are confirmed to require older versions, including reassessment of an initial update result rejected by dependency diff checks |
 
 Readable `[tool.uv]` keys still require supported dependency sources and project structure.
 
@@ -500,6 +572,22 @@ The following tables give each code's meaning and related decision rules or chec
 | `source_introduced_kev` | The update brings a new vulnerability on the KEV list into the dependency files | [Comparison conditions](remediation-logic.md#comparison-conditions) |
 | `source_scan_incomplete` | The dependency-file scan was incomplete | [Comparison conditions](remediation-logic.md#comparison-conditions) |
 | `update_verified` | Verification of the update result is complete | [Verification scope by target](remediation-logic.md#verification-scope) |
+| `dependents_update_not_fixed` | Re-resolution of dependent packages does not reach a fixed version in this attempt | [Re-resolution through dependent packages](remediation-logic.md#dependent-reresolution) |
+| `dependents_update_rejected` | The dependent-package update fails the checks | [Re-resolution check conditions](#dependent-reresolution-rules) |
+| `dependents_update_unsupported` | KestreLynx cannot update the dependent packages | [Re-resolution support and limits](#dependent-reresolution-limits) |
+| `dependents_update_limit` | The dependent-package update exceeds a limit | [Re-resolution support and limits](#dependent-reresolution-limits) |
+| `release_too_new` | A version introduced by the update is less than 72 hours old | [Release waiting periods and retries](#dependent-reresolution-waits) |
+| `chain_downgrade` | The update downgrades a package, or the correspondence between versions cannot be determined | [Re-resolution check conditions](#dependent-reresolution-rules) |
+| `chain_move_limit` | The update changes more packages than the limit allows | [Re-resolution support and limits](#dependent-reresolution-limits) |
+| `chain_item_budget` | The work required by the update exceeds a per-item limit | [Release waiting periods and retries](#dependent-reresolution-waits) |
+
+Re-resolution through dependent packages records per-package reasons separately from the detailed reason for the overall re-resolution result.
+In webhooks, check both `packages[].reason` and `update.chain.reason`.
+
+- `dependents_update_rejected` also covers re-resolution stopped after three consecutive release waits.
+- `dependents_update_limit` also covers stops caused by repeated deferrals for the same type of work limit or an inability to save waiting records.
+- `source_introduced_findings` and `source_introduced_kev` also cover increases in vulnerable entry or requirement counts and refusals from checks of positions in the dependency relationships.
+- Execution and retrieval failures also use failure codes shared with normal updates.
 
 ### PR processing reasons {#pr-reasons}
 
@@ -545,6 +633,9 @@ Remediation plan records are stored under `remediation.storage_dir`.
 | `delivered.json` | Separate identifiers for the delivered plan and the content displayed in Slack | After delivery of the corresponding notification |
 | `prs.json` | PR identities, states, creation attempts, recreation suppression, and GitHub operation records | During PR processing, reconciliation, and operation-result recording |
 | `tools` | Cache of retrieved and verified npm, pnpm, and uv distributions | During tool retrieval and related operations |
+
+`prs.json` also stores waiting times for re-resolution through dependent packages, consecutive deferral counts by type, and stop records for each set of inputs.
+These records are also updated after dependency-update processing.
 
 `plan.json` is not saved again with PR processing results.
 Notifications contain the current run's PR processing results, while `prs.json` holds the records used for ongoing management.

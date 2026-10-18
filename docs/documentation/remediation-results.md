@@ -109,6 +109,55 @@ An item being a PR candidate also does not mean that every package was updated.
 Pinned-version pip updates are not split into partial PRs.
 For eligibility conditions, see [Partial PR selection](remediation-logic.md#partial-pr-selection); for checks to perform, see [Checking update failures](remediation-troubleshooting.md#check-update-failure).
 
+### Results of re-resolution through dependent packages {#dependent-reresolution-results}
+
+For npm, pnpm, and uv, updating a target package to a fixed version may also update dependent packages within the ranges declared by the project.
+Slack shows these dependent packages alongside the target update.
+
+| Example display | Interpretation |
+| --- | --- |
+| `target old-version → adopted-version (with dependent old-version → new-version)` | The dependent package's version changes along with the target update. |
+| `did not reach the fixed version this time` | Dependent packages are resolved again, but the target does not reach a fixed version in this attempt. |
+| `needs … updated as well, and that update was not adopted because …` | The result is not adopted, for example because re-resolution checks fail. |
+| `updating … was not tried because …` | Re-resolution is skipped because of unsupported forms, limits, or similar conditions. |
+| `a version it brings in is less than 72 hours old, so it is tried again after …` | A newly introduced version does not yet satisfy the release waiting requirement. |
+
+- A result that does not reach a fixed version does not establish that other update methods cannot resolve the vulnerability.
+- If direct dependency versions remain unchanged and only intermediate dependent packages change, Slack shows the names of those dependent packages.
+- Slack lists up to three dependent packages and gives a count for the rest.
+- A normal update that passes the checks may still produce a PR even when the re-resolution result is not adopted.
+
+When direct dependency versions change, the PR body lists their before/after versions under “Packages updated along with the fix.”
+It also lists the targets held at older versions and their required ranges, with the name of any intermediate package that declares the requirement.
+
+The scan comparison line in the PR body depends on `source_check.basis`.
+When carried vulnerabilities are present, one line gives the record count and the first example and states that the update does not fix them.
+
+| Record | PR body display |
+| --- | --- |
+| `package_version_vuln_edges_positions` | A comparison by package name, version, and vulnerability ID, entry and requirement counts, and the positions of changed requirements |
+| `package_version_vuln_edges` | A comparison by package name, version, and vulnerability ID, and entry and requirement counts |
+| Example of carried vulnerabilities | 2 vulnerabilities stay at the same place in a version the update moved to (for example `CVE-2026-0001` for `rc` `1.2.8` to `1.2.9`); the update does not fix them. |
+
+- The displayed count of carried vulnerabilities is the number of recorded `chain_carried` elements, not the total number of positions.
+- When a list exceeds its limit, the PR body also displays a truncation notice.
+- The Slack display remains unchanged, with no dedicated lists for carried vulnerabilities or position checks.
+
+| Information needed | Webhook location |
+| --- | --- |
+| Dependent packages changed along with the update | `language_items[].packages[].through` |
+| Packages requiring older versions and their required ranges | `language_items[].update.chain.blocked` |
+| Re-resolution starting points and outcome | `language_items[].update.chain.tops` and `outcome` |
+| Detailed reasons for rejected or skipped re-resolution | `language_items[].update.chain.reason` and `detail` |
+| Reassessment of the initial update result or additional re-resolution | `language_items[].update.chain.source` |
+| Scan comparison basis | `language_items[].source_check.basis` |
+| Vulnerabilities remaining at the same positions | `language_items[].source_check.chain_carried` |
+| Position check refusals | `language_items[].source_check.chain_position_refusals` |
+| Earliest retry time | `language_items[].retry_after` |
+| Direct dependency changes included in the PR | `pull_requests[].language.chain` |
+
+See [Re-resolution through dependent packages](remediation-logic.md#dependent-reresolution) for processing conditions and [Records of re-resolution through dependent packages](webhook-remediation-reference.md#language-chain-fields) for field specifications.
+
 ### Re-pull guidance {#repull-guidance}
 
 “Re-pull” means that a comparison with the content currently referenced by the same tag confirmed an improvement.

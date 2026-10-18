@@ -170,11 +170,136 @@ See the dependency-file sections for [npm](remediation-reference.md#npm-inputs),
 Transitive dependencies are updated within the ranges declared by their parent packages.
 Updated versions are checked against parent-package declarations returned by the public registry.
 
-- Parent packages outside the update targets are not upgraded to obtain a fixed version
+- Normal updates do not upgrade parent packages outside the update targets to obtain a fixed version
 - Overrides are not added to force a fixed version
 - Changes to targets and related dependencies are checked for violations of version requirements between dependent packages and their dependencies
 
 [Partial PR conditions](#partial-pr-selection) explains what happens when a declared range prevents reaching the lower bound.
+
+### Re-resolution through dependent packages {#dependent-reresolution}
+
+This mechanism fixes vulnerabilities blocked by a dependent package's requirement for an older version by updating that dependent package.
+The dependent package moves to a newer version within the range declared by the project.
+
+#### mkdirp and minimist update example {#dependent-reresolution-example}
+
+Suppose the project's `package.json` specifies `mkdirp ^0.5.1` and the lockfile contains the following dependencies.
+Each arrow means that the package on the left uses the package on the right.
+
+~~~text
+Project → mkdirp 0.5.1 → minimist 0.0.8
+          rc     1.2.8 → minimist 1.2.0
+~~~
+
+The `minimist` vulnerability targeted in this example is `CVE-2021-44906`.
+Its fixed versions are `0.2.4` and `1.2.6`, so the update selects at least the fixed version for the chosen series.
+
+`mkdirp 0.5.1` requires exactly `minimist 0.0.8`.
+A normal update respects this requirement and cannot update `minimist` alone to a fixed version.
+
+KestreLynx allows npm to select the `mkdirp` version again and resolve the dependencies again.
+npm selects `mkdirp 0.5.6`, the latest version within `^0.5.1`, and that version requires `minimist ^1.2.6`.
+This also brings `minimist` to a fixed version.
+
+The requirement from `rc 1.2.8` is `minimist ^1.2.0`, which allows a fixed version of `1.2.6` or later.
+A normal update fixes this path, so the `rc` version stays unchanged.
+
+~~~text
+Project → mkdirp 0.5.6 → minimist fixed version in 1.2.x
+          rc     1.2.8 → minimist fixed version in 1.2.x
+~~~
+
+The `mkdirp ^0.5.1` specification in `package.json` stays unchanged.
+
+#### Re-resolution steps {#dependent-reresolution-steps}
+
+```mermaid
+flowchart TD
+    A["Update minimist to a fixed version through a normal update"] --> B{"Does minimist reach a fixed version?"}
+    B -->|"Yes (rc path)"| C["rc stays at 1.2.8<br/>minimist reaches 1.2.6 or later"]
+    B -->|"No (mkdirp path)"| D["Check the cause: mkdirp 0.5.1<br/>requires exactly minimist 0.0.8"]
+    D --> E{"Does a requirement for an older version<br/>prevent the update to a fixed version?"}
+    E -->|"Yes"| F["Allow a new selection of mkdirp,<br/>a direct dependency declared by the project"]
+    E -->|"No"| G["Do not re-resolve minimist with this method"]
+    F --> H["Resolve again with npm<br/>Select mkdirp 0.5.6, the latest version within ^0.5.1"]
+    H --> I["mkdirp 0.5.6 requires minimist ^1.2.6<br/>minimist also reaches a fixed version"]
+    C --> J{"Checks: Is the minimist vulnerability fixed<br/>without adding dependency or vulnerability problems?"}
+    I --> J
+    J -->|"Pass"| K["Include minimist and other updates that pass the checks in a PR"]
+    J -->|"Fail"| L["Do not adopt updates that fail the checks"]
+```
+
+- A normal update respects dependent packages' requirements and updates packages that can reach fixed versions, such as the `minimist` used by `rc`.
+- KestreLynx checks whether a dependent package's requirement for an older version, such as the requirement from `mkdirp 0.5.1`, prevents the target from reaching a fixed version.
+- When such a requirement is confirmed as the cause, KestreLynx follows the dependencies back to packages declared directly by the project.
+- In this example, KestreLynx preserves `mkdirp ^0.5.1` in `package.json`, allows npm to select `mkdirp` again, and asks npm to resolve the dependencies again.
+- After the update, KestreLynx checks that the target vulnerability is fixed without adding dependency or vulnerability problems and includes updates that pass in a PR.
+- A re-resolution result that fails the checks is not adopted.
+- Updates that pass the checks through normal updating alone can be adopted as a partial PR under [Partial PR conditions](#partial-pr-selection).
+
+#### Re-resolution eligibility {#dependent-reresolution-eligibility}
+
+This mechanism applies to a package that does not reach a fixed version through a normal update when all the following conditions hold.
+
+- The target is an indirect dependency brought in through a package such as `mkdirp`, like the example's `minimist`, which is absent from the project's direct declarations in `package.json`.
+- The dependent package's requirement excludes fixed versions through a pin to an older version or an upper bound, such as `mkdirp 0.5.1` requiring exactly `minimist 0.0.8`.
+- The project uses npm, pnpm, or uv, with npm used in this example.
+
+##### Examples of eligible and ineligible cases {#dependent-reresolution-eligibility-examples}
+
+| Example requirement or situation | Use of this mechanism | Reason |
+| --- | --- | --- |
+| `mkdirp 0.5.1` → exactly `minimist 0.0.8` | Yes | `minimist` is pinned to an older version that excludes fixed versions |
+| A dependent package requires `minimist` below `1.0`, assuming fixed versions are available only at `1.2.6` or later | Yes | The upper bound excludes fixed versions |
+| `rc 1.2.8` → `minimist ^1.2.0` (`1.2.0` or later, below `2.0.0`) | No | A normal update can select a fixed version of `1.2.6` or later |
+| The project's `package.json` declares `minimist` directly | No | Direct project declarations are handled by normal updates |
+| A pip project | No | This mechanism supports npm, pnpm, and uv |
+
+KestreLynx checks the information for `mkdirp 0.5.1` in the public npm registry to confirm its requirement for `minimist`.
+
+##### Excluded changes {#dependent-reresolution-non-goals}
+
+- Re-resolution does not widen declared ranges in files such as `package.json`.
+- Re-resolution does not force versions through `overrides`.
+
+See [Re-resolution support and limits](remediation-reference.md#dependent-reresolution-limits) for supported version specifications and limits on package counts, processing time, and other resources.
+
+See [Re-resolution check conditions](remediation-reference.md#dependent-reresolution-rules) for the re-resolution methods for npm, pnpm, and uv and the checks required to adopt the results.
+
+#### Checks after re-resolution {#dependent-reresolution-validation}
+
+In addition to the normal update checks, KestreLynx checks the effects of updating dependent packages.
+The main conditions for adoption are as follows.
+
+- Update targets and dependent packages selected for re-resolution must not downgrade on any dependency path, and their versions before and after the update must have a verifiable correspondence.
+- Other direct dependencies must remain unchanged, except for normal update targets and starting points for re-resolution.
+- Target packages must reach fixed versions at every occurrence, and the targeted vulnerabilities must no longer be detected.
+- The update must not increase vulnerabilities detected by the scan or occurrences of packages containing those vulnerabilities.
+- Newly introduced package versions must be at least 72 hours old.
+
+See [Re-resolution check conditions](remediation-reference.md#dependent-reresolution-rules) for detailed comparisons and waiting periods.
+
+#### Carried vulnerabilities {#dependent-reresolution-carried-findings}
+
+An update may also change another package's version while leaving the same vulnerability in that package.
+KestreLynx treats the vulnerability as carried when it stays at the same dependency position and meets conditions such as no increase in vulnerabilities or occurrences.
+
+~~~text
+Before: Project → A 1.0 → Y 1.0 (with CVE-2)
+After:  Project → A 2.0 → Y 1.1 (with CVE-2)
+~~~
+
+In this example, the same `CVE-2` remains in the `Y` used by `A`, so KestreLynx does not treat it as an increase in vulnerabilities.
+`CVE-2` is carried and remains unfixed by this update.
+
+A vulnerability selected for fixing in this update cannot pass the checks by qualifying as carried.
+The following changes are also rejected.
+
+- A new package `Z` appears in the updated dependencies and contains a vulnerability.
+- Another dependent package `B` starts using a vulnerable `Y` that only `A` uses before the update.
+- `Y 1.1` contains another vulnerability, `CVE-3`, that is absent from `Y 1.0` before the update.
+
+See [Re-resolution check conditions](remediation-reference.md#dependent-reresolution-rules) for carrying conditions and the limits of these checks.
 
 ## Runtime selection {#runtime-and-tool-versions}
 
@@ -388,6 +513,8 @@ This does not unpack distributions to compare all of their contents.
 For npm, pnpm, and uv, the remaining updates may be accepted even when some packages do not reach the update target's lower bound.
 Pinned-version pip updates are not split this way.
 
+For npm, pnpm, and uv, when the conditions for [Re-resolution through dependent packages](#dependent-reresolution) are met, KestreLynx checks that result before deciding whether to adopt a partial PR from the normal update.
+
 | Update result | Processing |
 | --- | --- |
 | No package reaches the lower bound | Does not produce a PR candidate because there is no update to adopt. |
@@ -449,6 +576,10 @@ KestreLynx records edit locations and update contents and matches them against G
 | Repository, base branch, file, and edit location | Change destination |
 | Target image tag and digest, or adopted package versions and manifest edits | Update contents |
 | Base commit and file contents before and after the change | Inputs used to create the same update |
+| Names and before/after versions of direct dependencies changed by re-resolution, and information about the dependent packages through which targets are updated | Normal updates and updates involving re-resolution through dependent packages for the same targets |
+
+Updates involving re-resolution through dependent packages include this change information in the update key.
+They are matched as separate updates from normal updates, even when the adopted target versions are the same.
 
 - If a PR exists for the same update, it is matched to its open, merged, or closed record
 - A trusted creation record for a language update with unchanged inputs allows matching an existing PR without rerunning the update job

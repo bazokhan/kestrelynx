@@ -54,6 +54,9 @@ See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for
 PRs may contain image references and digests, workload names, repository names, source paths, and changes.
 They may also contain package names and versions, vulnerability IDs, comparison results, and processing reasons.
 
+PRs that adopt re-resolution through dependent packages may also contain the names and before/after versions of direct dependencies updated along with the targets, and the ranges that required older versions.
+If an intermediate package declares such a range, its name is also included.
+
 See [PR management](remediation-logic.md#pr-management) for management conditions and [Enabling PR creation](remediation-setup.md#enable-pr-creation) for workflows triggered by PRs.
 
 ### Image candidate downloads {#candidate-registry-communication}
@@ -89,9 +92,14 @@ See [Tool downloads and verification](remediation-logic.md#tool-verification) fo
 | --- | --- | --- | --- |
 | KestreLynx | `registry.npmjs.org` | Retrieve dependency versions, dependency relationships, and other metadata | Checking Node.js compatibility requirements or update results. |
 | KestreLynx | `pypi.org` and `files.pythonhosted.org` | Retrieve Python package metadata and distributions | Checking Python update results. |
+| KestreLynx | `registry.npmjs.org` | Retrieve dependency declarations and publication times using package names and versions | Checking which dependent packages require older versions or whether 72 hours have elapsed since publication during npm or pnpm re-resolution through dependent packages. |
+| KestreLynx | `pypi.org` | Retrieve dependency declarations and distribution upload times using package names and versions | Checking which dependent packages require older versions or whether 72 hours have elapsed since publication during uv re-resolution through dependent packages. |
 | Work container | Public npm registry, PyPI, and distribution download destinations | Retrieve metadata and distributions for dependency resolution, lockfile generation, and checks | Running language-package dependency updates. |
 
 See [Update processing by package manager](remediation-logic.md#manager-update-methods) for update processing.
+
+Re-resolution through dependent packages also looks up intermediate dependent packages and versions newly introduced by re-resolution, in addition to the update targets.
+See [Re-resolution support and limits](remediation-reference.md#dependent-reresolution-limits) for limits on lookups and received data.
 
 ### Notification delivery {#notification-delivery}
 
@@ -101,6 +109,12 @@ See [Update processing by package manager](remediation-logic.md#manager-update-m
 
 Notifications may contain image references and digests, workload names, repository names, and source paths.
 They may also contain package names and versions, vulnerability IDs, and comparison results, so configure destinations according to the information you can share.
+
+Notifications about re-resolution through dependent packages may also contain the dependent packages updated along with the targets, results that do not reach fixed versions, and information about skipped attempts or waiting periods.
+Webhooks may also contain required version ranges, change lists, processing usage, and the earliest retry time.
+
+For carried vulnerabilities, webhooks may also contain package names, versions before and after the change, vulnerability IDs, position counts, and KEV listing information.
+Results rejected by position checks may also contain package names, versions, dependent package names, refusal types, and vulnerability IDs.
 
 See [Notification conditions](notification-conditions.md#notification-conditions) for delivery conditions and [Webhook field reference](webhook-reference.md#generic-webhook) for JSON contents.
 
