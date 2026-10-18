@@ -16,6 +16,9 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 各表のフィールド名は、表で示すオブジェクトからの相対パスです。
 省略条件を記載していないフィールドは、そのオブジェクトがある場合に出力します。
 
+`MEDIUM`・`LOW`・`UNKNOWN`の件数は、`scan.severity`にそれぞれの深刻度を含めた場合だけ出力します。
+既定の`[HIGH, CRITICAL]`では、Slack表示・Webhook・ログは変わりません。
+
 ### トップレベル {#top-level}
 
 | フィールド名 | 型 | 意味・省略条件 |
@@ -80,13 +83,16 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 | フィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
 | `image` | string | 表示用のイメージ参照 |
-| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数（対象の深刻度を広げた場合、`HIGH`にはCRITICAL以外のすべてを含む） |
+| `severity_counts` | object | 深刻度別の整数件数で、`CRITICAL`・`HIGH`は常に出力し、`HIGH`はHIGHのみを数える |
 | `findings` | objectの配列 | このイメージと修正状態に属する[パッケージグループ](#package-fields) |
 | `containers` | objectの配列 | この実体に一致する[コンテナ](#containers)で、該当なしは`[]` |
 | `content_id` | string | 実体を確認できたDockerのconfig digest指定スキャンの`sha256:<hex>`で、それ以外は省略 |
 | `registry_digests` | stringの配列 | 成功して実体を確認できた結果のregistry digestを、同じ参照について集めた一覧で、情報なしは`[]` |
 | `identity_resolved` | boolean | この要素のスキャンで稼働中イメージの実体を確認できた場合は`true` |
 | `scan_target_kind` | string | `content_id`、`registry_digest`、`reference`のいずれか |
+| `severity_counts.MEDIUM` | integer | MEDIUM件数で、`0`なら省略 |
+| `severity_counts.LOW` | integer | LOW件数で、`0`なら省略 |
+| `severity_counts.UNKNOWN` | integer | UNKNOWN件数（認識できない深刻度を含む）で、`0`なら省略 |
 
 `registry_digests`は同じ参照全体の情報ですが、`identity_resolved`と`scan_target_kind`は各要素の情報です。
 Slackの注釈との対応は、[スキャンの警告](slack-display.md#scan-warnings)を参照してください。
@@ -122,12 +128,15 @@ Slackの注釈との対応は、[スキャンの警告](slack-display.md#scan-wa
 | `installed` | string | インストール済みバージョン |
 | `fixed` | string | 修正版バージョンで、なければ`""` |
 | `status` | string | `fixed`、`affected`、`will_not_fix`、`end_of_life`のいずれか |
-| `severity_counts` | object | 整数値の`CRITICAL`・`HIGH`件数（対象の深刻度を広げた場合、`HIGH`にはCRITICAL以外のすべてを含む） |
+| `severity_counts` | object | 深刻度別の整数件数で、`CRITICAL`・`HIGH`は常に出力し、`HIGH`はHIGHのみを数える |
 | `upgrade_risk` | string | `""`、`distro_update`、`safe`、`caution`、`unknown`のいずれか |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、トリアージ無効時は省略 |
 | `vuln_ids` | stringの配列 | 並べ替え済みの脆弱性ID |
 | `vulns` | objectの配列 | [脆弱性ごとの詳細](#vulnerability-fields) |
 | `runtime` | object | [所見の使用状況](#finding-runtime)で、使用状況の判定が付いていない場合は省略 |
+| `severity_counts.MEDIUM` | integer | MEDIUM件数で、`0`なら省略 |
+| `severity_counts.LOW` | integer | LOW件数で、`0`なら省略 |
+| `severity_counts.UNKNOWN` | integer | UNKNOWN件数（認識できない深刻度を含む）で、`0`なら省略 |
 
 `class`と`ecosystem`は、稼働時の使用状況が無効でも出力します。
 修正状態と優先度の判定は、[検出結果の分類](scan-logic.md#finding-classification)と[悪用情報による優先度](scan-logic.md#triage)を参照してください。
@@ -310,7 +319,10 @@ Sensorの状態の意味と観測の限界は、[稼働時の使用状況](runti
 | `new_cve_count` | integer | `new_cves`の場合の追加CVE件数で、`0`なら省略 |
 | `new_cve_ids` | stringの配列 | `new_cves`の場合の追加IDで、空なら省略 |
 | `critical` | integer | CRITICAL件数 |
-| `high` | integer | HIGH件数（CRITICAL以外の深刻度を含む） |
+| `high` | integer | HIGH件数（HIGHのみ） |
+| `medium` | integer | MEDIUM件数で、`0`なら省略 |
+| `low` | integer | LOW件数で、`0`なら省略 |
+| `unknown` | integer | UNKNOWN件数（認識できない深刻度を含む）で、`0`なら省略 |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、優先度がなければ省略 |
 | `reason` | string | `escalated`の判定根拠または`unmuted`の理由で、空なら省略 |
 
@@ -373,7 +385,10 @@ Slackで畳み込むEOLパッケージの変化も含めます。
 | `runtime_usage` | string | `in_use`、`not_observed`、`unavailable`のいずれかで、使用状況の判定がなければ省略 |
 | `new_cve_ids` | stringの配列 | `eol_new_cves`の場合の並べ替え済み追加IDで、空なら省略 |
 | `critical` | integer | 今回のEOLグループのCRITICAL件数 |
-| `high` | integer | 今回のEOLグループのHIGH件数（CRITICAL以外の深刻度を含む） |
+| `high` | integer | 今回のEOLグループのHIGH件数（HIGHのみ） |
+| `medium` | integer | 今回のEOLグループのMEDIUM件数で、`0`なら省略 |
+| `low` | integer | 今回のEOLグループのLOW件数で、`0`なら省略 |
+| `unknown` | integer | 今回のEOLグループのUNKNOWN件数（認識できない深刻度を含む）で、`0`なら省略 |
 | `priority` | string | `act_now`、`watch`、`low`のいずれかで、トリアージ無効時は省略 |
 | `reason` | string | `eol_escalated`の場合の英語の判定根拠で、空なら省略 |
 

@@ -110,10 +110,17 @@ See [Fix status](scan-logic.md#status) for status meanings.
 In the channel, fixed findings that need attention appear individually, and the remaining findings are summarized by image.
 Runtime usage does not affect the order.
 
+Within each section, images containing HIGH vulnerabilities appear before images containing only MEDIUM, LOW, or UNKNOWN vulnerabilities.
+Within each image, packages containing HIGH vulnerabilities appear before packages containing only MEDIUM, LOW, or UNKNOWN vulnerabilities.
+
 ## Reading counts {#counts}
 
 Images, packages, and CVEs use different counting units.
 Counts within the same notification may therefore differ.
+
+Severity counts count only HIGH vulnerabilities as `HIGH` and count unrecognized severities as `UNKNOWN`.
+Counts for `MEDIUM`, `LOW`, and `UNKNOWN` appear only when `scan.severity` selects the corresponding levels; with the default `[HIGH, CRITICAL]`, display, webhook payloads, and logs remain unchanged.
+Package card finding counts, image headings, collapsed summary lines, and the current unresolved line with triage disabled append nonzero counts after `HIGH` in the order `MEDIUM`, `LOW`, `UNKNOWN` (for example, `CRITICAL 1 / HIGH 2 / MEDIUM 3`).
 
 ### Image counts {#image-counts}
 
@@ -142,7 +149,7 @@ EOL and priority counts include history retained from the previous cycle.
 EOL Watch and Low findings are not added to the priority counts.
 EOL package and Act now counts may overlap.
 
-With triage disabled, `CRITICAL` and `HIGH` sum the CVE counts of each package group in the current report.
+With triage disabled, severity counts sum the CVE counts of each package group in the current report separately for each severity.
 The same CVE is counted separately if it appears in different groups.
 
 When the current report contains no findings, the following states appear instead of counts.
@@ -203,7 +210,7 @@ In the channel, Act now uses detailed cards, while Watch and other findings use 
 | --- | --- | --- |
 | Installed and fixed versions | Separate lines | Same line |
 | Upgrade risk | `Upgrade risk:` line | In parentheses after the fixed version |
-| Finding counts | `CRITICAL` and `HIGH` counts | Same |
+| Finding counts | `CRITICAL` and `HIGH` counts, plus nonzero `MEDIUM`, `LOW`, and `UNKNOWN` counts | Same |
 | Action | Base image update wait, when applicable, on the line after `Findings:` | Same |
 | CVEs | Top CVE, exploitation information, and references | Top CVE when available |
 | Runtime usage | Evidence of observed use | Short display when in use |
@@ -417,7 +424,7 @@ Muted findings have no individual lines and appear as a count instead.
 ```
 
 - Excluded from `Priority:` counts and current unresolved priority counts
-- Excluded from current unresolved `CRITICAL` and `HIGH` counts when triage is disabled
+- Excluded from current unresolved counts for all severities when triage is disabled
 - Included in “not observed” runtime counts, so those counts overlap with the muted count
 - Included in retained unresolved counts when previous history is retained and muting cannot be evaluated this cycle
 
