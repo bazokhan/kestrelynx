@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -464,5 +465,54 @@ func TestBuild_FromRealSample(t *testing.T) {
 	g := pkgGroup(t, r.Actionable, "demo:1.0", "setuptools")
 	if g.Risk != RiskCaution {
 		t.Errorf("setuptools Risk = %q, want caution", g.Risk)
+	}
+}
+
+func TestBuild_CountsEverySeverityExactly(t *testing.T) {
+	fixed := func(sev scanner.Severity, id string) scanner.Finding {
+		return f("demo:1.0", scanner.ClassOS, "pkg", "1.0", "1.1", scanner.StatusFixed, sev, id)
+	}
+	r := Build([]scanner.ImageScan{{Image: "demo:1.0", Findings: []scanner.Finding{
+		fixed(scanner.SeverityCritical, "C1"),
+		fixed(scanner.SeverityHigh, "H1"),
+		fixed(scanner.SeverityMedium, "M1"), fixed(scanner.SeverityMedium, "M2"),
+		fixed(scanner.SeverityLow, "L1"),
+		fixed("UNKNOWN", "U1"),
+		fixed("", "U2"),
+	}}}, nil, Triage{}, fixedTime)
+	g := pkgGroup(t, r.Actionable, "demo:1.0", "pkg")
+	want := SeverityCounts{Critical: 1, High: 1, Medium: 2, Low: 1, Unknown: 2}
+	if g.Counts() != want {
+		t.Errorf("counts = %+v, want %+v", g.Counts(), want)
+	}
+	if g.Total() != 7 || r.Actionable[0].TotalCount() != 7 || r.Actionable[0].Counts() != want {
+		t.Errorf("totals: group %d image %d counts %+v", g.Total(), r.Actionable[0].TotalCount(), r.Actionable[0].Counts())
+	}
+}
+
+// A MEDIUM-only package must rank below a HIGH-bearing one even when it has
+// more CVEs; the same holds for images.
+func TestBuild_MediumDoesNotRankAsHigh(t *testing.T) {
+	var fs []scanner.Finding
+	for _, id := range []string{"M1", "M2", "M3"} {
+		fs = append(fs, f("demo:1.0", scanner.ClassOS, "aaa-medium", "1.0", "1.1", scanner.StatusFixed, scanner.SeverityMedium, id))
+	}
+	fs = append(fs, f("demo:1.0", scanner.ClassOS, "zzz-high", "1.0", "1.1", scanner.StatusFixed, scanner.SeverityHigh, "H1"))
+	r := Build([]scanner.ImageScan{{Image: "demo:1.0", Findings: fs}}, nil, Triage{}, fixedTime)
+	pk := r.Actionable[0].Packages
+	if pk[0].Package != "zzz-high" || pk[1].Package != "aaa-medium" {
+		t.Errorf("order = %s, %s; the HIGH package must come first", pk[0].Package, pk[1].Package)
+	}
+
+	img := func(name string, sev scanner.Severity, n int) scanner.ImageScan {
+		var out []scanner.Finding
+		for i := 0; i < n; i++ {
+			out = append(out, f(name, scanner.ClassOS, "p", "1.0", "1.1", scanner.StatusFixed, sev, name+strconv.Itoa(i)))
+		}
+		return scanner.ImageScan{Image: name, Findings: out}
+	}
+	r2 := Build([]scanner.ImageScan{img("a-medium:1", scanner.SeverityMedium, 3), img("b-high:1", scanner.SeverityHigh, 1)}, nil, Triage{}, fixedTime)
+	if r2.Actionable[0].Image != "b-high:1" {
+		t.Errorf("image order = %s first; the HIGH image must come first", r2.Actionable[0].Image)
 	}
 }

@@ -98,6 +98,9 @@ type pkgCard struct {
 	Risk      analyze.Risk
 	Critical  int
 	High      int
+	Medium    int
+	Low       int
+	Unknown   int
 
 	Changes []string // diff views: what changed for this package
 
@@ -189,6 +192,9 @@ func newPkgCard(r analyze.Report, image string, g analyze.PackageGroup, o cardOp
 		Risk:        g.Risk,
 		Critical:    g.Critical,
 		High:        g.High,
+		Medium:      g.Medium,
+		Low:         g.Low,
+		Unknown:     g.Unknown,
 		TopMode:     o.top,
 		Hint:        o.hint,
 		RuntimeMode: o.runtime,

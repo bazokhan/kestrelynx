@@ -49,11 +49,14 @@ const (
 	StatusUnknown            Status = "unknown"
 )
 
-// Severity is restricted in practice to HIGH/CRITICAL because KestreLynx asks
-// Trivy to filter, but the raw string is preserved as-is.
+// Severity is limited in practice to the levels scan.severity selects
+// (UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL) because KestreLynx asks Trivy to
+// filter, but the raw string is preserved as-is.
 type Severity string
 
 const (
+	SeverityMedium   Severity = "MEDIUM"
+	SeverityLow      Severity = "LOW"
 	SeverityHigh     Severity = "HIGH"
 	SeverityCritical Severity = "CRITICAL"
 )

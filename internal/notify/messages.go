@@ -76,7 +76,8 @@ type messages struct {
 	OpenNowUnconfirmedHolding string // "\n📌 Open now: unconfirmed — holding previous findings until re-confirmed\n"
 	OpenNowNotRescanned       string // "\n📌 Open now: not re-scanned — holding previous findings until the next successful scan\n"
 	OpenNowAllClear           string // "\n🎉 Open now: none — all clear\n"
-	OpenNowCriticalHigh       string // "CRITICAL %[1]d / HIGH %[2]d across %[3]d image(s)"
+	OpenNowCriticalHigh       string // "CRITICAL %[1]d / HIGH %[2]d%[4]s across %[3]d image(s)" (%[4]s: the OpenNowSevExtra parts for levels below HIGH, "" when none)
+	OpenNowSevExtra           string // " / %[1]s %[2]d" (level name, count) for a level below HIGH in the open-now line
 	OpenNowPrefix             string // "\n📌 Open now: %s" (joined segments)
 	OldestUnresolvedStale     string // " — ⏰ oldest unresolved %d day(s)"
 	OldestUnresolved          string // " — oldest unresolved %d day(s)"
@@ -471,7 +472,8 @@ var enMessages = messages{
 	OpenNowUnconfirmedHolding: "\n📌 Open now: unconfirmed — holding previous findings until re-confirmed\n",
 	OpenNowNotRescanned:       "\n📌 Open now: not re-scanned — holding previous findings until the next successful scan\n",
 	OpenNowAllClear:           "\n🎉 Open now: none — all clear\n",
-	OpenNowCriticalHigh:       "CRITICAL %[1]d / HIGH %[2]d across %[3]d image(s)",
+	OpenNowCriticalHigh:       "CRITICAL %[1]d / HIGH %[2]d%[4]s across %[3]d image(s)",
+	OpenNowSevExtra:           " / %[1]s %[2]d",
 	OpenNowPrefix:             "\n📌 Open now: %s",
 	OldestUnresolvedStale:     " — ⏰ oldest unresolved %d day(s)",
 	OldestUnresolved:          " — oldest unresolved %d day(s)",
@@ -818,7 +820,8 @@ var jaMessages = messages{
 	OpenNowUnconfirmedHolding: "\n📌 現在の未解決: 未確認 — 再確認まで前回の所見を保持\n",
 	OpenNowNotRescanned:       "\n📌 現在の未解決: 未再スキャン — 次のスキャン成功まで前回の所見を保持\n",
 	OpenNowAllClear:           "\n🎉 現在の未解決: なし — 問題なし\n",
-	OpenNowCriticalHigh:       "CRITICAL %[1]d件 / HIGH %[2]d件、イメージ%[3]d件",
+	OpenNowCriticalHigh:       "CRITICAL %[1]d件 / HIGH %[2]d件%[4]s、イメージ%[3]d件",
+	OpenNowSevExtra:           " / %[1]s %[2]d件",
 	OpenNowPrefix:             "\n📌 現在の未解決: %s",
 	OldestUnresolvedStale:     " — ⏰ 未解決の最長期間%d日",
 	OldestUnresolved:          " — 未解決の最長期間%d日",

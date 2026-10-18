@@ -411,11 +411,50 @@ func langTag(eco inventory.Ecosystem) string {
 }
 
 // collapsedSeverity is the severity summary of a collapsed lower-risk line.
-func collapsedSeverity(crit, high int) string {
-	if crit > 0 {
-		return fmt.Sprintf("CRITICAL %d / HIGH %d", crit, high)
+func collapsedSeverity(c analyze.SeverityCounts) string {
+	if c.Critical > 0 {
+		return fmt.Sprintf("CRITICAL %d / HIGH %d", c.Critical, c.High) + lowerSeverityParts(c, " / %[1]s %[2]d")
 	}
-	return fmt.Sprintf("HIGH %d", high)
+	return fmt.Sprintf("HIGH %d", c.High) + lowerSeverityParts(c, " / %[1]s %[2]d")
+}
+
+// lowerSeverityParts renders the levels below HIGH that have a non-zero
+// count, in descending order (MEDIUM, LOW, UNKNOWN), each through part
+// (level name %[1]s, count %[2]d). It is empty for the default
+// scan.severity, which keeps every existing line unchanged.
+func lowerSeverityParts(c analyze.SeverityCounts, part string) string {
+	var b strings.Builder
+	for _, l := range []struct {
+		name string
+		n    int
+	}{{"MEDIUM", c.Medium}, {"LOW", c.Low}, {"UNKNOWN", c.Unknown}} {
+		if l.n > 0 {
+			fmt.Fprintf(&b, part, l.name, l.n)
+		}
+	}
+	return b.String()
+}
+
+// countsLine renders the CRITICAL / HIGH counts through the language's
+// CardCounts format, followed by the non-zero lower levels.
+func countsLine(msg messages, c analyze.SeverityCounts) string {
+	return fmt.Sprintf(msg.CardCounts, c.Critical, c.High) + lowerSeverityParts(c, " / %[1]s %[2]d")
+}
+
+// severityMap is the severity_counts object of the webhook: CRITICAL and
+// HIGH always, the lower levels only when non-zero.
+func severityMap(c analyze.SeverityCounts) map[string]int {
+	m := map[string]int{"CRITICAL": c.Critical, "HIGH": c.High}
+	if c.Medium > 0 {
+		m["MEDIUM"] = c.Medium
+	}
+	if c.Low > 0 {
+		m["LOW"] = c.Low
+	}
+	if c.Unknown > 0 {
+		m["UNKNOWN"] = c.Unknown
+	}
+	return m
 }
 
 // collapsedNames lists up to collapsePreview package names, then a count of
@@ -528,6 +567,9 @@ type eolChangePayload struct {
 	NewIDs   []string `json:"new_cve_ids,omitempty"` // eol_new_cves: the end-of-life CVE ids added
 	Critical int      `json:"critical"`
 	High     int      `json:"high"`
+	Medium   int      `json:"medium,omitempty"`
+	Low      int      `json:"low,omitempty"`
+	Unknown  int      `json:"unknown,omitempty"`
 	Priority string   `json:"priority,omitempty"` // triage: act_now | watch | low
 	Reason   string   `json:"reason,omitempty"`   // eol_escalated: evidence for the new verdict
 
@@ -575,6 +617,9 @@ type changePayload struct {
 	NewIDs   []string `json:"new_cve_ids,omitempty"` // plain CVE ids added, same set as new_cve_count
 	Critical int      `json:"critical"`
 	High     int      `json:"high"`
+	Medium   int      `json:"medium,omitempty"`
+	Low      int      `json:"low,omitempty"`
+	Unknown  int      `json:"unknown,omitempty"`
 	Priority string   `json:"priority,omitempty"` // triage: act_now | watch | low
 	Reason   string   `json:"reason,omitempty"`   // escalated: evidence for the new verdict
 
@@ -881,10 +926,9 @@ func buildDiffPayload(r analyze.Report, d state.Diff) *diffPayload {
 		ResolvedEOLPackages: []eolResolvedPayload{},
 	}
 	for _, c := range d.Changes {
-		var crit, high int
+		var cnt analyze.SeverityCounts
 		for _, g := range c.Groups {
-			crit += g.Critical
-			high += g.High
+			cnt = cnt.Add(g.Counts())
 		}
 		cp := changePayload{
 			Image:        c.Image,
@@ -892,8 +936,11 @@ func buildDiffPayload(r analyze.Report, d state.Diff) *diffPayload {
 			Kind:         string(c.Kind),
 			NewCVEs:      c.NewCVEs,
 			NewIDs:       c.NewIDs,
-			Critical:     crit,
-			High:         high,
+			Critical:     cnt.Critical,
+			High:         cnt.High,
+			Medium:       cnt.Medium,
+			Low:          cnt.Low,
+			Unknown:      cnt.Unknown,
 			Priority:     string(analyze.MaxPriority(c.Groups)),
 			Ecosystems:   ecosystemsOf(c.Groups),
 			RuntimeUsage: runtimeUsageOf(c.Groups),
@@ -930,18 +977,20 @@ func buildDiffPayload(r analyze.Report, d state.Diff) *diffPayload {
 		})
 	}
 	for _, c := range d.NewEOLPackages {
-		var crit, high int
+		var cnt analyze.SeverityCounts
 		for _, g := range c.Groups {
-			crit += g.Critical
-			high += g.High
+			cnt = cnt.Add(g.Counts())
 		}
 		cp := eolChangePayload{
 			Image:        c.Image,
 			Package:      c.Package,
 			Kind:         string(c.Kind),
 			NewIDs:       c.NewIDs,
-			Critical:     crit,
-			High:         high,
+			Critical:     cnt.Critical,
+			High:         cnt.High,
+			Medium:       cnt.Medium,
+			Low:          cnt.Low,
+			Unknown:      cnt.Unknown,
 			Priority:     string(analyze.MaxPriority(c.Groups)),
 			Ecosystems:   ecosystemsOf(c.Groups),
 			RuntimeUsage: runtimeUsageOf(c.Groups),
@@ -1018,7 +1067,7 @@ func imagePayloads(imgs []analyze.ImageFindings, byRef map[string]analyze.ImageO
 				Installed:      g.InstalledVer,
 				Fixed:          g.FixedVer,
 				Status:         string(g.Status),
-				SeverityCounts: map[string]int{"CRITICAL": g.Critical, "HIGH": g.High},
+				SeverityCounts: severityMap(g.Counts()),
 				UpgradeRisk:    string(g.Risk),
 				Priority:       string(g.Priority),
 				VulnIDs:        g.VulnIDs(),
@@ -1044,7 +1093,7 @@ func imagePayloads(imgs []analyze.ImageFindings, byRef map[string]analyze.ImageO
 		}
 		out = append(out, imagePayload{
 			Image:            img.Image,
-			SeverityCounts:   map[string]int{"CRITICAL": img.CriticalCount(), "HIGH": img.TotalCount() - img.CriticalCount()},
+			SeverityCounts:   severityMap(img.Counts()),
 			Findings:         findings,
 			Containers:       containerPayloads(img.Containers),
 			ContentID:        img.ContentID(),

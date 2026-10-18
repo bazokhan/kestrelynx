@@ -342,7 +342,7 @@ func (v *chView) imageOf(img analyze.ImageFindings, counts bool) imageView {
 	label := imageLabel(img, v.byRef, v.msg)
 	iv := v.imageHeadingOf(label)
 	if counts {
-		iv.extra = []string{imageEmoji(img) + " " + fmt.Sprintf(v.msg.CardCounts, img.CriticalCount(), img.TotalCount()-img.CriticalCount())}
+		iv.extra = []string{imageEmoji(img) + " " + countsLine(v.msg, img.Counts())}
 	}
 	return iv
 }
@@ -511,14 +511,13 @@ func (v *chView) actionableCategory(imgs []analyze.ImageFindings) int {
 		}
 		if len(rest) > 0 {
 			collapsed += len(rest)
-			var crit, high int
+			var cnt analyze.SeverityCounts
 			names := make([]string, 0, len(rest))
 			for _, g := range rest {
-				crit += g.Critical
-				high += g.High
+				cnt = cnt.Add(g.Counts())
 				names = append(names, escMrkdwn(g.Package))
 			}
-			iv.cards = append(iv.cards, pseudo(fmt.Sprintf(v.msg.CardCollapsed, len(rest), collapsedSeverity(crit, high), collapsedNames(names, v.msg))))
+			iv.cards = append(iv.cards, pseudo(fmt.Sprintf(v.msg.CardCollapsed, len(rest), collapsedSeverity(cnt), collapsedNames(names, v.msg))))
 		}
 		views = append(views, iv)
 	}
@@ -691,7 +690,8 @@ func (v *chView) openNowLines(r analyze.Report, d state.Diff) []string {
 		days = d.OldestUrgentDays(r.GeneratedAt)
 		ageFmt, staleFmt = msg.OldestActNowWatch, msg.OldestActNowWatchStale
 	} else {
-		seg = append(openNowEOLSegments(d, false, msg), fmt.Sprintf(msg.OpenNowCriticalHigh, d.OpenCritical, d.OpenHigh, d.OpenImages))
+		seg = append(openNowEOLSegments(d, false, msg), fmt.Sprintf(msg.OpenNowCriticalHigh, d.OpenCritical, d.OpenHigh, d.OpenImages,
+			lowerSeverityParts(analyze.SeverityCounts{Medium: d.OpenSevMedium, Low: d.OpenSevLow, Unknown: d.OpenSevUnknown}, msg.OpenNowSevExtra)))
 		days = d.OldestOpenDays(r.GeneratedAt)
 		ageFmt, staleFmt = msg.OldestUnresolved, msg.OldestUnresolvedStale
 	}

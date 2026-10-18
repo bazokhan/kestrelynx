@@ -399,8 +399,14 @@ type Diff struct {
 
 	OpenCritical int
 	OpenHigh     int
-	OpenImages   int
-	OldestOpen   time.Time // zero when nothing is open
+	// OpenSevMedium, OpenSevLow and OpenSevUnknown count CVEs by severity
+	// level (unlike OpenLow, the triage "low" package count) and are
+	// non-zero only when scan.severity selects those levels.
+	OpenSevMedium  int
+	OpenSevLow     int
+	OpenSevUnknown int
+	OpenImages     int
+	OldestOpen     time.Time // zero when nothing is open
 
 	// Triage breakdown (zero when triage is off). Counts are package groups,
 	// the unit shown to the user. OldestUrgent ages only act_now/watch (and
@@ -813,6 +819,9 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 				}
 				d.OpenCritical += g.Critical
 				d.OpenHigh += g.High
+				d.OpenSevMedium += g.Medium
+				d.OpenSevLow += g.Low
+				d.OpenSevUnknown += g.Unknown
 			}
 		}
 	}

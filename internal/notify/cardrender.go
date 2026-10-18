@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kitsunetrail/kestrelynx/internal/analyze"
 	rtevidence "github.com/kitsunetrail/kestrelynx/internal/evidence"
 )
 
@@ -45,7 +46,7 @@ func (rd renderer) fixedValue(c pkgCard) string {
 }
 
 func (rd renderer) countsValue(c pkgCard) string {
-	return fmt.Sprintf(rd.msg.CardCounts, c.Critical, c.High)
+	return countsLine(rd.msg, analyze.SeverityCounts{Critical: c.Critical, High: c.High, Medium: c.Medium, Low: c.Low, Unknown: c.Unknown})
 }
 
 // baseWaitLine is the action line of a finding that waits for a newer base

@@ -491,14 +491,27 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 		ref := res.Ref
 		next.LastFullReport = &ref
 	}
-	log.Info("notification sent",
+	attrs := []any{
 		"new", len(diff.Changes),
 		"resolved", len(diff.Resolved),
 		"open_critical", diff.OpenCritical,
 		"open_high", diff.OpenHigh,
+	}
+	// The levels below HIGH appear only when scan.severity selects them, so
+	// the line is unchanged for the default configuration.
+	for _, x := range []struct {
+		key string
+		n   int
+	}{{"open_medium", diff.OpenSevMedium}, {"open_low", diff.OpenSevLow}, {"open_unknown", diff.OpenSevUnknown}} {
+		if x.n > 0 {
+			attrs = append(attrs, x.key, x.n)
+		}
+	}
+	attrs = append(attrs,
 		"full_report", fullToday,
 		"thread_report", res.Ref.TS != "",
 		"scan_errors", len(report.ScanErrors))
+	log.Info("notification sent", attrs...)
 	return r.saveState(next)
 }
 

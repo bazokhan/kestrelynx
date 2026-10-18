@@ -9,6 +9,7 @@ package analyze
 import (
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
@@ -40,6 +41,9 @@ type PackageGroup struct {
 	Risk         Risk
 	Critical     int       // count of distinct CRITICAL CVEs
 	High         int       // count of distinct HIGH CVEs
+	Medium       int       // count of distinct MEDIUM CVEs (scan.severity may include it)
+	Low          int       // count of distinct LOW CVEs
+	Unknown      int       // count of distinct CVEs whose severity is UNKNOWN or not a recognized level
 	Vulns        []VulnRef // deduplicated, strongest verdict first (sortVulns)
 	Priority     Priority  // max of Vulns' priorities; PriorityNone when triage is off
 	URL          string    // representative reference
@@ -131,7 +135,33 @@ func (g PackageGroup) PackageRef() inventory.PackageRef {
 }
 
 // Total is the number of distinct vulnerabilities in the group.
-func (g PackageGroup) Total() int { return g.Critical + g.High }
+func (g PackageGroup) Total() int { return g.Counts().Total() }
+
+// Counts returns the group's per-severity counts.
+func (g PackageGroup) Counts() SeverityCounts {
+	return SeverityCounts{Critical: g.Critical, High: g.High, Medium: g.Medium, Low: g.Low, Unknown: g.Unknown}
+}
+
+// SeverityCounts is a distinct-CVE count per severity level. Every level
+// is counted exactly: HIGH counts only HIGH, and a level scan.severity does
+// not select simply stays zero.
+type SeverityCounts struct {
+	Critical, High, Medium, Low, Unknown int
+}
+
+// Add returns c plus o, level by level.
+func (c SeverityCounts) Add(o SeverityCounts) SeverityCounts {
+	return SeverityCounts{
+		Critical: c.Critical + o.Critical,
+		High:     c.High + o.High,
+		Medium:   c.Medium + o.Medium,
+		Low:      c.Low + o.Low,
+		Unknown:  c.Unknown + o.Unknown,
+	}
+}
+
+// Total is the sum over every level.
+func (c SeverityCounts) Total() int { return c.Critical + c.High + c.Medium + c.Low + c.Unknown }
 
 // VulnIDs returns the group's vulnerability IDs, sorted.
 func (g PackageGroup) VulnIDs() []string {
@@ -192,6 +222,15 @@ func (f ImageFindings) CriticalCount() int {
 		n += g.Critical
 	}
 	return n
+}
+
+// Counts sums the per-severity counts across the image's packages.
+func (f ImageFindings) Counts() SeverityCounts {
+	var c SeverityCounts
+	for _, g := range f.Packages {
+		c = c.Add(g.Counts())
+	}
+	return c
 }
 
 // TotalCount sums all CVEs across the image's packages.
@@ -692,10 +731,17 @@ func buildSection(images map[imgKey]map[inventory.PackageRef]*pkgAcc, tr Triage,
 func finalize(acc *pkgAcc, tr Triage) PackageGroup {
 	g := acc.group
 	for id, info := range acc.vulns {
-		if info.sev == scanner.SeverityCritical {
+		switch strings.ToUpper(string(info.sev)) {
+		case string(scanner.SeverityCritical):
 			g.Critical++
-		} else {
+		case string(scanner.SeverityHigh):
 			g.High++
+		case string(scanner.SeverityMedium):
+			g.Medium++
+		case string(scanner.SeverityLow):
+			g.Low++
+		default:
+			g.Unknown++
 		}
 		e := tr.Enrich[id]
 		v := VulnRef{
@@ -776,8 +822,20 @@ func majorVersion(v string) (int, bool) {
 	return n, true
 }
 
+// severityTier ranks a group by its worst level: 0 with a CRITICAL, 1 with a
+// HIGH, 2 otherwise.
+func severityTier(g PackageGroup) int {
+	switch {
+	case g.Critical > 0:
+		return 0
+	case g.High > 0:
+		return 1
+	}
+	return 2
+}
+
 // sortPackages orders packages within an image: CRITICAL-bearing first, then
-// by total count desc, then package name. Two groups can now share a name
+// HIGH-bearing, then the rest, then by total count desc, then package name. Two groups can now share a name
 // (the aggregation key is PackageRef, not the name alone — the OS openssl
 // and a Rust openssl crate, or two installed versions of the same package),
 // so Ecosystem, then Version, then Class break the tie and make the order
@@ -786,9 +844,8 @@ func majorVersion(v string) (int, bool) {
 // Class still tells them apart.
 func sortPackages(g []PackageGroup) {
 	sort.Slice(g, func(i, j int) bool {
-		ci, cj := g[i].Critical > 0, g[j].Critical > 0
-		if ci != cj {
-			return ci
+		if ti, tj := severityTier(g[i]), severityTier(g[j]); ti != tj {
+			return ti < tj
 		}
 		if g[i].Total() != g[j].Total() {
 			return g[i].Total() > g[j].Total()
@@ -806,8 +863,8 @@ func sortPackages(g []PackageGroup) {
 	})
 }
 
-// sortImages orders images within a section by worst-first severity, then
-// total count, then image name, then EntityKey for stability (an Ambiguous
+// sortImages orders images within a section by CRITICAL count, then by
+// whether they carry any HIGH, then total count, then image name, then EntityKey for stability (an Ambiguous
 // reference can contribute more than one entry with the same Image). For
 // Docker (config-kind digests only, Platform always zero) comparing EntityKey
 // reduces to comparing digest hex, the same order comparing the old
@@ -817,6 +874,9 @@ func sortImages(f []ImageFindings) {
 		ci, cj := f[i].CriticalCount(), f[j].CriticalCount()
 		if ci != cj {
 			return ci > cj
+		}
+		if hi, hj := f[i].Counts().High > 0, f[j].Counts().High > 0; hi != hj {
+			return hi
 		}
 		ti, tj := f[i].TotalCount(), f[j].TotalCount()
 		if ti != tj {
