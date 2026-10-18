@@ -68,6 +68,7 @@ nav:
       - Runtime usage (experimental): documentation/runtime-usage.md
   - Development:
       - Overview: development/index.md
+      - Development of re-resolution through dependent packages: development/dependent-reresolution.md
       - Remediation plan and pull request development: development/remediation-pull-requests.md
       - Short-lived container scanning development: development/short-lived-containers.md
       - Kubernetes sensor feasibility: development/kubernetes-runtime-sensor.md
