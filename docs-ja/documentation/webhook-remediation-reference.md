@@ -137,7 +137,7 @@
 | `language_items[].workloads` | stringの配列または`null` | 対象のWorkload |
 | `language_items[].source` | object | 依存ファイルのリポジトリ・ブランチ・ディレクトリなどのソース情報 |
 | `language_items[].pull_request` | object | 対応する[PR処理](#remediation-pr-fields)で、対応がなければ省略 |
-| `language_items[].retry_after` | string | 公開後の待機で再試行可能になる日時をRFC 3339形式で示し、待機時刻がなければ省略 |
+| `language_items[].retry_after` | string | 公開後の待機が終わり、再試行できる日時（RFC 3339形式）で、日時がなければ省略 |
 
 ### パッケージの結果 {#language-package-fields}
 
@@ -152,7 +152,7 @@
 | `packages[].relation` | string | 依存関係の区分で、空なら省略 |
 | `packages[].action` / `packages[].reason` / `packages[].detail` | string | 対応・理由・補足で、空なら省略 |
 | `packages[].left_out` | boolean | 計画した更新から除外された場合は`true`で、それ以外は省略 |
-| `packages[].through` | stringの配列 | 修正版への更新に伴って動かした依存元の名前で、空なら省略 |
+| `packages[].through` | stringの配列 | 修正版に上げるために、あわせて更新した依存元の名前で、空なら省略 |
 | `packages[].occurrence_count` / `packages[].cve_count` / `packages[].origin_count` | integer | 依存ファイル内の出現箇所・脆弱性・元の所見の件数 |
 | `packages[].kev_count` | integer | KEVに掲載された脆弱性の件数で、`0`なら省略 |
 | `packages[].occurrences` / `packages[].cves` / `packages[].origins` | objectの配列 | 出現箇所・脆弱性・元の所見の一覧で、空なら省略 |
@@ -160,11 +160,11 @@
 
 `action`の定義は[パッケージの処理値](remediation-reference.md#action-values)、版の解釈は[更新目標と採用版](remediation-results.md#target-and-adopted-version)を参照してください。
 
-`through`には、再解決で版が変わった直接依存を載せます。
-直接依存の版が変わらず途中の依存元が変わった場合は、プロジェクトに最も近い変更された依存元の名前を載せます。
+`mkdirp`の更新で`minimist`を修正版に上げる例では、`minimist`の`through`は`["mkdirp"]`です。
+直接依存の版が変わらない場合は、途中で更新した依存元のうち、プロジェクトに最も近いものを載せます。
 
-既存PRに対応付けた回は、PRの記録から`through`を補う場合があります。
-この回の更新・検査の実行有無は、`update_executed`と`post_update_check_executed`で確認します。
+`through`は既存PRから補う場合もあります。
+今回の更新・検査の実行有無は、`update_executed`と`post_update_check_executed`で確認します。
 
 ### 実行環境 {#language-runtime-fields}
 
@@ -222,115 +222,115 @@
 | `update.diff.followed` | objectの配列 | 更新に伴って依存先の版が変わった項目で、空なら省略 |
 | `update.diff.followed[].entry` | string | 変更された項目 |
 | `update.diff.followed[].moves` | objectの配列 | stringの`name`・`from`・`to`を持つ依存先の変更 |
-| `update.chain` | object | 依存元からの再解決の結果や見送りの記録で、記録がなければ省略 |
+| `update.chain` | object | 依存元からの再解決の結果や見送りの理由で、情報がなければ省略 |
 | `source_check` | object | 更新前後の依存ファイルのスキャン結果で、記録がなければ省略 |
 | `source_check.counts` | integerの配列 | 解消・残存・新規検出の順に並ぶ3つの件数 |
 | `source_check.resolved` / `source_check.remaining` / `source_check.introduced` | objectの配列 | 対応する脆弱性の一覧で、空なら省略 |
 | `source_check.truncated` | boolean | 脆弱性一覧の一部を省略した場合は`true`で、それ以外は省略 |
 | `source_check.passed` | boolean | 更新後の検査に合格したかで、`false`でも出力 |
-| `source_check.basis` | string | 位置の検査を含む再解決の比較は`package_version_vuln_edges_positions`、位置の検査を含まない古い記録などは`package_version_vuln_edges`で、追加比較の記録がなければ省略 |
-| `source_check.chain_new_findings` | objectの配列 | 更新後に新たに現れ、同じ位置からの持ち越しと認められないパッケージ名・版・脆弱性IDの組み合わせで、空なら省略 |
-| `source_check.chain_entry_growth` | objectの配列 | 同じ脆弱性を持つlockfileエントリ数の増加を版ごと、または脆弱な版の合計で示す結果で、空なら省略 |
-| `source_check.chain_edge_growth` | objectの配列 | 脆弱な版のエントリを指す依存の数が増えた結果で、空なら省略 |
-| `source_check.chain_carried` | objectの配列 | 版が変わっても同じ位置に残る脆弱性で、空なら省略 |
-| `source_check.chain_position_refusals` | objectの配列 | 位置の検査が拒否する要求やエントリで、空なら省略 |
+| `source_check.basis` | string | [再解決のスキャン比較](#language-chain-scan-fields)の方法で、追加の比較がなければ省略 |
+| `source_check.chain_new_findings` | objectの配列 | 更新後に新たに見つかった脆弱性（持ち越しを除く）で、空なら省略 |
+| `source_check.chain_entry_growth` | objectの配列 | lockfile内で脆弱なパッケージの使用箇所が増えた結果で、空なら省略 |
+| `source_check.chain_edge_growth` | objectの配列 | 脆弱なパッケージを使う依存関係が増えた結果で、空なら省略 |
+| `source_check.chain_carried` | objectの配列 | 版が変わっても同じ依存関係に残る脆弱性で、空なら省略 |
+| `source_check.chain_position_refusals` | objectの配列 | 依存関係の変化を検査して不合格とした理由で、空なら省略 |
 
 非推奨注記の変更件数はWebhookに含めますが、対象名の一覧は含めません。
 対象名と注記の追加・削除・変更はPR本文で確認します。
 
-### 依存元からの再解決の記録 {#language-chain-fields}
+### 依存元からの再解決の結果 {#language-chain-fields}
 
-`language_items[].update.chain`には、再解決の対象と結果を記録します。
-この記録があることだけでは、再解決を実行したことや、その結果をPRに採用したことを示しません。
+`mkdirp 0.5.1`が`minimist 0.0.8`を指定する例では、`blocked`にこの指定、`tops`に選び直す`mkdirp`が入ります。
+`language_items[].update.chain.outcome`で、再解決の結果を確認します。
+
+| `outcome` | 意味 | 例 |
+| --- | --- | --- |
+| `adopted` | 採用 | `mkdirp`を`0.5.6`、`minimist`を`1.2.8`に更新し、検査に合格 |
+| `not_fixed` | 修正版に届かない | 依存元を選び直しても、対象が修正版に上がらない |
+| `rejected` | 不採用、または待機の繰り返しによる停止 | 更新によって別の脆弱性が新たに入る |
+| `failed` | 処理に失敗 | パッケージマネージャーがエラーで終了 |
+| `not_tried` | 見送り | 選び直す直接依存が5パッケージを超える |
+| `deferred` | 保留 | 新たに入る版の公開から72時間が経過していない |
 
 | `update.chain`からのフィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
-| `outcome` | string | 再解決の結果 |
-| `reason` / `detail` | string | 結果の理由と補足で、空なら省略 |
-| `source` | string | 追加の再解決を行う処理は`chain_job`、uvの最初の更新結果を再解決の規則で判定し直す処理は`first_run`で、実行・採用の有無は`outcome`で確認 |
-| `blocked` | objectの配列 | 修正版への到達を妨げる要求の一覧で、確認できた要求がなければ空配列 |
-| `blocked[].package` / `blocked[].version` | string | 古い版にとどまる対象パッケージの名前と版 |
-| `blocked[].parent` / `blocked[].parent_version` | string | 古い版を要求する依存元の名前と版 |
-| `blocked[].range` | string | 依存元が要求していた版の指定 |
-| `blocked[].proof` | string | 完全一致の要求による確認は`exact`、修正版に届かない上限による確認は`upper_bound` |
-| `blocked[].via` | stringの配列 | 依存元につながるプロジェクトの直接依存で、空なら省略 |
-| `tops` | objectの配列 | 再解決の起点となる直接依存で、情報がなければ空配列 |
-| `tops[].name` | string | 直接依存の名前 |
-| `tops[].from` / `tops[].to` | string | 更新前後の版で、情報がなければ省略 |
+| `outcome` | string | 上表の結果 |
+| `reason` / `detail` | string | 理由コードと補足で、空なら省略 |
+| `source` | string | `chain_job`は追加の再解決、`first_run`はuvの最初の更新結果の再判定 |
+| `blocked` | objectの配列 | 修正版への更新を妨げる版指定で、確認できなければ空配列 |
+| `blocked[].package` / `blocked[].version` | string | 更新を妨げられているパッケージの名前と版（例: `minimist`・`0.0.8`） |
+| `blocked[].parent` / `blocked[].parent_version` | string | 古い版を指定する依存元の名前と版（例: `mkdirp`・`0.5.1`） |
+| `blocked[].range` | string | 依存元による版指定（例: `0.0.8`） |
+| `blocked[].proof` | string | `exact`は古い版への固定、`upper_bound`は指定範囲の上限が修正版に届かない場合 |
+| `blocked[].via` | stringの配列 | その依存元につながる直接依存の名前で、空なら省略 |
+| `tops` | objectの配列 | 選び直す直接依存で、情報がなければ空配列 |
+| `tops[].name` | string | 直接依存の名前（例: `mkdirp`） |
+| `tops[].from` / `tops[].to` | string | 更新前後の版で、情報がなければ省略し、版が変わらない場合は同じ値 |
 | `tops[].kind` | string | `top` |
-| `moves` | objectの配列 | 更新対象と`tops`以外の付随変更で、空なら省略 |
-| `moves[].name` | string | パッケージ名で、名前を取得できない場合はエントリの識別子 |
-| `moves[].from` / `moves[].to` | string | 変更前後の版で、追加前・削除後などの情報がなければ省略 |
-| `moves[].kind` | string | 依存元の変更は`ancestor`、ほかの変更は`followed`、追加は`added`、削除は`removed` |
-| `truncated` | boolean | 変更一覧の一部を省略した場合は`true`で、それ以外は省略 |
-| `usage` | object | 項目の使用量 |
-| `usage.containers` | integer | 使用した作業用コンテナ数 |
-| `usage.lookups` | integer | KestreLynxによるレジストリ照会数 |
-| `usage.bytes` | integer | レジストリ応答の受信バイト数 |
-| `usage.elapsed_ms` | integer | 項目の処理開始から使用量を記録するまでの経過ミリ秒 |
+| `moves` | objectの配列 | 更新対象と`tops`以外の変更で、空なら省略 |
+| `moves[].name` | string | パッケージ名で、取得できなければlockfile内の識別子 |
+| `moves[].from` / `moves[].to` | string | 変更前後の版で、追加前・削除後など、版がなければ省略 |
+| `moves[].kind` | string | `ancestor`は依存元の変更、`followed`はその他の変更、`added`は追加、`removed`は削除 |
+| `truncated` | boolean | 変更一覧の一部を省略する場合は`true`で、それ以外は省略 |
+| `usage` | object | 通常更新・再実行を含む処理量の詳細 |
+| `usage.containers` / `usage.lookups` / `usage.bytes` / `usage.elapsed_ms` | integer | 順に、作業用コンテナ数・レジストリ照会数・受信バイト数・処理開始からの経過ミリ秒 |
 
-使用量には、最初の通常更新や必要な再実行も含みます。
-`tops`には版が変わらなかった直接依存も含むため、実際の版の変更は`from`と`to`で確認します。
+`update.chain`には見送りも含むため、このフィールドがあるだけでは実行済み・採用済みとは判断できません。
+公開後の待機が終わる日時は、`language_items[].retry_after`で確認します。
 
-| `outcome` | 意味 |
-| --- | --- |
-| `adopted` | 再解決の結果を採用 |
-| `not_fixed` | 再解決を実行したが、修正版に届かなかった |
-| `rejected` | 検査で不採用、または公開後の待機が続いたため停止 |
-| `failed` | 再解決の処理に失敗 |
-| `not_tried` | 対応範囲や上限などにより再解決を見送り |
-| `deferred` | 公開後の待機や作業上限により保留 |
-
-`retry_after`は`update.chain`の中ではなく、`language_items[]`に属します。
-待機中の後続の回では、`retry_after`があっても`update.chain`を含まない場合があります。
+待機中は、`retry_after`だけを含み、`update.chain`を含まない回もあります。
+待機や停止の条件は[公開後の待機と再試行](remediation-reference.md#dependent-reresolution-waits)を参照してください。
 
 ### 再解決のスキャン比較 {#language-chain-scan-fields}
 
-`source_check.basis`は、再解決のスキャン比較で使う単位を示します。
-位置の検査を含む場合は`package_version_vuln_edges_positions`、位置の検査を含まない古い記録などは`package_version_vuln_edges`です。
+`language_items[].source_check`には、更新によって脆弱性やその使用箇所が増えないかを確認する結果が入ります。
+`chain_carried`は、この更新では直らずに残る脆弱性です。
+
+| `source_check.basis` | 比較方法 |
+| --- | --- |
+| `package_version_vuln_edges_positions` | パッケージ名・版・脆弱性ID、使用箇所と依存関係の数に加え、変化した依存関係も確認 |
+| `package_version_vuln_edges` | パッケージ名・版・脆弱性ID、使用箇所と依存関係の数を比較 |
+
+次のフィールドは、`source_check`内の各一覧に属します。
 
 | 一覧内のフィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
-| `chain_new_findings[].package` / `version` / `vuln_id` | string | 新たに現れ、持ち越しと認められないパッケージ名・版・脆弱性ID |
+| `chain_new_findings[].package` / `version` / `vuln_id` | string | 新たに見つかった脆弱性のパッケージ名・版・脆弱性ID |
 | `chain_new_findings[].severity` / `fixed_ver` | string | 深刻度と修正版情報で、空なら省略 |
 | `chain_new_findings[].kev` | boolean | KEV掲載の場合は`true`で、それ以外は省略 |
-| `chain_entry_growth[].package` / `vuln_id` | string | エントリ数が増えるパッケージ名・脆弱性ID |
-| `chain_entry_growth[].version` | string | 版ごとの増加を示す場合の版で、脆弱な版の合計を示す場合は省略 |
-| `chain_entry_growth[].before` / `after` | integer | 更新前後のエントリ数 |
-| `chain_edge_growth[].package` / `vuln_id` | string | 要求数が増えるパッケージ名・脆弱性ID |
-| `chain_edge_growth[].before` / `after` | integer | その脆弱性があるエントリを指す更新前後の要求数 |
-| `chain_carried[].package` | string | 同じ位置で版が変わるパッケージ名 |
-| `chain_carried[].from` / `to` | string | 変更前後の版で、変更前の版が位置ごとに異なる場合の`from`は、そのうち1つの代表値 |
-| `chain_carried[].vuln_id` | string | 同じ位置に残る脆弱性ID |
-| `chain_carried[].positions` | integer | その脆弱性の持ち越しを確認する要求の位置数 |
+| `chain_entry_growth[].package` / `vuln_id` | string | 使用箇所が増えるパッケージ名・脆弱性ID |
+| `chain_entry_growth[].version` | string | 版ごとの増加を示す場合の版で、複数の版をまとめる場合は省略 |
+| `chain_entry_growth[].before` / `after` | integer | 更新前後のlockfile内の使用箇所数 |
+| `chain_edge_growth[].package` / `vuln_id` | string | 依存関係が増えるパッケージ名・脆弱性ID |
+| `chain_edge_growth[].before` / `after` | integer | その脆弱性がある版を使う、更新前後の依存関係の数 |
+| `chain_carried[].package` | string | 脆弱性が残るパッケージ名 |
+| `chain_carried[].from` / `to` | string | 変更前後の版で、変更前の版が複数ある場合の`from`は代表の1つ |
+| `chain_carried[].vuln_id` | string | 残る脆弱性ID |
+| `chain_carried[].positions` | integer | 同じ脆弱性が残る依存関係の箇所数で、プロジェクトからの経路総数とは異なる |
 | `chain_carried[].kev` | boolean | KEV掲載の場合は`true`で、それ以外は省略 |
-| `chain_position_refusals[].package` / `version` | string | 拒否する要求の参照先の名前と版で、`split`の場合は分岐元の旧エントリの名前と版 |
-| `chain_position_refusals[].parent` | string | 拒否する要求の依存元の名前で、プロジェクト自身の要求や`split`など、値がない場合は省略 |
-| `chain_position_refusals[].check` | string | 位置の検査による拒否の種類 |
-| `chain_position_refusals[].vuln_id` | string | `new_vuln`で旧エントリにない脆弱性IDを1つ示し、それ以外は省略 |
+| `chain_position_refusals[].package` / `version` | string | 不合格の原因となるパッケージ名と版で、`split`の場合は分かれる前の名前と版 |
+| `chain_position_refusals[].parent` | string | そのパッケージを使う依存元の名前で、値がなければ省略 |
+| `chain_position_refusals[].check` | string | 下表の不合格理由 |
+| `chain_position_refusals[].vuln_id` | string | `new_vuln`で新たに見つかった脆弱性IDの1つで、それ以外は省略 |
 
 | `chain_position_refusals[].check` | 意味 |
 | --- | --- |
-| `no_position` | 更新前の同じ位置に対応する要求がない状態で、名前・種別・markerの不一致や、その先の変化も含む |
-| `merged` | 更新後の1つの位置に、異なる旧エントリへの複数の要求が対応する合流 |
-| `name` | 同じ位置に対応する旧エントリと、パッケージ名が異なる状態 |
-| `new_vuln` | 同じ位置の旧エントリにない脆弱性IDを、更新後のエントリが持つ状態 |
-| `split` | 1つの旧エントリが複数の脆弱なエントリに分かれる変化で、ほかの場所の削除では相殺しない |
+| `no_position` | 更新前に同じ依存関係を確認できない |
+| `merged` | 複数の依存経路が合流し、比較する旧版を一つに決められない |
+| `name` | 依存先のパッケージ名が変わる |
+| `new_vuln` | 旧版にはない脆弱性が新しい版にある |
+| `split` | 1つの版が複数の脆弱な版に分かれる |
 
-- `chain_entry_growth`は、同じパッケージ名・脆弱性IDについて版ごとの増加を記録する場合、脆弱な版の合計による増加を重ねて記録しない
-- `chain_edge_growth`は脆弱性がある版をまとめて数えるため、`version`を含めない
-- `chain_carried`はパッケージ名・変更後の版・脆弱性IDごとにまとめ、`positions`はプロジェクトからの経路総数を示さない
-- `chain_carried`にある脆弱性は、この更新では直らない
-- `chain_new_findings`・`chain_entry_growth`・`chain_edge_growth`・`chain_carried`・`chain_position_refusals`は、それぞれ最大500件を記録する
-- いずれかの一覧を上限で省略する場合は、`source_check.truncated`を`true`にする
-- `source_check.truncated`は、通常の`resolved`・`remaining`・`introduced`の一覧を省略する場合にも使う
-- `source_check.counts`はパッケージ名と脆弱性IDによる解消・残存・新規検出の件数であり、追加比較の増加件数や位置数には置き換えない
-- 一覧の上限は記録の省略に使い、省略前の検査結果に基づいて合否を判定する
+`chain_carried`は、パッケージ名・変更後の版・脆弱性IDごとにまとめます。
+持ち越しがあっても合格とは限らず、検査の合否は`source_check.passed`、採否は`update.chain.outcome`で確認します。
 
-再解決のスキャンが拒否されて手動対応になる項目にも、実施した比較の記録を残します。
-`chain_carried`があっても項目全体の合格を意味せず、`source_check.passed`と`update.chain.outcome`を併せて確認します。
+各一覧は最大500件で、省略がある場合は`source_check.truncated`が`true`になります。
+検査の合否は、省略前の全件で判定します。
 
-不合格になる変化と理由コード、持ち越しの条件は、[再解決の検査条件](remediation-reference.md#dependent-reresolution-rules)を参照してください。
+`source_check.counts`は、パッケージ名と脆弱性IDで数える解消・残存・新規検出の件数です。
+使用箇所や依存関係の数は含めません。
+
+検査条件と持ち越しの例は、[再解決の検査条件](remediation-reference.md#dependent-reresolution-rules)と[脆弱性の持ち越し](remediation-logic.md#dependent-reresolution-carried-findings)を参照してください。
 
 ### 更新ファイル {#language-artifact-fields}
 
@@ -360,8 +360,9 @@
 | `pull_requests[].item_key` | string | 対応する言語パッケージ項目の識別子で、情報なしは省略 |
 | `pull_requests[].language` | object | 言語パッケージ更新の内容で、該当なしは省略 |
 | `pull_requests[].language.remaining` | objectの配列 | PRに含めなかったパッケージで、空なら省略 |
-| `pull_requests[].language.packages[].through` | stringの配列 | 修正版への更新に伴って動かした依存元の名前で、空なら省略 |
-| `pull_requests[].language.chain` | objectの配列 | PRに含む、再解決で版が変わった直接依存の一覧で、空なら省略 |
+| `pull_requests[].language.packages[].through` | stringの配列 | 修正版に上げるために、あわせて更新した依存元の名前で、空なら省略 |
+| `pull_requests[].language.chain` | objectの配列 | PRに含む、再解決で版が変わる直接依存の一覧で、空なら省略 |
+
 | `dockerfile_items[].pull_request` | object | 対応する処理の`status`と、任意の`reason`・`number`・`url`・`state`で、対応がなければ省略 |
 | `language_items[].pull_request` | object | 対応する処理の`status`と、任意の理由・補足・PR情報・照合用識別子で、対応がなければ省略 |
 
@@ -374,11 +375,11 @@
 
 | `pull_requests[].language.chain[]`のフィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
-| `name` | string | 版が変わった直接依存の名前 |
-| `from` / `to` | string | 更新前後の版 |
-| `held` | string | 古い版を要求されていた対象パッケージで、空なら省略 |
-| `held_range` | string | 対象パッケージに要求されていた版の指定で、空なら省略 |
-| `held_by` | string | 直接依存と対象の間で古い版を要求していたパッケージで、直接依存自身が要求していた場合などは省略 |
+| `name` | string | あわせて更新する直接依存の名前（例: `mkdirp`） |
+| `from` / `to` | string | 更新前後の版（例: `0.5.1`・`0.5.6`） |
+| `held` | string | 古い版を指定されていたパッケージ名（例: `minimist`）で、空なら省略 |
+| `held_range` | string | 更新を妨げていた版指定（例: `0.0.8`）で、空なら省略 |
+| `held_by` | string | 間にあるパッケージが古い版を指定する場合の名前で、直接依存自身が指定する場合などは省略 |
 
 既存PRに対応付けた回は、PR側の`language.remaining`からパッケージの除外情報を補います。
 その回の更新・検査の実行有無が`false`でも、`packages[]`に`left_out`・`action`・`reason`が付く場合があります。
