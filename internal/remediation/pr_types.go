@@ -230,11 +230,15 @@ type ItemEvidence struct {
 	BaselineScan  string             `json:"baseline_scan,omitempty"`
 	CandidateScan string             `json:"candidate_scan,omitempty"`
 	Locations     []string           `json:"locations"`
-	Resolved      []VulnSummary      `json:"resolved,omitempty"`
-	Remaining     []VulnSummary      `json:"remaining,omitempty"`
-	// OtherRemaining (Dockerfile updates only) are findings of the compared
-	// base images that the running image has no target for and that remain in
-	// the candidate base: what stays whatever the update resolves.
+	// Resolved and Remaining are the outcomes of the update's targets.
+	Resolved  []VulnSummary `json:"resolved,omitempty"`
+	Remaining []VulnSummary `json:"remaining,omitempty"`
+	// OtherResolved (image tag updates only) are compared findings the
+	// running image has no target for that the candidate no longer reports.
+	OtherResolved []VulnSummary `json:"other_resolved,omitempty"`
+	// OtherRemaining are compared findings the running image has no target
+	// for that remain in the candidate (for Dockerfile updates, the candidate
+	// base): what stays whatever the update resolves.
 	OtherRemaining []VulnSummary `json:"other_remaining,omitempty"`
 	Introduced     []VulnSummary `json:"introduced,omitempty"`
 }

@@ -45,17 +45,17 @@ type prText struct {
 	CutNote      string
 
 	// Vulnerability lists.
-	TitleResolved, TitleRemaining, TitleIntroduced string
-	TitleRemainingTargeted, TitleOtherRemaining    string
-	ListTitle                                      string // %[1]s title, %[2]d count
-	VulnLine                                       string // %[1]s id, %[2]s package, %[3]s ecosystem, %[4]s class
-	VulnSeverity, VulnKEV, VulnPriority            string
-	VulnLineLang                                   string // %[1]s id, %[2]s package
-	SourceVulnLine                                 string // %[1]s id, %[2]s package, %[3]s version
-	SourceFixed                                    string
+	TitleResolved, TitleRemaining, TitleIntroduced    string
+	TitleRemainingTargeted, TitleOtherRemaining       string
+	TitleOtherResolvedImage, TitleOtherRemainingImage string
+	ListTitle                                         string // %[1]s title, %[2]d count
+	VulnLine                                          string // %[1]s id, %[2]s package, %[3]s ecosystem, %[4]s class
+	VulnSeverity, VulnKEV, VulnPriority               string
+	VulnLineLang                                      string // %[1]s id, %[2]s package
+	SourceVulnLine                                    string // %[1]s id, %[2]s package, %[3]s version
+	SourceFixed                                       string
 
 	// Scan sentences shared by the image bodies.
-	Counts       string // %[1]d resolved, %[2]d remaining, %[3]d introduced
 	VerRecord    string // %[1]s generated at, %[2]s baseline, %[3]s candidate
 	DBBuilt      string
 	SeverityEnd  string // %s
@@ -68,6 +68,8 @@ type prText struct {
 	// Compose bodies.
 	CWhat, CRunning, CServices, CWorkloads, CAlso, CChange string
 	CVerRunning, CCandidate, CScanned                      string
+	CTargets                                               string // %[1]d resolved, %[2]d remaining
+	COther                                                 string // %[1]d no longer reported, %[2]d remaining, %[3]d introduced
 
 	// Dockerfile bodies.
 	DWhat, DBaseNow, DEdited, DWorkloads, DChange           string
@@ -129,21 +131,22 @@ var enPRText = prText{
 	NoFiles:      "no files",
 	CutNote:      "\n_The rest of this description was cut to fit the length limit._\n",
 
-	TitleResolved:          "Resolved",
-	TitleRemaining:         "Remaining",
-	TitleIntroduced:        "Introduced",
-	TitleRemainingTargeted: "Remaining among the targeted findings",
-	TitleOtherRemaining:    "Other findings that remain in the candidate base image",
-	ListTitle:              "\n**%[1]s (%[2]d)**\n\n",
-	VulnLine:               "- %[1]s in %[2]s (%[3]s, %[4]s)",
-	VulnSeverity:           ", severity %s",
-	VulnKEV:                ", in the CISA KEV catalog",
-	VulnPriority:           ", priority %s",
-	VulnLineLang:           "- %[1]s in %[2]s",
-	SourceVulnLine:         "- %[1]s in %[2]s %[3]s",
-	SourceFixed:            ", fixed in %s",
+	TitleResolved:            "Resolved",
+	TitleRemaining:           "Remaining",
+	TitleIntroduced:          "Introduced",
+	TitleRemainingTargeted:   "Remaining among the targeted findings",
+	TitleOtherRemaining:      "Other findings that remain in the candidate base image",
+	TitleOtherResolvedImage:  "Other findings the candidate image no longer reports",
+	TitleOtherRemainingImage: "Other findings that remain in the candidate image",
+	ListTitle:                "\n**%[1]s (%[2]d)**\n\n",
+	VulnLine:                 "- %[1]s in %[2]s (%[3]s, %[4]s)",
+	VulnSeverity:             ", severity %s",
+	VulnKEV:                  ", in the CISA KEV catalog",
+	VulnPriority:             ", priority %s",
+	VulnLineLang:             "- %[1]s in %[2]s",
+	SourceVulnLine:           "- %[1]s in %[2]s %[3]s",
+	SourceFixed:              ", fixed in %s",
 
-	Counts:       "- Resolved %[1]d, remaining %[2]d, introduced %[3]d\n",
 	VerRecord:    "- Verification record: plan generated at %[1]s, baseline scan %[2]s, candidate scan %[3]s\n",
 	DBBuilt:      " with the vulnerability database built at %s",
 	SeverityEnd:  ". Severity range: %s.",
@@ -162,6 +165,8 @@ var enPRText = prText{
 	CVerRunning: "- Running: %s",
 	CCandidate:  "- Candidate: %[1]s, tag digest %[2]s, platform manifest %[3]s, config digest %[4]s, platform %[5]s\n",
 	CScanned:    "Both images were scanned by Trivy %s",
+	CTargets:    "- Findings this update targets (fixed findings of the running image): resolved %[1]d, remaining %[2]d\n",
+	COther:      "- Other findings of the running image, outside this update's targets (such as findings with no fixed version): %[1]d no longer reported for the candidate image, %[2]d remaining in the candidate image. Findings introduced by the candidate image: %[3]d\n",
 
 	DWhat:          "KestreLynx proposes a newer tag for the base image of %[1]s in %[2]s.\n\n",
 	DBaseNow:       "- Base image now: %s\n",
@@ -272,21 +277,22 @@ var jaPRText = prText{
 	NoFiles:      "ファイルなし",
 	CutNote:      "\n_長さの上限に収めるため、この説明の残りを省略しました。_\n",
 
-	TitleResolved:          "解消",
-	TitleRemaining:         "残存",
-	TitleIntroduced:        "新規",
-	TitleRemainingTargeted: "対象の検出結果のうち残存",
-	TitleOtherRemaining:    "候補のベースイメージに残るその他の検出結果",
-	ListTitle:              "\n**%[1]s (%[2]d)**\n\n",
-	VulnLine:               "- %[2]s の %[1]s (%[3]s、%[4]s)",
-	VulnSeverity:           "、重大度 %s",
-	VulnKEV:                "、CISA KEV カタログに掲載",
-	VulnPriority:           "、優先度 %s",
-	VulnLineLang:           "- %[2]s の %[1]s",
-	SourceVulnLine:         "- %[2]s %[3]s の %[1]s",
-	SourceFixed:            "、修正版 %s",
+	TitleResolved:            "解消",
+	TitleRemaining:           "残存",
+	TitleIntroduced:          "新規",
+	TitleRemainingTargeted:   "対象の検出結果のうち残存",
+	TitleOtherRemaining:      "候補のベースイメージに残るその他の検出結果",
+	TitleOtherResolvedImage:  "候補のイメージで検出されなくなるその他の検出結果",
+	TitleOtherRemainingImage: "候補のイメージに残るその他の検出結果",
+	ListTitle:                "\n**%[1]s (%[2]d)**\n\n",
+	VulnLine:                 "- %[2]s の %[1]s (%[3]s、%[4]s)",
+	VulnSeverity:             "、重大度 %s",
+	VulnKEV:                  "、CISA KEV カタログに掲載",
+	VulnPriority:             "、優先度 %s",
+	VulnLineLang:             "- %[2]s の %[1]s",
+	SourceVulnLine:           "- %[2]s %[3]s の %[1]s",
+	SourceFixed:              "、修正版 %s",
 
-	Counts:       "- 解消 %[1]d 件、残存 %[2]d 件、新規 %[3]d 件\n",
 	VerRecord:    "- 確認の記録: 計画の生成時刻 %[1]s、変更前のスキャン %[2]s、候補のスキャン %[3]s\n",
 	DBBuilt:      "。脆弱性データベースの作成時刻は %s です",
 	SeverityEnd:  "。重大度の範囲は %s です。",
@@ -305,6 +311,8 @@ var jaPRText = prText{
 	CVerRunning: "- 稼働中: %s",
 	CCandidate:  "- 候補: %[1]s、タグの digest %[2]s、プラットフォームの manifest %[3]s、config digest %[4]s、プラットフォーム %[5]s\n",
 	CScanned:    "両方のイメージを Trivy %s でスキャンしました",
+	CTargets:    "- この更新が対象とする検出結果 (稼働中のイメージの修正可能な検出結果): 解消 %[1]d 件、残存 %[2]d 件\n",
+	COther:      "- 稼働中のイメージのその他の検出結果 (この更新の対象外。修正版の報告がないものなど) のうち、候補のイメージで検出されなくなるもの: %[1]d 件、候補のイメージに残るもの: %[2]d 件。候補のイメージで新たに入る検出結果: %[3]d 件\n",
 
 	DWhat:          "KestreLynx は、%[2]s の %[1]s にあるベースイメージについて、新しいタグを提案します。\n\n",
 	DBaseNow:       "- 現在のベースイメージ: %s\n",

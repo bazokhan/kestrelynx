@@ -37,7 +37,29 @@ func bodyFixtureEvidence() *VerificationSummary {
 			Resolved:       []VulnSummary{vuln("CVE-2026-0001", "libc6", true, "CRITICAL", PriorityActNow), vuln("CVE-2026-0002", "openssl", false, "HIGH", PriorityNone)},
 			Remaining:      []VulnSummary{vuln("CVE-2026-0003", "zlib1g", false, "HIGH", PriorityNone)},
 			OtherRemaining: []VulnSummary{vuln("CVE-2026-0004", "tar", false, "", PriorityNone)},
+			OtherResolved:  []VulnSummary{vuln("CVE-2026-0005", "libheif1", false, "HIGH", PriorityNone)},
 		}},
+	}
+}
+
+func TestComposeBodyOmitsEmptyOtherResolved(t *testing.T) {
+	ev := bodyFixtureEvidence()
+	ev.Items[0].OtherResolved = nil
+	for _, lang := range []BodyLanguage{BodyEN, BodyJA} {
+		body, err := buildPRBody(prBodyInput{
+			Repo: testRepo, BaseBranch: "main", BaseSHA: hex40('1'), Path: "compose.yml", Current: "nginx:1.25.3",
+			Services: []string{"web"}, Locations: []string{"services.web.image"}, Workloads: []string{"compose/app/web"},
+			Changes:      []ComposeChange{{Service: "web", Location: "services.web.image", Old: "nginx:1.25.3", New: "nginx:1.25.4"}},
+			CandidateTag: "1.25.4", Evidence: ev, UpdateKey: "uk1", AttemptKey: "ak1", Marker: encodeMarker(sampleMarker()),
+			Language: lang,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx := textFor(lang)
+		if strings.Contains(body, tx.TitleOtherResolvedImage) || !strings.Contains(body, tx.TitleOtherRemainingImage) {
+			t.Errorf("%s: other-resolved list shown or other-remaining list missing:\n%s", lang, body)
+		}
 	}
 }
 

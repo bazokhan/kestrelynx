@@ -31,6 +31,42 @@ func TestBuildComposeUnitsAdopted(t *testing.T) {
 	}
 }
 
+func TestComposeEvidenceSeparatesOtherFindings(t *testing.T) {
+	it := nginxItem("1.25.4", '1', []string{"CVE-1"}, []string{"CVE-2"})
+	// Findings without a target (no fixed version) are compared too.
+	it.Comparison.Verdicts = append(it.Comparison.Verdicts,
+		VulnVerdict{VulnID: "CVE-3", Package: pkgCoord("pkg-CVE-3"), Outcome: OutcomeResolved},
+		VulnVerdict{VulnID: "CVE-4", Package: pkgCoord("pkg-CVE-4"), Outcome: OutcomeRemaining},
+		VulnVerdict{VulnID: "CVE-5", Package: pkgCoord("pkg-CVE-5"), Outcome: OutcomeRemaining},
+	)
+	plan := testPlan(it)
+	units := buildComposeUnits(plan, testContainers(), testMappings())
+	if len(units) != 1 {
+		t.Fatalf("units = %d", len(units))
+	}
+	ev := units[0].evidence(plan)
+	ids := func(vs []VulnSummary) string {
+		var out []string
+		for _, v := range vs {
+			out = append(out, v.VulnID)
+		}
+		return strings.Join(out, ",")
+	}
+	got := ev.Items[0]
+	if ids(got.Resolved) != "CVE-1" || ids(got.Remaining) != "CVE-2" || ids(got.OtherResolved) != "CVE-3" || ids(got.OtherRemaining) != "CVE-4,CVE-5" {
+		t.Errorf("resolved %q, remaining %q, other resolved %q, other remaining %q",
+			ids(got.Resolved), ids(got.Remaining), ids(got.OtherResolved), ids(got.OtherRemaining))
+	}
+	// Replacement still sees every pair the comparison resolved.
+	resolved := resolvedFromEvidence(ev)
+	for _, id := range []string{"CVE-1", "CVE-3"} {
+		k := FixTarget{Location: "services.web.image", VulnID: id, Package: pkgCoord("pkg-" + id)}.key()
+		if !resolved[k] {
+			t.Errorf("%s missing from the resolved pairs", id)
+		}
+	}
+}
+
 func TestBuildComposeUnitsWholeSetOrNothing(t *testing.T) {
 	t.Run("entity without item", func(t *testing.T) {
 		cs := testContainers()

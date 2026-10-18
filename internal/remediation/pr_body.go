@@ -159,9 +159,14 @@ func buildPRBody(in prBodyInput) (string, error) {
 			fmt.Fprintf(&b, t.Locations, codeListIn(t, it.Locations, maxListedNames))
 			fmt.Fprintf(&b, t.VerRecord,
 				ev.PlanGeneratedAt.UTC().Format(time.RFC3339), mdCode(it.BaselineScan), mdCode(it.CandidateScan))
-			fmt.Fprintf(&b, t.Counts, len(it.Resolved), len(it.Remaining), len(it.Introduced))
+			fmt.Fprintf(&b, t.CTargets, len(it.Resolved), len(it.Remaining))
+			fmt.Fprintf(&b, t.COther, len(it.OtherResolved), len(it.OtherRemaining), len(it.Introduced))
 			writeVulnListIn(t, &b, t.TitleResolved, it.Resolved)
-			writeVulnListIn(t, &b, t.TitleRemaining, it.Remaining)
+			writeVulnListIn(t, &b, t.TitleRemainingTargeted, it.Remaining)
+			if len(it.OtherResolved) > 0 {
+				writeVulnListIn(t, &b, t.TitleOtherResolvedImage, it.OtherResolved)
+			}
+			writeVulnListIn(t, &b, t.TitleOtherRemainingImage, it.OtherRemaining)
 			writeVulnListIn(t, &b, t.TitleIntroduced, it.Introduced)
 		}
 		b.WriteString("\n")

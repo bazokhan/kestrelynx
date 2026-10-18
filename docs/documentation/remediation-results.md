@@ -184,6 +184,13 @@ The comparison targets depend on the type of update.
 | Dockerfile base image | The current base image and the candidate base image. |
 | Language package | Dependency files before and after the update. |
 
+For Compose image tag updates and Dockerfile base image updates, PR bodies separate targeted findings from other findings.
+
+- Targeted findings have a reported fixed version; for Dockerfile updates, they are limited to findings in the base image’s layers; `Resolved` and Remaining counts for these targets are also the counts used in remediation plans in Slack and webhooks
+- Other findings that remain in the candidate are shown separately, along with Introduced findings
+- Other findings include those with no reported fixed version and any others outside the update's targets
+- Compose PRs also show counts for other findings that the candidate no longer reports, with a list only when such findings exist
+
 !!! note "Resolution and running state"
 
     Resolution reported in a PR or Slack refers to a comparison result. It does not establish resolution in the complete rebuilt image or in running containers after deployment.

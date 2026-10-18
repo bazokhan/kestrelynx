@@ -298,7 +298,9 @@ func resolvedPairs(it *Item) map[verdictKey]bool {
 	return out
 }
 
-// evidence summarizes the comparison of every item of the unit.
+// evidence summarizes the comparison of every item of the unit. Findings
+// with a target are listed apart from the other compared findings, as the
+// plan counts only targets.
 func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
 	if u.df != nil {
 		return u.df.evidence
@@ -346,11 +348,16 @@ func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
 				vs.Severities = append([]string(nil), c.Severities...)
 			}
 			for _, v := range c.Verdicts {
-				switch v.Outcome {
-				case OutcomeResolved:
+				_, target := intel[verdictKey{v.VulnID, v.Package}]
+				switch {
+				case v.Outcome == OutcomeResolved && target:
 					ev.Resolved = append(ev.Resolved, summary(v))
-				case OutcomeRemaining:
+				case v.Outcome == OutcomeRemaining && target:
 					ev.Remaining = append(ev.Remaining, summary(v))
+				case v.Outcome == OutcomeResolved:
+					ev.OtherResolved = append(ev.OtherResolved, summary(v))
+				case v.Outcome == OutcomeRemaining:
+					ev.OtherRemaining = append(ev.OtherRemaining, summary(v))
 				}
 			}
 			for _, v := range c.Introduced {

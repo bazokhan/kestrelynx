@@ -19,16 +19,25 @@ KestreLynx proposes a new image tag for 2 Compose service(s) in `compose.yml` of
 - Candidate: `nginx:1.25.4`, tag digest `sha256:1111111111111111111111111111111111111111111111111111111111111111`, platform manifest `sha256:2222222222222222222222222222222222222222222222222222222222222222`, config digest `sha256:3333333333333333333333333333333333333333333333333333333333333333`, platform `linux/amd64`
 - Locations: `services.web.image`, `services.worker.image`
 - Verification record: plan generated at 2026-10-09T04:00:00Z, baseline scan `scan-base-1`, candidate scan `scan-cand-1`
-- Resolved 2, remaining 1, introduced 0
+- Findings this update targets (fixed findings of the running image): resolved 2, remaining 1
+- Other findings of the running image, outside this update's targets (such as findings with no fixed version): 1 no longer reported for the candidate image, 1 remaining in the candidate image. Findings introduced by the candidate image: 0
 
 **Resolved (2)**
 
 - `CVE-2026-0001` in `libc6` (`debian`, `os`), severity `CRITICAL`, in the CISA KEV catalog, priority `act_now`
 - `CVE-2026-0002` in `openssl` (`debian`, `os`), severity `HIGH`
 
-**Remaining (1)**
+**Remaining among the targeted findings (1)**
 
 - `CVE-2026-0003` in `zlib1g` (`debian`, `os`), severity `HIGH`
+
+**Other findings the candidate image no longer reports (1)**
+
+- `CVE-2026-0005` in `libheif1` (`debian`, `os`), severity `HIGH`
+
+**Other findings that remain in the candidate image (1)**
+
+- `CVE-2026-0004` in `tar` (`debian`, `os`)
 
 **Introduced (0)**
 

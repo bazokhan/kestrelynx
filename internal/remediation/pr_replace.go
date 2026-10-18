@@ -18,12 +18,12 @@ import (
 // each write; any condition that fails leaves the old pull request open.
 
 // resolvedFromEvidence is the set of pairs, per location, that every entity
-// of the location resolves in the verified comparison.
+// of the location resolves in the verified comparison, targets or not.
 func resolvedFromEvidence(ev *VerificationSummary) map[string]bool {
 	perLoc := map[string]map[string]bool{}
 	for _, it := range ev.Items {
 		pairs := map[string]bool{}
-		for _, v := range it.Resolved {
+		for _, v := range append(append([]VulnSummary(nil), it.Resolved...), it.OtherResolved...) {
 			pairs[v.VulnID+"\x00"+string(v.Package.Ecosystem)+"\x00"+string(v.Package.Class)+"\x00"+v.Package.Name] = true
 		}
 		for _, loc := range it.Locations {
