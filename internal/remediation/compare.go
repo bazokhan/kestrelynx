@@ -228,6 +228,10 @@ func sortedKeys(m map[verdictKey]*pairAcc) []verdictKey {
 const Unconfirmed = "unconfirmed"
 
 // entityString renders an entity key for records.
+// EntityKeyString is the entity string a plan records for k (ImageState.Entity),
+// or Unconfirmed when k carries no valid digest.
+func EntityKeyString(k inventory.EntityKey) string { return entityString(k) }
+
 func entityString(k inventory.EntityKey) string {
 	if !k.Digest.Valid() {
 		return Unconfirmed

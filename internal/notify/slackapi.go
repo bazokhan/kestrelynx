@@ -85,7 +85,7 @@ func (n SlackAPINotifier) Send(ctx context.Context, m Message) error {
 	msg := messagesFor(n.Language)
 	var thread []SlackMessage
 	if postThread {
-		thread = buildThreadBlockMessages(m.Report, Ages{Finding: m.FirstSeen, EOL: m.EOLFirstSeen}, msg, lim)
+		thread = buildThreadBlockMessagesWithPlan(m.Report, Ages{Finding: m.FirstSeen, EOL: m.EOLFirstSeen}, m.Plan, msg, lim)
 	}
 
 	footer := ChannelFooter{}

@@ -287,6 +287,7 @@ type messages struct {
 	LblChange       string // "Change"
 	LblDetails      string // "Details"
 	LblStatus       string // "Status"
+	LblAction       string // "Action"
 
 	// Upgrade-risk values, without the leading "upgrade:" the RiskXxx labels carry.
 	RiskValueDistroUpdate string // "🟢 distro security patch"
@@ -308,6 +309,7 @@ type messages struct {
 	CardBaseEOL      string // "base OS already EOL"
 	CardCollapsed    string // "+%[1]d lower-risk fixes (%[2]s): %[3]s" (count, severity summary, comma-joined names)
 	CardCounts       string // "CRITICAL %[1]d / HIGH %[2]d"
+	CardBaseWait     string // value of the action line: %[1]s base image name, %[2]s its tag
 	CardAgeLine      string // "⏱ open %[1]d day(s) · first seen %[2]s" (days, formatted date)
 	CardAgeToday     string // "⏱ first seen today"
 	ChannelContinued string // " _(cont. %[1]d/%[2]d)_" (message number, total) appended to the channel header of a continuation message
@@ -647,6 +649,7 @@ var enMessages = messages{
 	LblChange:       "Change",
 	LblDetails:      "Details",
 	LblStatus:       "Status",
+	LblAction:       "Action",
 
 	RiskValueDistroUpdate: "🟢 distro security patch",
 	RiskValueSafe:         "🟢 low-risk",
@@ -666,6 +669,7 @@ var enMessages = messages{
 	CardBaseEOL:      "base OS already EOL",
 	CardCollapsed:    "+%[1]d lower-risk fixes (%[2]s): %[3]s",
 	CardCounts:       "CRITICAL %[1]d / HIGH %[2]d",
+	CardBaseWait:     "waiting for a newer base image of %[1]s %[2]s (no newer tag in the same series)",
 	CardAgeLine:      "⏱ open %[1]d day(s) · first seen %[2]s",
 	CardAgeToday:     "⏱ first seen today",
 	ChannelContinued: " _(cont. %[1]d/%[2]d)_",
@@ -993,6 +997,7 @@ var jaMessages = messages{
 	LblChange:       "変化",
 	LblDetails:      "詳細",
 	LblStatus:       "状態",
+	LblAction:       "対応",
 
 	RiskValueDistroUpdate: "🟢 ディストリのセキュリティパッチ",
 	RiskValueSafe:         "🟢 低リスク",
@@ -1012,6 +1017,7 @@ var jaMessages = messages{
 	CardBaseEOL:      "ベースOSは既にEOL",
 	CardCollapsed:    "低リスクの修正 +%[1]d件 (%[2]s): %[3]s",
 	CardCounts:       "CRITICAL %[1]d / HIGH %[2]d",
+	CardBaseWait:     "元イメージ %[1]s %[2]s の新しい版待ち（同じ系列に新しい版なし）",
 	CardAgeLine:      "⏱ 未解決%[1]d日 · 初回検出%[2]s",
 	CardAgeToday:     "⏱ 本日初検出",
 	ChannelContinued: " _(続き %[1]d/%[2]d)_",

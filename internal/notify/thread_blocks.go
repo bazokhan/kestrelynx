@@ -17,6 +17,13 @@ func BuildThreadBlockMessages(r analyze.Report, ages Ages, lang Language) []Slac
 }
 
 func buildThreadBlockMessages(r analyze.Report, ages Ages, msg messages, lim RenderLimits) []SlackMessage {
+	return buildThreadBlockMessagesWithPlan(r, ages, nil, msg, lim)
+}
+
+// buildThreadBlockMessagesWithPlan is buildThreadBlockMessages with the
+// cycle's fix plan, which adds the base-image wait line to the cards it
+// applies to. A nil plan renders the cards without it.
+func buildThreadBlockMessagesWithPlan(r analyze.Report, ages Ages, plan *PlanInfo, msg messages, lim RenderLimits) []SlackMessage {
 	if !r.HasFindings() {
 		return nil
 	}
@@ -27,6 +34,7 @@ func buildThreadBlockMessages(r analyze.Report, ages Ages, msg messages, lim Ren
 		rd:    renderer{msg: msg, lim: lim},
 		byRef: imagesByRef(r),
 		ages:  ages,
+		waits: newBaseWaitIndex(plan),
 	}
 	v.buildThread()
 
@@ -157,7 +165,7 @@ func (v *chView) threadCardOpts(g analyze.PackageGroup) cardOpts {
 }
 
 func (v *chView) threadCard(img analyze.ImageFindings, g analyze.PackageGroup) cardView {
-	c := newPkgCard(v.r, img.Image, g, v.threadCardOpts(g), v.msg)
+	c := v.newCard(img, g, v.threadCardOpts(g))
 	return cardView{detail: true, blocks: v.rd.threadCard(c), pkgs: 1, contTitle: v.rd.contTitle(c)}
 }
 
@@ -170,7 +178,7 @@ func (v *chView) threadEOLPackages(imgs []analyze.ImageFindings) {
 		iv := v.imageOf(img, !v.r.Triage)
 		for _, g := range img.Packages {
 			if g.Priority == analyze.PriorityActNow {
-				c := newPkgCard(v.r, img.Image, g, cardOpts{}, v.msg)
+				c := v.newCard(img, g, cardOpts{})
 				c.SeeActNow = true
 				cv := v.compact(c)
 				cv.pkgs = 0 // a pointer card is not a package shown here

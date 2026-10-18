@@ -48,6 +48,15 @@ func (rd renderer) countsValue(c pkgCard) string {
 	return fmt.Sprintf(rd.msg.CardCounts, c.Critical, c.High)
 }
 
+// baseWaitLine is the action line of a finding that waits for a newer base
+// image, or "" when the card has none.
+func (rd renderer) baseWaitLine(c pkgCard) string {
+	if c.BaseWait == nil {
+		return ""
+	}
+	return kv(rd.msg.LblAction, fmt.Sprintf(rd.msg.CardBaseWait, litMrkdwn(c.BaseWait.Name), litMrkdwn(c.BaseWait.Tag)))
+}
+
 func (rd renderer) changeLine(c pkgCard) string {
 	if len(c.Changes) == 0 {
 		return ""
@@ -233,6 +242,9 @@ func (rd renderer) detailHeadLines(c pkgCard) []string {
 		lines = append(lines, kv(rd.msg.LblUpgradeRisk, v))
 	}
 	lines = append(lines, kv(rd.msg.LblFindings, rd.countsValue(c)))
+	if l := rd.baseWaitLine(c); l != "" {
+		lines = append(lines, l)
+	}
 	return lines
 }
 
@@ -311,6 +323,9 @@ func (rd renderer) compactLines(c pkgCard) []string {
 	lines = append(lines,
 		kv(rd.msg.LblInstalled, escMrkdwn(c.Installed))+" · "+kv(rd.msg.LblFixed, fixed),
 		kv(rd.msg.LblFindings, rd.countsValue(c)))
+	if l := rd.baseWaitLine(c); l != "" {
+		lines = append(lines, l)
+	}
 	if l := rd.topLine(c); l != "" {
 		lines = append(lines, l)
 	}

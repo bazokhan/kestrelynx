@@ -118,6 +118,10 @@ type pkgCard struct {
 	Age cardAge
 
 	SeeActNow bool // end-of-life act-now package: points at the Act now section
+
+	// BaseWait is set when the finding lives in the base image of a
+	// Dockerfile-built image and the plan found no newer tag of that base.
+	BaseWait *baseWait
 }
 
 // cardOpts selects which values newPkgCard collects.

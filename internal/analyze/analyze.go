@@ -58,6 +58,10 @@ type PackageGroup struct {
 	// place can end up with its own runtime usage verdict later. Sorted for
 	// determinism; never rendered directly in Slack or the webhook.
 	Instances []Instance
+	// LayerDiffIDs are the distinct filesystem layers (diff IDs, sorted) the
+	// group's findings were attributed to; it holds "" when a finding carried
+	// no layer. Empty only for a group built without findings.
+	LayerDiffIDs []string
 
 	// Runtime is this package's projected runtime-usage verdict: its
 	// Instances judged against the current evidence.Snapshot's matched
@@ -427,6 +431,7 @@ type pkgAcc struct {
 	group     PackageGroup
 	vulns     map[string]vulnInfo
 	instances map[Instance]bool
+	layers    map[string]bool
 }
 
 // imgKey is the aggregation unit for findings: a running entity, identified
@@ -558,10 +563,12 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 					},
 					vulns:     map[string]vulnInfo{},
 					instances: map[Instance]bool{},
+					layers:    map[string]bool{},
 				}
 				pkgs[ref] = acc
 			}
 			acc.instances[Instance{PackageRef: ref, Type: find.Type, Target: find.Target, PkgPath: find.PkgPath}] = true
+			acc.layers[find.LayerDiffID] = true
 			// The same CVE ID can appear on more than one Trivy result line (e.g.
 			// matched via more than one data source); prefer whichever line carries
 			// a non-empty Title rather than letting a later, title-less line blank it.
@@ -715,6 +722,10 @@ func finalize(acc *pkgAcc, tr Triage) PackageGroup {
 		g.Instances = append(g.Instances, inst)
 	}
 	sortInstances(g.Instances)
+	for l := range acc.layers {
+		g.LayerDiffIDs = append(g.LayerDiffIDs, l)
+	}
+	sort.Strings(g.LayerDiffIDs)
 	return g
 }
 
