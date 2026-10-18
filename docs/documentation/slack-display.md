@@ -204,6 +204,7 @@ In the channel, Act now uses detailed cards, while Watch and other findings use 
 | Installed and fixed versions | Separate lines | Same line |
 | Upgrade risk | `Upgrade risk:` line | In parentheses after the fixed version |
 | Finding counts | `CRITICAL` and `HIGH` counts | Same |
+| Action | Base image update wait, when applicable, on the line after `Findings:` | Same |
 | CVEs | Top CVE, exploitation information, and references | Top CVE when available |
 | Runtime usage | Evidence of observed use | Short display when in use |
 
@@ -226,6 +227,31 @@ Very small values appear as `<0.1%`, and very large values as `>99%`.
 
 `Summary:` in a thread displays Trivy's description.
 See [Vulnerability fields](webhook-reference.md#vulnerability-fields) for complete CVE data without omissions.
+
+### Base image update wait {#base-image-wait}
+
+```text
+Action: waiting for a newer base image of elasticsearch 8.19.23 (no newer tag in the same series)
+```
+
+The line has the following meaning.
+
+- The package with the finding comes from the base image specified by `FROM` in the Dockerfile.
+- Examples include jars such as `org.jsoup:jsoup` bundled in the official Elasticsearch image `8.19.23`.
+- The remediation plan finds no newer version (tag) of the base image in the same series.
+- Even when a fixed package version exists, KestreLynx cannot yet create a PR in the project to fix that finding.
+- A newer base image in the same series becomes a candidate for a PR that updates the base image.
+- The name is the last part of the base image repository name without the registry hostname, and the version is the tag specified by `FROM` in the Dockerfile.
+
+The line appears after `Findings:` in detailed cards, compact cards, thread cards, and diff cards when all the following conditions hold.
+
+- Remediation planning is enabled for the same scan cycle, and the plan identifies every finding with an available fix for that package as waiting for the same base image.
+- Every copy of the package is confirmed to be in the base image layers.
+- The actual running image is confirmed to match the image assessed by the plan.
+
+The line is absent when a layer added by the project also contains the package or when these conditions cannot be confirmed.
+
+See [Base image selection](remediation-logic.md#base-image-selection) for how the remediation plan selects the base image and update candidates.
 
 ### Upgrade risk {#upgrade-risk}
 
