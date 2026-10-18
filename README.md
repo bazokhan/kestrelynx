@@ -7,7 +7,8 @@
 
 [Documentation](https://kestrelynx.dev/) ·
 [Getting started](docs/documentation/getting-started.md) ·
-[Configuration reference](docs/documentation/configuration.md)
+[Configuration reference](docs/documentation/configuration.md) ·
+[Trial reports](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)
 
 > Open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends **changes since the last scan and priorities based on severity, CISA KEV, and EPSS** to Slack or a webhook. For Docker and Compose, **remediation plans and pull requests (experimental)** support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default.
 
@@ -145,6 +146,8 @@ docker logs -f kestrelynx
 - **Stored data**: diff history, first-seen dates, and intel cache
 - **Recreation and updates**: reuse of the existing volume
 - **Deployment unit**: one instance per host, covering all containers and Compose projects
+
+Trial reports are welcome in [Discussions](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx).
 
 ### Running with Docker Compose
 

@@ -7,7 +7,8 @@
 
 [ドキュメント](https://kestrelynx.dev/ja/) ·
 [セットアップ手順](docs-ja/documentation/getting-started.md) ·
-[設定リファレンス](docs-ja/documentation/configuration.md)
+[設定リファレンス](docs-ja/documentation/configuration.md) ·
+[動作報告](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)
 
 > 稼働中のDocker・KubernetesコンテナのイメージをTrivyで定期的にスキャンし、**前回からの変化と、深刻度・CISA KEV・EPSSに基づく優先度**をSlackやWebhookへ通知するOSSです。Docker・Compose向けの**修正計画と修正PR（実験的）**で、更新候補の比較からGitHubへのPR作成まで修正を支援します（既定で無効）。
 
@@ -145,6 +146,8 @@ docker logs -f kestrelynx
 - **保存内容**：差分通知の履歴・初回検出日・脅威情報キャッシュ
 - **再作成・更新時**：既存ボリュームの引き継ぎ
 - **配置単位**：ホストごとに1インスタンス（コンテナ・Composeプロジェクトごとの配置は不要）
+
+動作報告は[Discussions](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)で受け付けています。
 
 ### Docker Composeでの実行
 

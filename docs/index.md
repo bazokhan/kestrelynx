@@ -196,6 +196,9 @@ recreating the container to preserve the history used for change notifications
 and first-seen dates.
 { .kl-note }
 
+:material-information-outline: Trial reports are welcome in [Discussions](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx).
+{ .kl-note }
+
 </div>
 
 <div class="kl-section" markdown>

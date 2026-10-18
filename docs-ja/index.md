@@ -170,6 +170,9 @@ Docker Composeでの手順です。Docker Composeが使えるDockerホストと�
 :material-information-outline: 差分通知や初回検出日の履歴を保つため、コンテナを作り直すときも`kestrelynx-state`ボリュームは削除しない
 { .kl-note }
 
+:material-information-outline: 動作報告は[Discussions](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)で受け付けています。
+{ .kl-note }
+
 </div>
 
 <div class="kl-section" markdown>
