@@ -93,7 +93,7 @@ func TestIntegrationNpmChain(t *testing.T) {
 		if len(after["minimist"]) != 1 || len(after["mkdirp"]) != 1 || after["mkdirp"][0] == "0.5.1" {
 			t.Errorf("versions after = %v", after)
 		}
-		if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges" {
+		if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 			t.Errorf("source check = %+v", got.SourceCheck)
 		}
 		if files["package.json"] == "" || len(got.Update.ManifestEdits) != 0 {
@@ -215,7 +215,7 @@ func TestIntegrationPnpmChain(t *testing.T) {
 			if len(got.Artifacts) != 1 || got.Artifacts[0].Path != "pnpm-lock.yaml" {
 				t.Errorf("artifacts = %+v", got.Artifacts)
 			}
-			if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges" {
+			if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 				t.Errorf("source check = %+v", got.SourceCheck)
 			}
 		})
@@ -288,7 +288,7 @@ func TestIntegrationUvChain(t *testing.T) {
 			t.Logf("chain=%+v", got.Update.Chain)
 		}
 		if got.SourceCheck != nil {
-			t.Logf("introduced=%+v new=%+v entries=%+v edges=%+v", got.SourceCheck.Introduced, got.SourceCheck.ChainNewTriples, got.SourceCheck.ChainEntryGrowth, got.SourceCheck.ChainEdgeGrowth)
+			t.Logf("introduced=%+v new=%+v entries=%+v edges=%+v carried=%+v refusals=%+v", got.SourceCheck.Introduced, got.SourceCheck.ChainNewTriples, got.SourceCheck.ChainEntryGrowth, got.SourceCheck.ChainEdgeGrowth, got.SourceCheck.ChainCarried, got.SourceCheck.ChainPositionRefusals)
 		}
 		for _, p := range got.Packages {
 			t.Logf("package %s: %s %s %s", p.Name, p.Action, p.Reason, clip(p.Detail, 300))
@@ -323,7 +323,7 @@ func TestIntegrationUvChain(t *testing.T) {
 		if got.Update.Runtime == nil || got.Update.Tool == nil || len(got.Update.Steps) == 0 {
 			t.Errorf("the record of the first update's run is lost: %+v", got.Update)
 		}
-		if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges" {
+		if got.SourceCheck == nil || !got.SourceCheck.Passed || got.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 			t.Errorf("source check = %+v", got.SourceCheck)
 		}
 	})
@@ -339,6 +339,32 @@ func TestIntegrationUvChain(t *testing.T) {
 		}
 		if p := packageOf(t, got, "cryptography"); p.Reason != ReasonDependentsRejected {
 			t.Errorf("cryptography = %+v", p)
+		}
+	})
+	t.Run("uv_chain_carried_and_new", func(t *testing.T) {
+		// pyopenssl moves from 23.3.0 and keeps its vulnerability at the same place,
+		// which is carried; cryptography moves to a version that has a vulnerability
+		// the old one lacked, which the position check refuses.
+		got := run(t, "uv_chain_carried_and_new", group(typePythonPkg, "cryptography", "41.0.7", pyOrigin("cryptography", "41.0.7"),
+			CVERef{VulnID: "CVE-2024-26130", FixedVers: []string{"42.0.4"}}))
+		if got.Category == CategoryPRCandidate {
+			t.Fatalf("a result was proposed: %s", got.Detail)
+		}
+		c := got.Update.Chain
+		if c == nil || c.Outcome != ChainRejected || c.Reason != ReasonSourceIntroduced {
+			t.Fatalf("chain = %+v", c)
+		}
+		sc := got.SourceCheck
+		carried := false
+		for _, x := range sc.ChainCarried {
+			carried = carried || (x.Package == "pyopenssl" && x.From == "23.3.0" && x.VulnID == "CVE-2026-27459")
+		}
+		refused := false
+		for _, x := range sc.ChainPositionRefusals {
+			refused = refused || (x.Package == "cryptography" && x.Check == "new_vuln")
+		}
+		if !carried || !refused || sc.Basis != "package_version_vuln_edges_positions" {
+			t.Errorf("carried = %+v, refusals = %+v, basis = %q", sc.ChainCarried, sc.ChainPositionRefusals, sc.Basis)
 		}
 	})
 	t.Run("uv_chain_no_solution", func(t *testing.T) {

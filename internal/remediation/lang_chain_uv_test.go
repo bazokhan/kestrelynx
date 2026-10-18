@@ -225,7 +225,7 @@ func TestUvChainJobMovesThePackagesThatRequireTheHeldBackOne(t *testing.T) {
 	if string(it.Artifacts[0].Content) != after {
 		t.Error("the artifact is not the chain's lockfile")
 	}
-	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges" {
+	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 		t.Errorf("source check = %+v", it.SourceCheck)
 	}
 }

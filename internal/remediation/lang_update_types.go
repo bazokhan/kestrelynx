@@ -354,4 +354,44 @@ type SourceCheck struct {
 	ChainNewTriples  []SourceVuln `json:"chain_new_findings,omitempty"`
 	ChainEntryGrowth []ChainCount `json:"chain_entry_growth,omitempty"`
 	ChainEdgeGrowth  []ChainCount `json:"chain_edge_growth,omitempty"`
+	// ChainCarried are the vulnerabilities a chain update keeps at the same
+	// place, and ChainPositionRefusals the requirements and entries its
+	// position check refused.
+	ChainCarried          []ChainCarried         `json:"chain_carried,omitempty"`
+	ChainPositionRefusals []ChainPositionRefusal `json:"chain_position_refusals,omitempty"`
+}
+
+// ChainCarried is a vulnerability a chain update keeps at the same place in the
+// dependency graph: the package there moved to another version that has the
+// vulnerability too, and none it did not have. From is one of the versions it
+// moved from when the places differ, and Positions how many places it is kept
+// at.
+type ChainCarried struct {
+	Package   string `json:"package"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	VulnID    string `json:"vuln_id"`
+	Positions int    `json:"positions"`
+	KEV       bool   `json:"kev,omitempty"`
+}
+
+// Checks of the position check, as ChainPositionRefusal names them.
+const (
+	posNoPosition = "no_position"
+	posMerged     = "merged"
+	posName       = "name"
+	posNewVuln    = "new_vuln"
+	posSplit      = "split"
+)
+
+// ChainPositionRefusal is a requirement or an entry the position check of a
+// chain update refused: Package at Version is the entry the requirement points
+// to (or the entry of the original that was split), Parent the package that
+// requires it ("" for the project) and Check which check refused it.
+type ChainPositionRefusal struct {
+	Package string `json:"package"`
+	Version string `json:"version"`
+	Parent  string `json:"parent,omitempty"`
+	Check   string `json:"check"`
+	VulnID  string `json:"vuln_id,omitempty"`
 }

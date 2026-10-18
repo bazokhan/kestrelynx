@@ -668,6 +668,9 @@ type updateRun struct {
 	// recheck is a lockfile a chain run judges by the chain's rules in place of
 	// making one: the first update's, which its difference check refused.
 	recheck []byte
+	// chainCmp are the graphs a chain run compared the lockfiles in, which its
+	// comparison of findings uses to judge requirements by place.
+	chainCmp [2]*depGraph
 }
 
 // succeed records a passed update on the item.

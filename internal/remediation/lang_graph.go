@@ -191,6 +191,9 @@ type depEdge struct {
 	// to. The zero values mean not judged.
 	peerOnly bool
 	class    edgeClass
+	// lockPeer is set on an npm requirement that came from the peerDependencies
+	// of the entry (or of the project) as the lockfile records it.
+	lockPeer bool
 }
 
 // depGraph is the dependency graph a lockfile (or, for pip, the install
@@ -441,7 +444,7 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 				if err != nil {
 					return nil, err
 				}
-				n.deps = append(n.deps, depEdge{name: dep, key: key, optional: i > 0, soft: i == 1 || (i == 2 && optPeers[dep]), ref: spec, local: npmSpecIsLocal(spec)})
+				n.deps = append(n.deps, depEdge{name: dep, key: key, optional: i > 0, soft: i == 1 || (i == 2 && optPeers[dep]), ref: spec, local: npmSpecIsLocal(spec), lockPeer: i == 2})
 			}
 		}
 		n.declared = depNames(e.Dependencies, e.OptionalDependencies)
@@ -467,7 +470,7 @@ func npmGraph(ctx context.Context, lock []byte) (*depGraph, error) {
 			if err != nil {
 				return nil, err
 			}
-			g.roots = append(g.roots, depEdge{name: dep, key: key, optional: i >= 2, dev: i == 1, soft: i == 2 || (i == 3 && rootPeers[dep]), ref: spec, local: npmSpecIsLocal(spec)})
+			g.roots = append(g.roots, depEdge{name: dep, key: key, optional: i >= 2, dev: i == 1, soft: i == 2 || (i == 3 && rootPeers[dep]), ref: spec, local: npmSpecIsLocal(spec), lockPeer: i == 3})
 		}
 	}
 	sortEdges(g.roots)

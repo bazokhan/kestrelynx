@@ -32,6 +32,7 @@ type prText struct {
 	HeadWhat, HeadChange, HeadVerification                          string
 	HeadVulnTargets, HeadManifestEdits                              string
 	HeadChain, LChainIntro, LChainLine, LChainViaLine, LSourceBasis string
+	LSourceBasisPositions, LChainCarried                            string
 
 	// Shared pieces.
 	ListSep      string // between items of a code list
@@ -106,16 +107,18 @@ func textFor(l BodyLanguage) *prText {
 }
 
 var enPRText = prText{
-	HeadWhat:          "What",
-	HeadChange:        "Change",
-	HeadVerification:  "Verification",
-	HeadVulnTargets:   "Vulnerabilities this update targets",
-	HeadManifestEdits: "Manifest edits",
-	HeadChain:         "Packages updated along with the fix",
-	LChainIntro:       "These packages required older versions of the packages above and were updated within the ranges in %s.\n\n",
-	LChainLine:        "- %[1]s: %[2]s to %[3]s (it required %[4]s %[5]s)\n",
-	LChainViaLine:     "- %[1]s: %[2]s to %[3]s (%[6]s, which it brings in, required %[4]s %[5]s)\n",
-	LSourceBasis:      "- The findings of the two scans were compared by package, version and vulnerability ID, and the number of lockfile entries and of requirements that point to a version with a vulnerability was compared too\n",
+	HeadWhat:              "What",
+	HeadChange:            "Change",
+	HeadVerification:      "Verification",
+	HeadVulnTargets:       "Vulnerabilities this update targets",
+	HeadManifestEdits:     "Manifest edits",
+	HeadChain:             "Packages updated along with the fix",
+	LChainIntro:           "These packages required older versions of the packages above and were updated within the ranges in %s.\n\n",
+	LChainLine:            "- %[1]s: %[2]s to %[3]s (it required %[4]s %[5]s)\n",
+	LChainViaLine:         "- %[1]s: %[2]s to %[3]s (%[6]s, which it brings in, required %[4]s %[5]s)\n",
+	LSourceBasisPositions: "- The findings of the two scans were compared by package, version and vulnerability ID; the number of lockfile entries and of requirements that point to a version with a vulnerability was compared too; and every requirement into an entry with a vulnerability that the original did not have as it is was checked place by place against the original\n",
+	LChainCarried:         "- %[1]d vulnerabilities stay at the same place in a version the update moved to (for example %[2]s for %[3]s %[4]s to %[5]s); the update does not fix them.\n",
+	LSourceBasis:          "- The findings of the two scans were compared by package, version and vulnerability ID, and the number of lockfile entries and of requirements that point to a version with a vulnerability was compared too\n",
 
 	ListSep:      ", ",
 	ListMore:     " and %d more",
@@ -247,16 +250,18 @@ var enPRText = prText{
 }
 
 var jaPRText = prText{
-	HeadWhat:          "概要",
-	HeadChange:        "変更内容",
-	HeadVerification:  "確認したこと",
-	HeadVulnTargets:   "この更新が対象とする脆弱性",
-	HeadManifestEdits: "manifest の編集",
-	HeadChain:         "あわせて更新したパッケージ",
-	LChainIntro:       "上のパッケージの古い版を要求していたため、%s の範囲内で更新しました。\n\n",
-	LChainLine:        "- %[1]s: %[2]s から %[3]s へ（%[4]s %[5]s を要求していた）\n",
-	LChainViaLine:     "- %[1]s: %[2]s から %[3]s へ（これが使う %[6]s が %[4]s %[5]s を要求していた）\n",
-	LSourceBasis:      "- 2 つのスキャンの所見は、パッケージ・版・脆弱性 ID で比べたほか、脆弱性のある版を指す lockfile のエントリ数と依存の数も比べました\n",
+	HeadWhat:              "概要",
+	HeadChange:            "変更内容",
+	HeadVerification:      "確認したこと",
+	HeadVulnTargets:       "この更新が対象とする脆弱性",
+	HeadManifestEdits:     "manifest の編集",
+	HeadChain:             "あわせて更新したパッケージ",
+	LChainIntro:           "上のパッケージの古い版を要求していたため、%s の範囲内で更新しました。\n\n",
+	LChainLine:            "- %[1]s: %[2]s から %[3]s へ（%[4]s %[5]s を要求していた）\n",
+	LChainViaLine:         "- %[1]s: %[2]s から %[3]s へ（これが使う %[6]s が %[4]s %[5]s を要求していた）\n",
+	LSourceBasisPositions: "- 2 つのスキャンの所見は、パッケージ・版・脆弱性 ID で比べたほか、脆弱性のある版を指す lockfile のエントリ数と依存の数も比べ、脆弱性のあるエントリを指す依存のうち更新前になかったものは、更新前と位置ごとに照合しました\n",
+	LChainCarried:         "- 更新で版が変わった位置に、同じ脆弱性が %[1]d 件残っています(例: %[3]s %[4]s から %[5]s の %[2]s)。この更新では直りません。\n",
+	LSourceBasis:          "- 2 つのスキャンの所見は、パッケージ・版・脆弱性 ID で比べたほか、脆弱性のある版を指す lockfile のエントリ数と依存の数も比べました\n",
 
 	ListSep:      "、",
 	ListMore:     "、ほか %d 件",

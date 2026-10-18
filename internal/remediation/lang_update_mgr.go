@@ -916,6 +916,7 @@ func (r *updateRun) verifyLock(ctx context.Context, newLock []byte) *updateFailu
 			}
 		}
 		sc.markPeerOnly(gb)
+		r.chainCmp = [2]*depGraph{gb, ga}
 		diff, reason, detail = diffGraphsChain(ctx, gb, ga, sc)
 	} else {
 		diff, reason, detail = diffGraphs(ctx, gb, ga, r.targetSet())

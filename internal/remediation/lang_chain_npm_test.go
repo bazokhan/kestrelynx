@@ -191,7 +191,7 @@ func TestNpmChainTakesAPinnedPackageThroughItsDirectDependency(t *testing.T) {
 	if got := h.work.jobs[1].Steps; len(got) != 1 || got[0].Op != worker.OpNpmRelock {
 		t.Errorf("chain job steps = %+v: the original is not checked again", got)
 	}
-	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges" {
+	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 		t.Errorf("source check = %+v", it.SourceCheck)
 	}
 	if !contains2(it.Update.Notes, "mkdirp") {

@@ -101,6 +101,16 @@ func bodyFixtures(t *testing.T, lang BodyLanguage) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checked := languageBodyFixture(lang, marker, true)
+	checked.Item.Manager = ManagerNpm
+	checked.LockPath = "svc/package-lock.json"
+	checked.Record.Chain = []LangChainMove{{Name: "mkdirp", From: "0.5.1", To: "0.5.6", Held: "minimist", HeldRange: "0.0.8"}}
+	checked.Item.SourceCheck.Basis = "package_version_vuln_edges_positions"
+	checked.Item.SourceCheck.ChainCarried = []ChainCarried{{Package: "rc", From: "1.2.8", To: "1.2.9", VulnID: "CVE-2026-0001", Positions: 1}, {Package: "x", From: "1", To: "2", VulnID: "CVE-2026-0002", Positions: 2}}
+	out["language_chain_positions"], err = buildLanguagePRBody(checked)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return out
 }
 

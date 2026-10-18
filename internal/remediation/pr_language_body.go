@@ -241,8 +241,16 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 		fmt.Fprintf(&b, t.LBefore, hashedFileList(t, sc.Before))
 		fmt.Fprintf(&b, t.LAfter, hashedFileList(t, sc.After))
 		fmt.Fprintf(&b, t.LSourceCounts, sc.Counts[0], sc.Counts[1], sc.Counts[2])
-		if sc.Basis != "" {
+		switch sc.Basis {
+		case "":
+		case chainScanPositionsBasis:
+			b.WriteString(t.LSourceBasisPositions)
+		default:
 			b.WriteString(t.LSourceBasis)
+		}
+		if len(sc.ChainCarried) > 0 {
+			c := sc.ChainCarried[0]
+			fmt.Fprintf(&b, t.LChainCarried, len(sc.ChainCarried), mdCode(c.VulnID), mdCode(c.Package), mdCode(c.From), mdCode(c.To))
 		}
 		if sc.Truncated {
 			b.WriteString(t.LListCut)

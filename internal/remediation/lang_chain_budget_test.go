@@ -211,7 +211,7 @@ func TestChainStageAdoptsAResultThatPassedEveryCheck(t *testing.T) {
 		len(c.Tops) != 1 || c.Tops[0] != (ChainMove{Name: "holder", From: "1.0.0", To: "1.1.0", Kind: "top"}) || c.Usage.Containers != 2 || c.Usage.Lookups == 0 {
 		t.Errorf("chain = %+v", c)
 	}
-	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges" {
+	if it.SourceCheck == nil || !it.SourceCheck.Passed || it.SourceCheck.Basis != "package_version_vuln_edges_positions" {
 		t.Errorf("source check = %+v", it.SourceCheck)
 	}
 	if it.waitIntent == nil || !it.waitIntent.Clear {

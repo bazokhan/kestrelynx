@@ -175,6 +175,11 @@ func (u *LangUpdater) chainStage(ctx context.Context, it *LanguageItem, n int, s
 		g1, _ = buildGraph(ctx, it.Manager, lock)
 	}
 	chain.Moves, chain.Truncated = chainMovesIn(ctx, it.Manager, cr.chainGraphNames(), scope, cr.upd.Diff, g0, g1)
+	if firstFail != nil && cr.check != nil {
+		// The item is handed to a person on the first update's failure; the scan
+		// of the chain's lockfile is what it records of the findings.
+		first.check = cr.check
+	}
 	u.finishFirst(workCtx, ctx, it, n, set, first, firstFail, chain, heldBy)
 	return true
 }
