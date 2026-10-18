@@ -109,6 +109,55 @@ npm・pnpm・uvでは、計画したパッケージのうち、検査を通っ�
 pipの固定版更新は部分PRに分けません。
 成立条件は[部分PRの成立条件](remediation-logic.md#partial-pr-selection)、確認操作は[更新を実行できない場合の確認](remediation-troubleshooting.md#check-update-failure)を参照してください。
 
+### 依存元からの再解決の結果 {#dependent-reresolution-results}
+
+npm・pnpm・uvでは、対象パッケージを修正版へ更新するために、プロジェクトが宣言する範囲内で依存元も更新する場合があります。
+Slackでは、更新するパッケージに添えて、あわせて動かした依存元を表示します。
+
+| 表示の例 | 読み方 |
+| --- | --- |
+| `対象 旧版 → 採用版（依存元 旧版 → 新版 も更新）` | 対象の更新とともに、その依存元の版も変更 |
+| `今回の再解決では修正版に届かなかった` | 依存元を再解決したが、今回の結果では対象を修正版にできなかった |
+| `更新も必要だが、…ため採用しない` | 再解決の結果が検査を通らなかった場合などの不採用 |
+| `…ため … の更新を試していない` | 対応形式や上限などによる見送り |
+| `公開から72時間経っていないため … 以降に再試行する` | 新たに入る版が公開後の待機条件を満たしていない状態 |
+
+- 修正版に届かなかった表示は、ほかの更新方法でも解消できないことまでは示さない
+- 直接依存の版が変わらず途中の依存元だけが変わる場合は、その依存元の名前を表示する
+- Slackの依存元一覧は3件まで表示し、残りは件数で示す
+- 再解決を採用しなくても、検査を通った通常更新のPRが作られる場合がある
+
+版が変わった直接依存がある場合、PR本文の「あわせて更新したパッケージ」に変更前後の版を載せます。
+古い版を要求されていた対象と要求範囲も載せ、途中のパッケージが要求していた場合はその名前を示します。
+
+PR本文のスキャン比較の行は、`source_check.basis`に応じて表示します。
+持ち越しがある場合は、記録件数と先頭の例を1行で示し、この更新では直らないことを明記します。
+
+| 記録 | PR本文の表示 |
+| --- | --- |
+| `package_version_vuln_edges_positions` | パッケージ名・版・脆弱性ID、エントリ数・要求数に加え、変更された要求を位置ごとに照合する比較 |
+| `package_version_vuln_edges` | パッケージ名・版・脆弱性IDとエントリ数・要求数による比較 |
+| 持ち越しの表示例 | 更新で版が変わった位置に、同じ脆弱性が 2 件残っています(例: `rc` `1.2.8` から `1.2.9` の `CVE-2026-0001`)。この更新では直りません。 |
+
+- 持ち越しの表示件数は、記録された`chain_carried`の要素数であり、位置の総数ではない
+- 一覧が上限で省略された場合は、PR本文にも省略の案内を表示する
+- Slackの表示は変わらず、持ち越しや位置の検査の専用一覧は追加しない
+
+| 確認したい内容 | Webhookの確認先 |
+| --- | --- |
+| 更新に伴って動かした依存元 | `language_items[].packages[].through` |
+| 古い版を要求していたパッケージと要求範囲 | `language_items[].update.chain.blocked` |
+| 再解決の起点と結果 | `language_items[].update.chain.tops`・`outcome` |
+| 不採用や見送りの詳しい理由 | `language_items[].update.chain.reason`・`detail` |
+| 最初の更新結果の再判定か、追加の再解決か | `language_items[].update.chain.source` |
+| スキャン比較の単位 | `language_items[].source_check.basis` |
+| 同じ位置に残る脆弱性 | `language_items[].source_check.chain_carried` |
+| 位置の検査による拒否 | `language_items[].source_check.chain_position_refusals` |
+| 再試行可能な時刻 | `language_items[].retry_after` |
+| PRに含む直接依存の変更 | `pull_requests[].language.chain` |
+
+処理の条件は[依存元からの再解決](remediation-logic.md#dependent-reresolution)、フィールドの仕様は[依存元からの再解決の記録](webhook-remediation-reference.md#language-chain-fields)を参照してください。
+
 ### 再取得の案内 {#repull-guidance}
 
 「再pull」は、同じタグが現在指す内容との比較で改善を確認した結果です。

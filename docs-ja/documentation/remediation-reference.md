@@ -76,6 +76,76 @@
 | 同梱依存・独自のshrinkwrap | 対象パッケージの自動更新では未対応 |
 | `overrides`による版の固定 | 該当するパッケージは手動対応 |
 | `.npmrc`の非公開レジストリ指定 | 未対応 |
+| 依存元からの再解決 | 通常更新で修正版に届かず、依存元が古い版を要求していると確認できる推移的依存に限定 |
+
+#### 再解決の対応範囲と上限 {#dependent-reresolution-limits}
+
+依存元の版指定が修正版への更新を妨げる推移的依存に使います。
+次の例では、最小の修正版をnpm・pnpmでは`1.2.8`、uvでは`2.0.0`と仮定します。
+
+| 依存元の指定の例 | 使われるか | 補足 |
+| --- | --- | --- |
+| npm・pnpmの`0.0.8` | 使われる | 修正前の版への完全一致 |
+| npm・pnpmの`<1.0` | 使われる | 上限が修正版に届かない |
+| uvの`==1.2.3`・`<1.0` | 使われる | 完全一致または上限により修正版に届かない |
+| uvの`~=1.4` | 使われる | 1.4以上2.0未満の指定で、修正版が2.0以上の場合 |
+| npm・pnpmの`^1.2.0` | 使われない | 指定範囲内で修正版を選べる |
+| npm・pnpmの`\|\|`を含む範囲・`latest`などのタグ | 使われない | 再解決を始める根拠にしない |
+| uvの`!=1.2.3`・`===1.2.3`・`==1.2.*` | 使われない | 除外指定・厳密一致・ワイルドカードは再解決を始める根拠にしない |
+
+次の場合は対象外です。
+
+- 直したいパッケージをプロジェクト自身が直接依存として宣言している
+- 対象や必要な依存元が別名・ローカル・Git・URL参照、または`overrides`で固定されている
+- 同じ依存先への宣言が食い違い、版指定を一つに決められない
+- pipを使っている、またはpnpmが9・10・11・12.10.0以上の12.xのいずれでもない
+
+| 上限の対象 | 上限と対処 |
+| --- | --- |
+| 再解決の起点となる直接依存 | 5パッケージまで、超える場合は`dependents_update_limit`で手動対応 |
+| 更新対象以外に追加・変更・削除するパッケージ | 合計64まで、超える結果は`chain_move_limit`で不合格 |
+| 1項目の処理量 | 実行回数・通信量・作業時間などに上限があり、保留を繰り返すと`dependents_update_limit`で手動対応 |
+
+#### 再解決の検査条件 {#dependent-reresolution-rules}
+
+次の変化がある結果は採用しません。
+Webhookでは、パッケージごとの`packages[].reason`と、詳しい理由を示す`update.chain.reason`を併せて確認します。
+
+| 変化の例 | 記録される理由コード |
+| --- | --- |
+| どこかの経路で版が下がる、または更新前後の版を対応付けられない | `chain_downgrade` |
+| 通常更新の対象でも再解決の起点でもない直接依存の版や参照先が変わる | `unexplained_dependency_diff` |
+| 更新対象以外に動くパッケージが上限を超える | `chain_move_limit` |
+| 直したい脆弱性が更新後のスキャンでも検出される | `source_target_still_detected` |
+| 脆弱な新しいパッケージが入る | `source_introduced_findings` |
+| 脆弱なパッケージを使う依存元が増える | `source_introduced_findings` |
+| 新しい版に、対応する旧版にはない脆弱性がある | `source_introduced_findings` |
+| 1つの版が複数の脆弱な版に分かれる、または複数の経路が合流して脆弱なパッケージの旧版を一つに決められない | `source_introduced_findings` |
+| KEV掲載の脆弱性が新たに入る、または上記の増加・分岐・合流などにKEV掲載の脆弱性が関わる | `source_introduced_kev` |
+
+依存関係上の同じ位置で版だけが変わり、旧版にもある脆弱性が増えずに残る場合は、持ち越しとして認めることがあります。
+例は[脆弱性の持ち越し](remediation-logic.md#dependent-reresolution-carried-findings)を参照してください。
+
+この検査には次の限界があります。
+
+- スキャンで検出されない脆弱性や、深刻度設定の範囲外の脆弱性は確認できない
+- 持ち越した脆弱性は直らず、今回直したい脆弱性を持ち越して合格にはできない
+- プロジェクトから脆弱なパッケージまでの経路の総数は比較しない
+
+#### 公開後の待機と再試行 {#dependent-reresolution-waits}
+
+新たに入る版は公開から72時間待ちます。
+元のlockfileに同じパッケージの同じ版がある場合は待機の対象外で、公開日時を確認できない版は採用しません。
+
+- 公開後の待機による再試行時刻はWebhookの`retry_after`で確認する
+- 公開後の待機、または同じ種類の処理上限で3回連続して保留になると、同じ入力での再解決を停止する
+- 再試行時刻より前に処理を見送る回は、3回に含めない
+- 停止後も検査に合格する通常更新の結果は採用し、残る対象は次の理由コードで手動対応にする
+
+| 停止の原因 | 残る対象の理由コード |
+| --- | --- |
+| 公開後の待機が3回連続する | `dependents_update_rejected` |
+| 同じ種類の処理上限による保留が3回連続する | `dependents_update_limit` |
 
 ### pnpmの依存ファイル {#pnpm-inputs}
 
@@ -89,6 +159,7 @@
 | runtimeの自動取得を記録したlockfile | 未対応 |
 | `resolutions`・`configDependencies`・`executionEnv`など | 解決方法や追加取得を変える未対応設定 |
 | pnpm 12 | 12.10.0以上に対応。12.10.0より前の12.xは手動対応 |
+| 依存元からの再解決 | 通常更新で修正版に届かず、依存元が古い版を要求していると確認できる推移的依存に限定 |
 
 同じディレクトリの`pnpm-workspace.yaml`は、次の設定だけを持つ場合に読み取れます。
 ファイルがあるだけでworkspaceとは判断しません。
@@ -138,6 +209,7 @@
 | `[tool.uv]` | `required-version`・`dev-dependencies`・`sources`・`package`を読み取り可能 |
 | 上記以外の`[tool.uv]`設定 | 未対応 |
 | `uv.toml` | 依存ディレクトリからリポジトリのルートまでのいずれかに存在する場合は未対応 |
+| 依存元からの再解決 | 依存元が古い版を要求していると確認できる推移的依存に限定し、最初の更新結果が依存の差分検査で拒否された場合の再判定も含む |
 
 `[tool.uv]`のキーを読み取れる場合も、依存の取得元やプロジェクト構成が対応範囲内である必要があります。
 
@@ -500,6 +572,22 @@ PR記録の`state`には、次の値があります。
 | `source_introduced_kev` | 更新で依存ファイルにKEV掲載の脆弱性が新たに入る | [比較条件](remediation-logic.md#comparison-conditions) |
 | `source_scan_incomplete` | 依存ファイルのスキャンが不完全だった | [比較条件](remediation-logic.md#comparison-conditions) |
 | `update_verified` | 更新結果の検証が完了した | [対象別の検証範囲](remediation-logic.md#verification-scope) |
+| `dependents_update_not_fixed` | 依存元を解決し直したが、今回の再解決では修正版に届かなかった | [依存元からの再解決](remediation-logic.md#dependent-reresolution) |
+| `dependents_update_rejected` | 依存元の更新が検査を通らなかった | [再解決の検査条件](#dependent-reresolution-rules) |
+| `dependents_update_unsupported` | 依存元をこのツールでは更新できない | [再解決の対応範囲と上限](#dependent-reresolution-limits) |
+| `dependents_update_limit` | 依存元の更新が上限を超える | [再解決の対応範囲と上限](#dependent-reresolution-limits) |
+| `release_too_new` | 更新で入る版の公開から72時間経っていない | [公開後の待機と再試行](#dependent-reresolution-waits) |
+| `chain_downgrade` | 更新でパッケージが古い版に下がる、または版の対応を確定できない | [再解決の検査条件](#dependent-reresolution-rules) |
+| `chain_move_limit` | 更新で動くパッケージ数が上限を超える | [再解決の対応範囲と上限](#dependent-reresolution-limits) |
+| `chain_item_budget` | 更新に必要な作業が1項目の上限を超える | [公開後の待機と再試行](#dependent-reresolution-waits) |
+
+依存元からの再解決では、パッケージごとの理由と、再解決全体の詳しい理由を分けて記録します。
+Webhookでは、`packages[].reason`と`update.chain.reason`を併せて確認します。
+
+- `dependents_update_rejected`には、公開後の待機が3回続いて再解決を停止した場合も含む
+- `dependents_update_limit`には、同じ種類の作業上限による停止や、待機記録を保存できない場合も含む
+- `source_introduced_findings`と`source_introduced_kev`には、脆弱なエントリ数・要求数の増加や、依存関係上の位置の検査による拒否も含む
+- 実行や取得に失敗した場合は、通常更新と共通の失敗コードも使う
 
 ### PR処理の理由 {#pr-reasons}
 
@@ -545,6 +633,9 @@ PR記録の`state`には、次の値があります。
 | `delivered.json` | 配信した計画と、Slackに表示した内容をそれぞれ識別する情報 | 対応する通知の配信後 |
 | `prs.json` | PRの識別情報、状態、作成試行、再作成の抑止、GitHub操作の記録 | PRの処理や照合、操作結果の記録時 |
 | `tools` | 取得・照合したnpm・pnpm・uvのキャッシュ | ツールの取得時など |
+
+`prs.json`には、依存元からの再解決の待機時刻、同じ種類の保留が続いた回数、入力ごとの停止記録も保存します。
+この記録は依存更新の処理後にも更新します。
 
 `plan.json`は、PR処理後の結果を含めて再保存しません。
 PR処理の今回の結果は通知で、継続して管理する記録は`prs.json`で確認できます。

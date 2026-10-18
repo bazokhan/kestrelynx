@@ -54,6 +54,9 @@ KestreLynxと、スキャン・依存更新に使用するツールの通信先�
 PRには、イメージ参照とdigest、Workload名、リポジトリ名、ソースのパス、変更内容が含まれることがあります。
 パッケージ名と版、脆弱性ID、比較結果、処理の理由なども含まれることがあります。
 
+依存元からの再解決を採用したPRには、あわせて動かした直接依存の名前・変更前後の版・古い版を要求していた範囲も含まれることがあります。
+途中のパッケージがその範囲を要求していた場合は、そのパッケージ名も含みます。
+
 管理の条件は[PRの管理](remediation-logic.md#pr-management)、PRによるワークフローの起動は[PR作成の有効化](remediation-setup.md#enable-pr-creation)を参照してください。
 
 ### イメージ候補の取得 {#candidate-registry-communication}
@@ -89,9 +92,14 @@ PRには、イメージ参照とdigest、Workload名、リポジトリ名、ソ�
 | --- | --- | --- | --- |
 | KestreLynx | `registry.npmjs.org` | 依存パッケージの版・依存関係などの情報を取得 | Node.jsの互換条件や更新結果を照合する場合 |
 | KestreLynx | `pypi.org`・`files.pythonhosted.org` | Pythonパッケージの情報・配布物を取得 | Pythonの更新結果を照合する場合 |
+| KestreLynx | `registry.npmjs.org` | パッケージ名・版を使って依存宣言と公開日時を取得 | npm・pnpmの依存元からの再解決で、古い版を要求する依存元や公開後72時間の経過を確認する場合 |
+| KestreLynx | `pypi.org` | パッケージ名・版を使って依存宣言と配布物のアップロード時刻を取得 | uvの依存元からの再解決で、古い版を要求する依存元や公開後72時間の経過を確認する場合 |
 | 作業用コンテナ | 公開npmレジストリ・PyPIと配布物の取得先 | 依存解決、lockfile生成、検査に必要な情報・配布物を取得 | 言語パッケージの依存更新を実行する場合 |
 
 更新処理は、[マネージャー別の更新処理](remediation-logic.md#manager-update-methods)を参照してください。
+
+依存元からの再解決では、更新対象に加えて、途中の依存元や再解決後に新たに入る版の情報も照会します。
+照会数と受信量の制限は、[再解決の対応範囲と上限](remediation-reference.md#dependent-reresolution-limits)を参照してください。
 
 ### 通知先への送信 {#notification-delivery}
 
@@ -101,6 +109,12 @@ PRには、イメージ参照とdigest、Workload名、リポジトリ名、ソ�
 
 通知には、イメージ参照とdigest、Workload名、リポジトリ名、ソースのパスが含まれることがあります。
 パッケージ名と版、脆弱性ID、比較結果なども含まれるため、共有できる範囲に合わせて通知先を設定してください。
+
+依存元からの再解決の通知には、あわせて動かした依存元、修正版に届かなかった結果、見送りや待機の情報も含まれることがあります。
+Webhookには、要求していた版の範囲、変更一覧、処理の使用量、再試行可能な時刻も含まれることがあります。
+
+持ち越した脆弱性については、パッケージ名・変更前後の版・脆弱性ID・位置数・KEV掲載の情報もWebhookに含まれることがあります。
+位置の検査で拒否した結果には、パッケージ名・版・依存元の名前・拒否の種類・脆弱性IDも含まれることがあります。
 
 送信条件は[通知の送信条件](notification-conditions.md#notification-conditions)、JSONの内容は[Webhookのフィールド仕様](webhook-reference.md#generic-webhook)を参照してください。
 
