@@ -137,7 +137,7 @@ See [Verification scope by target](remediation-logic.md#verification-scope) for 
 | `language_items[].workloads` | array of strings or `null` | Target workloads. |
 | `language_items[].source` | object | Source information such as the dependency files' repository, branch, and directory. |
 | `language_items[].pull_request` | object | Matching [PR processing](#remediation-pr-fields); omitted when there is no match. |
-| `language_items[].retry_after` | string | Earliest retry time after a release waiting period, in RFC 3339 format; omitted when no waiting time is recorded. |
+| `language_items[].retry_after` | string | Date and time when the release waiting period ends and a retry becomes possible, in RFC 3339 format; omitted when unavailable. |
 
 ### Package results {#language-package-fields}
 
@@ -152,7 +152,7 @@ See [Verification scope by target](remediation-logic.md#verification-scope) for 
 | `packages[].relation` | string | Dependency relationship classification; omitted when empty. |
 | `packages[].action` / `packages[].reason` / `packages[].detail` | string | Action, reason, and additional details; omitted when empty. |
 | `packages[].left_out` | boolean | `true` when excluded from the planned update; omitted otherwise. |
-| `packages[].through` | array of strings | Names of dependent packages changed along with the update to a fixed version; omitted when empty. |
+| `packages[].through` | array of strings | Names of dependent packages updated along with the target to reach a fixed version; omitted when empty. |
 | `packages[].occurrence_count` / `packages[].cve_count` / `packages[].origin_count` | integer | Counts of occurrences in dependency files, vulnerabilities, and original findings. |
 | `packages[].kev_count` | integer | Number of vulnerabilities listed in KEV; omitted when `0`. |
 | `packages[].occurrences` / `packages[].cves` / `packages[].origins` | array of objects | Lists of occurrences, vulnerabilities, and original findings; omitted when empty. |
@@ -160,11 +160,11 @@ See [Verification scope by target](remediation-logic.md#verification-scope) for 
 
 See [Package action values](remediation-reference.md#action-values) for `action` definitions and [Update targets and adopted versions](remediation-results.md#target-and-adopted-version) for interpreting versions.
 
-`through` lists direct dependencies whose versions change during re-resolution.
-If direct dependency versions remain unchanged but intermediate dependent packages change, it lists the changed dependent packages closest to the project.
+In the example where updating `mkdirp` brings `minimist` to a fixed version, `through` for `minimist` is `["mkdirp"]`.
+If direct dependency versions stay unchanged, it lists the updated intermediate dependent packages closest to the project.
 
-When a cycle matches an existing PR, `through` may be supplemented from the PR record.
-Check `update_executed` and `post_update_check_executed` to determine whether the update and checks run in that cycle.
+`through` may also be supplemented from an existing PR.
+Check `update_executed` and `post_update_check_executed` to determine whether the update and checks run in the current cycle.
 
 ### Runtime {#language-runtime-fields}
 
@@ -222,115 +222,115 @@ See [Tool version selection](remediation-logic.md#tool-version-selection) for th
 | `update.diff.followed` | array of objects | Entries whose dependency versions changed as a consequence of the update; omitted when empty. |
 | `update.diff.followed[].entry` | string | Changed entry. |
 | `update.diff.followed[].moves` | array of objects | Dependency changes with string fields `name`, `from`, and `to`. |
-| `update.chain` | object | Results or skipped-attempt records for re-resolution through dependent packages; omitted when no record is available. |
+| `update.chain` | object | Results of re-resolution through dependent packages or reasons for skipping it; omitted when no information is available. |
 | `source_check` | object | Dependency-file scan results before and after the update; omitted when no record is available. |
 | `source_check.counts` | array of integers | Three counts in the order resolved, remaining, and newly detected. |
 | `source_check.resolved` / `source_check.remaining` / `source_check.introduced` | array of objects | Corresponding vulnerability lists; omitted when empty. |
 | `source_check.truncated` | boolean | `true` when part of the vulnerability lists was omitted; omitted otherwise. |
 | `source_check.passed` | boolean | Whether the post-update check passed; included even when `false`. |
-| `source_check.basis` | string | `package_version_vuln_edges_positions` for re-resolution comparisons that include position checks, or `package_version_vuln_edges` for older records and other comparisons without position checks; omitted when no additional comparison is recorded. |
-| `source_check.chain_new_findings` | array of objects | Package name, version, and vulnerability ID combinations that newly appear after the update and do not qualify as carried from the same positions; omitted when empty. |
-| `source_check.chain_entry_growth` | array of objects | Increases in lockfile entries containing the same vulnerability, counted per version or across all affected versions; omitted when empty. |
-| `source_check.chain_edge_growth` | array of objects | Results with increased counts of dependency requirements pointing to entries containing vulnerable versions; omitted when empty. |
-| `source_check.chain_carried` | array of objects | Vulnerabilities remaining at the same positions despite version changes; omitted when empty. |
-| `source_check.chain_position_refusals` | array of objects | Requirements or entries rejected by position checks; omitted when empty. |
+| `source_check.basis` | string | Method used for [re-resolution scan comparisons](#language-chain-scan-fields); omitted when there is no additional comparison. |
+| `source_check.chain_new_findings` | array of objects | Newly detected vulnerabilities after the update, excluding carried vulnerabilities; omitted when empty. |
+| `source_check.chain_entry_growth` | array of objects | Results showing more occurrences of vulnerable packages in the lockfile; omitted when empty. |
+| `source_check.chain_edge_growth` | array of objects | Results showing more dependency relationships that use vulnerable packages; omitted when empty. |
+| `source_check.chain_carried` | array of objects | Vulnerabilities that remain in the same dependency relationships despite version changes; omitted when empty. |
+| `source_check.chain_position_refusals` | array of objects | Reasons that checks of dependency relationship changes fail; omitted when empty. |
 
 The webhook includes the count of changed deprecation notes, but not the names of affected entries.
 The PR body lists those names and whether notes were added, removed, or changed.
 
-### Records of re-resolution through dependent packages {#language-chain-fields}
+### Results of re-resolution through dependent packages {#language-chain-fields}
 
-`language_items[].update.chain` records the scope and outcome of re-resolution.
-The presence of this record alone does not mean that re-resolution runs or that its result is adopted in a PR.
+In the example where `mkdirp 0.5.1` requires `minimist 0.0.8`, `blocked` contains this requirement and `tops` contains `mkdirp`, whose version is selected again.
+Check `language_items[].update.chain.outcome` for the re-resolution result.
+
+| `outcome` | Meaning | Example |
+| --- | --- | --- |
+| `adopted` | Adoption | `mkdirp` updates to `0.5.6` and `minimist` to `1.2.8`, and the checks pass. |
+| `not_fixed` | Fixed version not reached | Selecting dependent packages again does not bring the target to a fixed version. |
+| `rejected` | Rejection or a stop after repeated waits | The update introduces another vulnerability. |
+| `failed` | Processing failure | The package manager exits with an error. |
+| `not_tried` | Skipped attempt | More than five direct dependencies need their versions selected again. |
+| `deferred` | Deferral | A newly introduced version is less than 72 hours old. |
 
 | Field relative to `update.chain` | Type | Meaning and omission conditions |
 | --- | --- | --- |
-| `outcome` | string | Re-resolution outcome. |
-| `reason` / `detail` | string | Outcome reason and additional details; omitted when empty. |
-| `source` | string | `chain_job` for processing that performs additional re-resolution, or `first_run` for reassessment of the initial uv update result under the re-resolution rules; check `outcome` for execution and adoption status. |
-| `blocked` | array of objects | Requirements that prevent targets from reaching fixed versions; `[]` when no such requirements are confirmed. |
-| `blocked[].package` / `blocked[].version` | string | Name and version of the target package held at an older version. |
-| `blocked[].parent` / `blocked[].parent_version` | string | Name and version of the dependent package requiring an older version. |
-| `blocked[].range` | string | Version specification required by the dependent package. |
-| `blocked[].proof` | string | `exact` for confirmation through an exact-version requirement, or `upper_bound` for confirmation through an upper bound that excludes fixed versions. |
-| `blocked[].via` | array of strings | Project direct dependencies that lead to the dependent package; omitted when empty. |
-| `tops` | array of objects | Direct dependencies used as starting points for re-resolution; `[]` when no information is available. |
-| `tops[].name` | string | Direct dependency name. |
-| `tops[].from` / `tops[].to` | string | Versions before and after the update; omitted when unavailable. |
+| `outcome` | string | Result from the table above. |
+| `reason` / `detail` | string | Reason code and additional details; omitted when empty. |
+| `source` | string | `chain_job` for additional re-resolution, or `first_run` for reassessment of the initial uv update result. |
+| `blocked` | array of objects | Version requirements that prevent updates to fixed versions; `[]` when none are confirmed. |
+| `blocked[].package` / `blocked[].version` | string | Name and version of the package whose update is blocked, such as `minimist` and `0.0.8`. |
+| `blocked[].parent` / `blocked[].parent_version` | string | Name and version of the dependent package requiring an older version, such as `mkdirp` and `0.5.1`. |
+| `blocked[].range` | string | Version requirement declared by the dependent package, such as `0.0.8`. |
+| `blocked[].proof` | string | `exact` for a pin to an older version, or `upper_bound` when the required range's upper bound excludes fixed versions. |
+| `blocked[].via` | array of strings | Names of direct dependencies that lead to that dependent package; omitted when empty. |
+| `tops` | array of objects | Direct dependencies whose versions are selected again; `[]` when no information is available. |
+| `tops[].name` | string | Direct dependency name, such as `mkdirp`. |
+| `tops[].from` / `tops[].to` | string | Versions before and after the update; omitted when unavailable and equal when the version stays unchanged. |
 | `tops[].kind` | string | `top`. |
-| `moves` | array of objects | Related changes outside the update targets and `tops`; omitted when empty. |
-| `moves[].name` | string | Package name, or the entry identifier when the name is unavailable. |
-| `moves[].from` / `moves[].to` | string | Versions before and after the change; omitted when unavailable, such as before an addition or after a removal. |
+| `moves` | array of objects | Changes outside the update targets and `tops`; omitted when empty. |
+| `moves[].name` | string | Package name, or its identifier in the lockfile when the name is unavailable. |
+| `moves[].from` / `moves[].to` | string | Versions before and after the change; omitted when no version exists, such as before an addition or after a removal. |
 | `moves[].kind` | string | `ancestor` for dependent-package changes, `followed` for other changes, `added` for additions, or `removed` for removals. |
 | `truncated` | boolean | `true` when part of the change list is omitted; omitted otherwise. |
-| `usage` | object | Item usage. |
-| `usage.containers` | integer | Number of work containers used. |
-| `usage.lookups` | integer | Number of registry lookups by KestreLynx. |
-| `usage.bytes` | integer | Bytes received in registry responses. |
-| `usage.elapsed_ms` | integer | Milliseconds from the start of item processing until usage is recorded. |
+| `usage` | object | Processing usage details, including normal updates and reruns. |
+| `usage.containers` / `usage.lookups` / `usage.bytes` / `usage.elapsed_ms` | integer | Work container count, registry lookup count, received bytes, and elapsed milliseconds since processing starts, respectively. |
 
-Usage includes the initial normal update and any required reruns.
-Because `tops` also includes direct dependencies whose versions remain unchanged, compare `from` and `to` to identify actual version changes.
+`update.chain` also includes skipped attempts, so its presence alone does not establish that re-resolution runs or that its result is adopted.
+Check `language_items[].retry_after` for the date and time when the release waiting period ends.
 
-| `outcome` | Meaning |
-| --- | --- |
-| `adopted` | The re-resolution result is adopted. |
-| `not_fixed` | Re-resolution runs but does not reach a fixed version. |
-| `rejected` | Checks reject the result, or repeated release waits stop re-resolution. |
-| `failed` | Re-resolution processing fails. |
-| `not_tried` | Re-resolution is skipped because of support restrictions, limits, or similar conditions. |
-| `deferred` | Re-resolution is deferred because of release waiting periods or work limits. |
-
-`retry_after` belongs to `language_items[]`, not to `update.chain`.
-Later cycles during a waiting period may include `retry_after` without `update.chain`.
+During a waiting period, some cycles include `retry_after` without `update.chain`.
+See [Release waiting periods and retries](remediation-reference.md#dependent-reresolution-waits) for waiting and stopping conditions.
 
 ### Re-resolution scan comparisons {#language-chain-scan-fields}
 
-`source_check.basis` identifies the units used in the re-resolution scan comparison.
-It is `package_version_vuln_edges_positions` when position checks are included, or `package_version_vuln_edges` for older records and other comparisons without position checks.
+`language_items[].source_check` contains the results of checks for increases in vulnerabilities or their occurrences after the update.
+`chain_carried` lists vulnerabilities that remain unfixed by this update.
+
+| `source_check.basis` | Comparison method |
+| --- | --- |
+| `package_version_vuln_edges_positions` | Compares package names, versions, vulnerability IDs, occurrence counts, and dependency relationship counts, and also checks changed dependency relationships. |
+| `package_version_vuln_edges` | Compares package names, versions, vulnerability IDs, occurrence counts, and dependency relationship counts. |
+
+The following fields belong to the lists within `source_check`.
 
 | Field within the lists | Type | Meaning and omission conditions |
 | --- | --- | --- |
-| `chain_new_findings[].package` / `version` / `vuln_id` | string | Newly appearing package name, version, and vulnerability ID that do not qualify as carried. |
+| `chain_new_findings[].package` / `version` / `vuln_id` | string | Package name, version, and vulnerability ID of a newly detected vulnerability. |
 | `chain_new_findings[].severity` / `fixed_ver` | string | Severity and fixed-version information; omitted when empty. |
 | `chain_new_findings[].kev` | boolean | `true` when listed in KEV; omitted otherwise. |
-| `chain_entry_growth[].package` / `vuln_id` | string | Package name and vulnerability ID with an increased entry count. |
-| `chain_entry_growth[].version` | string | Version for a per-version increase; omitted when the increase covers all affected versions. |
-| `chain_entry_growth[].before` / `after` | integer | Entry counts before and after the update. |
-| `chain_edge_growth[].package` / `vuln_id` | string | Package name and vulnerability ID with an increased requirement count. |
-| `chain_edge_growth[].before` / `after` | integer | Counts before and after the update of requirements pointing to entries affected by that vulnerability. |
-| `chain_carried[].package` | string | Name of the package whose version changes at the same position. |
-| `chain_carried[].from` / `to` | string | Versions before and after the change; when previous versions differ by position, `from` contains one representative value. |
-| `chain_carried[].vuln_id` | string | Vulnerability ID remaining at the same position. |
-| `chain_carried[].positions` | integer | Number of requirement positions where the vulnerability qualifies as carried. |
+| `chain_entry_growth[].package` / `vuln_id` | string | Package name and vulnerability ID with an increased occurrence count. |
+| `chain_entry_growth[].version` | string | Version for a per-version increase; omitted when multiple versions are counted together. |
+| `chain_entry_growth[].before` / `after` | integer | Occurrence counts in the lockfile before and after the update. |
+| `chain_edge_growth[].package` / `vuln_id` | string | Package name and vulnerability ID with an increased dependency relationship count. |
+| `chain_edge_growth[].before` / `after` | integer | Counts before and after the update of dependency relationships that use versions affected by that vulnerability. |
+| `chain_carried[].package` | string | Name of the package in which the vulnerability remains. |
+| `chain_carried[].from` / `to` | string | Versions before and after the change; when there are multiple previous versions, `from` contains one representative value. |
+| `chain_carried[].vuln_id` | string | ID of the vulnerability that remains. |
+| `chain_carried[].positions` | integer | Number of dependency relationship locations where the same vulnerability remains, which differs from the total number of paths from the project. |
 | `chain_carried[].kev` | boolean | `true` when listed in KEV; omitted otherwise. |
-| `chain_position_refusals[].package` / `version` | string | Name and version of the rejected requirement's target, or of the old entry that splits when `check` is `split`. |
-| `chain_position_refusals[].parent` | string | Name of the dependent package declaring the rejected requirement; omitted when unavailable, including for the project's own requirements and `split`. |
-| `chain_position_refusals[].check` | string | Type of position check refusal. |
-| `chain_position_refusals[].vuln_id` | string | One vulnerability ID absent from the old entry for `new_vuln`; omitted otherwise. |
+| `chain_position_refusals[].package` / `version` | string | Name and version of the package causing the check to fail, or its name and version before the split when `check` is `split`. |
+| `chain_position_refusals[].parent` | string | Name of the dependent package that uses that package; omitted when unavailable. |
+| `chain_position_refusals[].check` | string | Failure reason from the table below. |
+| `chain_position_refusals[].vuln_id` | string | One newly detected vulnerability ID for `new_vuln`; omitted otherwise. |
 
 | `chain_position_refusals[].check` | Meaning |
 | --- | --- |
-| `no_position` | No requirement matches the same position before the update, including mismatches in name, kind, or marker and changes beyond those mismatches. |
-| `merged` | Multiple requirements pointing to different old entries correspond to one position after the update. |
-| `name` | The package name differs from the old entry at the corresponding position. |
-| `new_vuln` | The updated entry contains a vulnerability ID absent from the old entry at the same position. |
-| `split` | One old entry splits into multiple vulnerable entries, without offsets from removals elsewhere. |
+| `no_position` | The same dependency relationship cannot be confirmed before the update. |
+| `merged` | Multiple dependency paths merge, so a single previous version cannot be chosen for comparison. |
+| `name` | The dependency's package name changes. |
+| `new_vuln` | The new version contains a vulnerability absent from the old version. |
+| `split` | One version splits into multiple vulnerable versions. |
 
-- When `chain_entry_growth` records per-version increases for a package name and vulnerability ID, it does not also record an increase aggregated across affected versions for the same pair.
-- `chain_edge_growth` aggregates affected versions and therefore does not include `version`.
-- `chain_carried` groups records by package name, version after the change, and vulnerability ID, and `positions` does not represent the total number of paths from the project.
-- The update does not fix vulnerabilities listed in `chain_carried`.
-- `chain_new_findings`, `chain_entry_growth`, `chain_edge_growth`, `chain_carried`, and `chain_position_refusals` each record up to 500 elements.
-- Truncating any of these lists at its limit sets `source_check.truncated` to `true`.
-- `source_check.truncated` also applies when the normal `resolved`, `remaining`, or `introduced` lists are truncated.
-- `source_check.counts` retains the resolved, remaining, and newly detected counts by package name and vulnerability ID rather than using increase or position counts from the additional comparison.
-- List limits affect recorded output, while pass or fail decisions use the check results before truncation.
+`chain_carried` groups records by package name, version after the change, and vulnerability ID.
+Carried vulnerabilities do not establish that the checks pass; check `source_check.passed` for the check result and `update.chain.outcome` for adoption status.
 
-Items requiring manual handling because the re-resolution scan rejects the result also retain records of the comparisons performed.
-The presence of `chain_carried` does not mean that the item passes overall, so check both `source_check.passed` and `update.chain.outcome`.
+Each list contains up to 500 elements, and `source_check.truncated` is `true` when elements are omitted.
+Pass or fail decisions use all results before truncation.
 
-See [Re-resolution check conditions](remediation-reference.md#dependent-reresolution-rules) for changes that fail the checks, their reason codes, and the conditions for carrying vulnerabilities.
+`source_check.counts` gives resolved, remaining, and newly detected counts by package name and vulnerability ID.
+It does not include occurrence or dependency relationship counts.
+
+See [Re-resolution check conditions](remediation-reference.md#dependent-reresolution-rules) and [Carried vulnerabilities](remediation-logic.md#dependent-reresolution-carried-findings) for check conditions and examples of carried vulnerabilities.
 
 ### Updated files {#language-artifact-fields}
 
@@ -360,7 +360,7 @@ File contents are excluded.
 | `pull_requests[].item_key` | string | Identifier of the associated language-package item; omitted when unavailable. |
 | `pull_requests[].language` | object | Language-package update details; omitted when none apply. |
 | `pull_requests[].language.remaining` | array of objects | Packages excluded from the PR; omitted when empty. |
-| `pull_requests[].language.packages[].through` | array of strings | Names of dependent packages changed along with the update to a fixed version; omitted when empty. |
+| `pull_requests[].language.packages[].through` | array of strings | Names of dependent packages updated along with the target to reach a fixed version; omitted when empty. |
 | `pull_requests[].language.chain` | array of objects | Direct dependencies whose versions change through re-resolution and are included in the PR; omitted when empty. |
 | `dockerfile_items[].pull_request` | object | Matching operation's `status` and optional `reason`, `number`, `url`, and `state`; omitted when there is no match. |
 | `language_items[].pull_request` | object | Matching operation's `status` and optional reason, details, PR information, and matching identifiers; omitted when there is no match. |
@@ -374,11 +374,11 @@ File contents are excluded.
 
 | `pull_requests[].language.chain[]` field | Type | Meaning and omission conditions |
 | --- | --- | --- |
-| `name` | string | Name of the direct dependency whose version changes. |
-| `from` / `to` | string | Versions before and after the update. |
-| `held` | string | Target package subject to a requirement for an older version; omitted when empty. |
-| `held_range` | string | Version specification required for the target package; omitted when empty. |
-| `held_by` | string | Intermediate package between the direct dependency and the target that requires an older version; omitted when the direct dependency itself declares the requirement or no intermediate package applies. |
+| `name` | string | Name of the direct dependency updated along with the target, such as `mkdirp`. |
+| `from` / `to` | string | Versions before and after the update, such as `0.5.1` and `0.5.6`. |
+| `held` | string | Name of the package subject to a requirement for an older version, such as `minimist`; omitted when empty. |
+| `held_range` | string | Version requirement that blocks the update, such as `0.0.8`; omitted when empty. |
+| `held_by` | string | Name of an intermediate package that requires an older version; omitted when the direct dependency itself declares the requirement or no intermediate package applies. |
 
 When a cycle matches an existing PR, package exclusion information is supplemented from the PR's `language.remaining`.
 `packages[]` may include `left_out`, `action`, and `reason` even when update and check execution flags are `false` for that cycle.
