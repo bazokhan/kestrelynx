@@ -1,0 +1,59 @@
+title: "[Trying] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying KestreLynx. Reports of any outcome are welcome, including "it worked" and "I gave up during setup".
+
+        Please do not paste tokens, webhook URLs, or image and repository names you do not want to make public.
+        If you hit a clear bug, you can also open an issue.
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Docker / Docker Compose
+        - Kubernetes
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KestreLynx version
+      description: Image tag, if you know it.
+      placeholder: e.g. latest or sha-47eaa0f
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why did you try it?
+      description: What you wanted to check or improve in your environment.
+  - type: dropdown
+    id: progress
+    attributes:
+      label: How far did you get?
+      options:
+        - Did not get it running
+        - Running, but no scan completed
+        - Scan completed, but no notification arrived
+        - Received the first notification
+    validations:
+      required: true
+  - type: checkboxes
+    id: features
+    attributes:
+      label: Optional features you enabled
+      options:
+        - label: Fix pull requests
+        - label: Runtime Sensor
+  - type: textarea
+    id: friction
+    attributes:
+      label: What got in the way?
+      description: Setup steps, permissions, documentation, or notifications that were unclear or not useful.
+  - type: checkboxes
+    id: follow-up
+    attributes:
+      label: Follow-up
+      options:
+        - label: It is OK to ask me in this thread in two and four weeks whether I am still using it.
