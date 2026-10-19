@@ -30,18 +30,18 @@ permissions:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       TRIVY_VERSION: "0.71.2"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       # arm64 images are run under emulation to read their versions.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
       - name: Check the script
         run: python3 -m unittest update_runtimes_test
@@ -95,7 +95,7 @@ jobs:
 
       - name: Open the pull request
         if: steps.changed.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: runtimes/update
           commit-message: "Update the pinned Node.js and Python images"
