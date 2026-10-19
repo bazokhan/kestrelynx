@@ -125,9 +125,10 @@ func classifyProbeErr(err error) int {
 // instruction here is a wider window for some unrelated signal, such as
 // the Go runtime's own async-preemption signal to another goroutine, to
 // arrive and trigger exactly the permanent stop this package's own tests
-// hit before this ordering existed). RunUnsafeProbesInSubprocess's own
-// timeout is the backstop for the residual risk that a signal arrives in
-// that narrow window anyway.
+// hit before this ordering existed). RunUnsafeProbesInSubprocess starts
+// this child with asynchronous preemption turned off, which removes that
+// runtime signal, and its own timeout is the backstop for the residual
+// risk that some other signal arrives in that narrow window anyway.
 func runUnsafeProbeChild() {
 	if err := SetNoNewPrivsAll(); err != nil {
 		syscall.Exit(exitCodeSetupFailed)
@@ -151,6 +152,17 @@ func runUnsafeProbeChild() {
 	ptraceOutcome := classifyProbeErr(ptraceErr)
 
 	syscall.Exit(reportCode(execOutcome, ptraceOutcome))
+}
+
+// asyncPreemptOff returns the GODEBUG setting of the probe child: the
+// caller's own settings with asynchronous preemption turned off, so the Go
+// runtime sends no preemption signal that could stop the child between a
+// successful PTRACE_TRACEME and its exit.
+func asyncPreemptOff(godebug string) string {
+	if godebug == "" {
+		return "asyncpreemptoff=1"
+	}
+	return godebug + ",asyncpreemptoff=1"
 }
 
 // RunUnsafeProbesInSubprocess runs RunUnsafeProbes (execve,
@@ -179,7 +191,7 @@ func RunUnsafeProbesInSubprocess() ([]Probe, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, exe)
-	cmd.Env = append(os.Environ(), unsafeProbeEnvVar+"=1")
+	cmd.Env = append(os.Environ(), unsafeProbeEnvVar+"=1", "GODEBUG="+asyncPreemptOff(os.Getenv("GODEBUG")))
 	cmd.Stderr = os.Stderr
 
 	runErr := cmd.Run()

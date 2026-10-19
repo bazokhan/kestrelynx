@@ -16,12 +16,14 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -99,6 +101,9 @@ func asExitError(err error) (code int, ok bool) {
 	return ee.ExitCode(), true
 }
 
+// helperTimeout bounds one run of the helper binary in reexecSelf.
+const helperTimeout = 2 * time.Minute
+
 // reexecSelf runs the helper binary with role passed via KL_SANDBOX_HELPER,
 // plus any extra env, and returns its stdout and exit code.
 func reexecSelf(t *testing.T, role string, extraEnv ...string) (stdout string, exitCode int) {
@@ -106,12 +111,22 @@ func reexecSelf(t *testing.T, role string, extraEnv ...string) (stdout string, e
 	if runtime.GOOS != "linux" {
 		t.Skip("linux-only")
 	}
-	cmd := helperCommand(t)
+	// A helper that never exits (left stopped by a signal, say) fails here
+	// instead of holding the whole package until the test binary times out.
+	ctx, cancel := context.WithTimeout(context.Background(), helperTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, buildHelperBin(t))
+	// A grandchild still holding the helper's stdout must not keep Output
+	// waiting after the helper itself is killed.
+	cmd.WaitDelay = 10 * time.Second
 	cmd.Env = append(os.Environ(), helperRoleEnv+"="+role)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("helper %q did not exit within %s; stderr:\n%s", role, helperTimeout, stderr.String())
+	}
 	code := 0
 	if err != nil {
 		if ee, ok := asExitError(err); ok {

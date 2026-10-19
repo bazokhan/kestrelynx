@@ -148,3 +148,16 @@ func TestRunUnsafeProbesInSubprocess_Integration(t *testing.T) {
 		t.Fatalf("missing ptrace(PTRACE_TRACEME) result: %+v", probes)
 	}
 }
+
+func TestAsyncPreemptOffKeepsTheCallersSettings(t *testing.T) {
+	if got := asyncPreemptOff(""); got != "asyncpreemptoff=1" {
+		t.Errorf("empty GODEBUG gives %q", got)
+	}
+	if got := asyncPreemptOff("madvdontneed=1"); got != "madvdontneed=1,asyncpreemptoff=1" {
+		t.Errorf("existing GODEBUG gives %q", got)
+	}
+	// The setting added last wins over one the caller already had.
+	if got := asyncPreemptOff("asyncpreemptoff=0"); got != "asyncpreemptoff=0,asyncpreemptoff=1" {
+		t.Errorf("GODEBUG turning preemption on gives %q", got)
+	}
+}

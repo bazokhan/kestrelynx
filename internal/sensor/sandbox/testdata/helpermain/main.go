@@ -464,6 +464,15 @@ func asyncPreempt(role string) {
 // process state in ways nothing should rely on continuing to work normally
 // afterward, so they only ever run in a process about to exit anyway.
 func selfCheckProbes() {
+	// The two unsafe probes run in a disposable child, the way the observer
+	// runs them: a PTRACE_TRACEME that succeeds stops its caller at the next
+	// signal, which would hang this helper and the test waiting for it. The
+	// child applies ObserverFilter to itself, and has to be started before
+	// this process installs that filter, which denies execve.
+	unsafeProbes, err := sandbox.RunUnsafeProbesInSubprocess()
+	if err != nil {
+		die("RunUnsafeProbesInSubprocess", err)
+	}
 	if os.Getenv("KL_SANDBOX_APPLY_FILTER") == "observer" {
 		pid := int32(os.Getpid())
 		if err := sandbox.SetNoNewPrivsAll(); err != nil {
@@ -480,12 +489,7 @@ func selfCheckProbes() {
 	for _, p := range sandbox.RunProbes() {
 		result(p.Name, p.Err)
 	}
-	// This role is exactly the disposable, about-to-exit process
-	// RunUnsafeProbes requires: it runs the two probes RunObserverSelfCheck
-	// itself never runs (execve, ptrace(PTRACE_TRACEME)) and then exits
-	// immediately either way, so an unexpected success (this process's
-	// image replaced, or left trace-stopped) does no harm here.
-	for _, p := range sandbox.RunUnsafeProbes() {
+	for _, p := range unsafeProbes {
 		result(p.Name, p.Err)
 	}
 	os.Exit(0)
