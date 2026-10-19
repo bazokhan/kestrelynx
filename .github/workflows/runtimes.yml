@@ -67,6 +67,8 @@ jobs:
           curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             | tar -xz -C "$HOME/.local/bin" trivy
           "$HOME/.local/bin/trivy" image --download-db-only --quiet
+          # The scan conditions of the tests hash the Java database too.
+          "$HOME/.local/bin/trivy" image --download-java-db-only --quiet
 
       - name: Fixture tests against the new images
         if: steps.changed.outputs.changed == 'true'
