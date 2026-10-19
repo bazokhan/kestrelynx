@@ -105,6 +105,20 @@ Long notifications continue in additional messages with repeated section and ima
 - Remediation plans and optional GitHub PR creation are both disabled by default
 - Users check changes, merge, deploy, and verify after deployment
 
+These screenshots show actual output from the [demo repository](https://github.com/kitsunetrail/kestrelynx-demo), which intentionally pins older images and dependencies, with the [generated PRs available on GitHub](https://github.com/kitsunetrail/kestrelynx-demo/pulls).
+
+The Slack fix plan lists three created PRs and a Dockerfile base update marked “Needs a decision” because the candidate introduces new findings.
+
+![Slack fix plan showing Compose, pip, and npm update PRs and a Dockerfile base update requiring a decision](docs/assets/screenshots/slack-fix-plan.png)
+
+[PR #1](https://github.com/kitsunetrail/kestrelynx-demo/pull/1) proposes updating nginx from 1.27.0 to 1.27.5 and records the candidate scan comparison: 17 targeted findings resolved, 86 remaining.
+
+![GitHub PR body with What, Change, and Verification sections, including 94 other findings remaining and no introduced findings](docs/assets/screenshots/pr-compose-body.png)
+
+After PR #1 was merged and the running `proxy` container was replaced with nginx 1.27.5, the next scan reported resolutions for four packages with history carried over.
+
+![Slack scan notification showing the nginx image update and resolutions for libabsl20220623, libavif15, libfreetype6, and liblzma5](docs/assets/screenshots/slack-resolved.png)
+
 | Topic | Detailed page |
 | --- | --- |
 | Find the page for your task | [Overview](docs/documentation/remediation.md) |

@@ -105,6 +105,20 @@
 - 修正計画と任意のGitHub PR作成は、どちらも既定で無効
 - 利用者が変更を確認し、マージ、配置、配置後の確認を行う
 
+以下は古いイメージと依存を意図的に固定した[デモ用リポジトリ](https://github.com/kitsunetrail/kestrelynx-demo)での実際の出力（英語UI）で、[作成されたPR](https://github.com/kitsunetrail/kestrelynx-demo/pulls)も公開しています。
+
+Slackの修正計画には作成された3件のPRと、新たな所見が入るため「Needs a decision」となったDockerfileのベース更新候補が表示されています。
+
+![Compose・pip・npmの更新PRと、判断が必要なDockerfileのベース更新候補を示すSlackの修正計画](docs/assets/screenshots/slack-fix-plan.png)
+
+[PR #1](https://github.com/kitsunetrail/kestrelynx-demo/pull/1)はnginx 1.27.0から1.27.5への更新を提案し、候補のスキャン比較結果として、更新対象の所見のうち17件が解消、86件が残ることを記載しています。
+
+![What・Change・Verificationを記載したGitHubのPR本文で、対象外の所見は94件残り、新たな所見は0件](docs/assets/screenshots/pr-compose-body.png)
+
+PR #1をマージして稼働中の`proxy`コンテナをnginx 1.27.5に入れ替えた後、次のスキャンでは履歴を引き継ぎ、4パッケージの所見の解消が通知されています。
+
+![nginxのイメージ更新と、libabsl20220623・libavif15・libfreetype6・liblzma5の所見の解消を示すSlackのスキャン通知](docs/assets/screenshots/slack-resolved.png)
+
 | 知りたいこと | 詳細ページ |
 | --- | --- |
 | 目的に合うページを探す | [修正計画の案内](docs-ja/documentation/remediation.md) |

@@ -97,6 +97,20 @@ Docker・Compose向けに、次の3種類のソースの変更を提案できま
 通知を行い、GitHubへの書き込みや作業用コンテナの起動は行いません。
 PRを別途有効にすると、GitHubへの変更と、言語パッケージ更新用のDockerの作業用コンテナを使います。
 
+以下は古いイメージと依存を意図的に固定した[デモ用リポジトリ](https://github.com/kitsunetrail/kestrelynx-demo)での実際の出力（英語UI）で、[作成されたPR](https://github.com/kitsunetrail/kestrelynx-demo/pulls)も公開しています。
+
+Slackの修正計画には作成された3件のPRと、新たな所見が入るため「Needs a decision」となったDockerfileのベース更新候補が表示されています。
+
+![Compose・pip・npmの更新PRと、判断が必要なDockerfileのベース更新候補を示すSlackの修正計画](assets/screenshots/slack-fix-plan.png)
+
+[PR #1](https://github.com/kitsunetrail/kestrelynx-demo/pull/1)はnginx 1.27.0から1.27.5への更新を提案し、候補のスキャン比較結果として、更新対象の所見のうち17件が解消、86件が残ることを記載しています。
+
+![What・Change・Verificationを記載したGitHubのPR本文で、対象外の所見は94件残り、新たな所見は0件](assets/screenshots/pr-compose-body.png)
+
+PR #1をマージして稼働中の`proxy`コンテナをnginx 1.27.5に入れ替えた後、次のスキャンでは履歴を引き継ぎ、4パッケージの所見の解消が通知されています。
+
+![nginxのイメージ更新と、libabsl20220623・libavif15・libfreetype6・liblzma5の所見の解消を示すSlackのスキャン通知](assets/screenshots/slack-resolved.png)
+
 候補やPRがあることは、稼働イメージが修正済みであることを意味しません。
 比較した範囲を確認し、マージ前にCIを実行してください。再ビルドとデプロイは別途必要です。
 

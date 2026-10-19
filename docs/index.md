@@ -113,6 +113,20 @@ Plans select candidates, compare scans, and notify without writing to GitHub
 or starting work containers. Enabling pull requests separately allows GitHub
 changes and Docker work containers for language-package updates.
 
+These screenshots show actual output from the [demo repository](https://github.com/kitsunetrail/kestrelynx-demo), which intentionally pins older images and dependencies, with the [generated PRs available on GitHub](https://github.com/kitsunetrail/kestrelynx-demo/pulls).
+
+The Slack fix plan lists three created PRs and a Dockerfile base update marked “Needs a decision” because the candidate introduces new findings.
+
+![Slack fix plan showing Compose, pip, and npm update PRs and a Dockerfile base update requiring a decision](assets/screenshots/slack-fix-plan.png)
+
+[PR #1](https://github.com/kitsunetrail/kestrelynx-demo/pull/1) proposes updating nginx from 1.27.0 to 1.27.5 and records the candidate scan comparison: 17 targeted findings resolved, 86 remaining.
+
+![GitHub PR body with What, Change, and Verification sections, including 94 other findings remaining and no introduced findings](assets/screenshots/pr-compose-body.png)
+
+After PR #1 was merged and the running `proxy` container was replaced with nginx 1.27.5, the next scan reported resolutions for four packages with history carried over.
+
+![Slack scan notification showing the nginx image update and resolutions for libabsl20220623, libavif15, libfreetype6, and liblzma5](assets/screenshots/slack-resolved.png)
+
 A candidate or pull request does not mean the running image has been fixed.
 Review the comparison scope and run your CI before merging; rebuilding and
 deploying remain separate steps.
