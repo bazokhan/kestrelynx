@@ -254,6 +254,71 @@ class NewSeriesTest(unittest.TestCase):
         self.assertEqual(got["runtimes"][1]["tested"], {})
 
 
+def fake_process(code=0, out=b"", err=b""):
+    return type("P", (), {"returncode": code, "stdout": out, "stderr": err})()
+
+
+class ImageConfigTest(unittest.TestCase):
+    def inspect(self, answer, platform="linux/arm64"):
+        calls = []
+
+        def fake_run(*cmd, check=True, input=None):
+            calls.append(cmd)
+            if check and answer.returncode != 0:
+                raise u.Failure("failed")
+            return answer
+        saved = u.run
+        u.run = fake_run
+        try:
+            return u.image_config("node@sha256:" + "b" * 64, platform), calls
+        finally:
+            u.run = saved
+
+    def info(self, arch, **cfg):
+        return json.dumps({"Os": "linux", "Architecture": arch, "Config": dict({"Env": ["NODE_VERSION=26.1.0"]}, **cfg)}).encode()
+
+    def test_the_configuration_of_the_platform_is_returned(self):
+        cfg, calls = self.inspect(fake_process(out=self.info("arm64", Volumes={"/data": {}})))
+        self.assertEqual(cfg["Env"], ["NODE_VERSION=26.1.0"])
+        self.assertEqual(cfg["Volumes"], {"/data": {}})
+        self.assertNotIn("--platform", calls[0])
+
+    def test_an_image_of_another_platform_is_a_failure(self):
+        with self.assertRaises(u.Failure):
+            self.inspect(fake_process(out=self.info("amd64")))
+
+    def test_an_inspect_error_is_a_failure(self):
+        with self.assertRaises(u.Failure):
+            self.inspect(fake_process(code=1, err=b"Error: No such image"))
+
+
+class ResolveRowTest(unittest.TestCase):
+    def test_each_platform_is_handled_by_its_own_manifest_digest(self):
+        index, amd, arm = "sha256:" + "1" * 64, "sha256:" + "2" * 64, "sha256:" + "3" * 64
+        refs = {"pull": [], "versions": [], "config": [], "scan": [], "trivy": []}
+        names = ("resolve_index", "run", "exact_versions", "image_config", "scan_image", "trivy")
+        saved = {n: getattr(u, n) for n in names}
+        try:
+            u.resolve_index = lambda image, tag: (index, {"linux/amd64": amd, "linux/arm64": arm})
+            u.run = lambda *cmd, **kw: refs["pull"].append((cmd[-2], cmd[-1])) or fake_process()
+            u.exact_versions = lambda row, ref, plat: refs["versions"].append((plat, ref)) or ("26.1.0", "")
+            u.image_config = lambda ref, plat: refs["config"].append((plat, ref)) or {"Env": ["NODE_VERSION=26.1.0"]}
+            u.scan_image = lambda ref, plat: refs["scan"].append((plat, ref)) or ["/tmp"]
+            u.trivy = lambda ref, plat: refs["trivy"].append((plat, ref)) or []
+            row = {"id": "node26", "kind": "node", "series": "26", "image": "node", "tag": "26-bookworm-slim", "covered_paths": ["/tmp"]}
+            new = u.resolve_row(row, None, "2026-10-19", [])
+        finally:
+            for n, f in saved.items():
+                setattr(u, n, f)
+        want = [("linux/amd64", "node@" + amd), ("linux/arm64", "node@" + arm)]
+        self.assertEqual(refs["pull"], want)
+        for step in ("versions", "config", "scan"):
+            self.assertEqual(refs[step], want, step)
+        self.assertEqual(refs["trivy"], [want[0]])
+        self.assertEqual(new["index_digest"], index)
+        self.assertEqual(new["platforms"], {"linux/amd64": amd, "linux/arm64": arm})
+
+
 class DateTest(unittest.TestCase):
     def test_only_calendar_dates_are_dates(self):
         for v in ("2026-10-13", "2028-02-29"):

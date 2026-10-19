@@ -120,8 +120,13 @@ def exact_versions(row, pinned, platform):
 
 
 def image_config(pinned, platform):
-    out = run("docker", "image", "inspect", "--platform", platform, "--format", "{{json .Config}}", pinned).stdout
-    return json.loads(out)
+    """Return the image configuration of pinned, a single-platform manifest
+    reference, after checking that the image is of that platform."""
+    info = json.loads(run("docker", "image", "inspect", "--format", "{{json .}}", pinned).stdout)
+    got = "%s/%s" % (info.get("Os"), info.get("Architecture"))
+    if got != platform:
+        raise Failure("%s: docker image inspect gave the %s image, not %s" % (pinned, got, platform))
+    return info.get("Config") or {}
 
 
 # ---- the final filesystem ----
@@ -424,12 +429,15 @@ def resolve_row(row, facts, today, report):
     """Run every check on the image of a row and return the row as it is now."""
     rid = row["id"]
     index, manifests = resolve_index(row["image"], row["tag"])
-    pinned = "%s@%s" % (row["image"], index)
+    # Each platform is pulled, run and read by its own manifest digest: a
+    # Docker engine without the containerd image store keeps one image per
+    # reference, so the index digest cannot name both platforms locally.
+    pinned = {plat: "%s@%s" % (row["image"], manifests[plat]) for plat in PLATFORMS}
     versions = set()
     for plat in PLATFORMS:
-        run("docker", "pull", "--quiet", "--platform", plat, pinned)
-        versions.add(exact_versions(row, pinned, plat))
-        cfg = image_config(pinned, plat)
+        run("docker", "pull", "--quiet", "--platform", plat, pinned[plat])
+        versions.add(exact_versions(row, pinned[plat], plat))
+        cfg = image_config(pinned[plat], plat)
         if cfg.get("Volumes"):
             raise Failure("%s %s declares volumes: %s" % (rid, plat, sorted(cfg["Volumes"])))
         if cfg.get("Healthcheck"):
@@ -438,13 +446,13 @@ def resolve_row(row, facts, today, report):
         key = "NODE_VERSION" if row["kind"] == "node" else "PYTHON_VERSION"
         if env.get(key) != next(iter(versions))[0]:
             raise Failure("%s %s: %s is %r, the executable reports %r" % (rid, plat, key, env.get(key), next(iter(versions))[0]))
-        writable = scan_image(pinned, plat)
+        writable = scan_image(pinned[plat], plat)
         if sorted(writable) != sorted(row["covered_paths"]):
             raise Failure("%s %s: the job user could write %s, the table covers %s" % (rid, plat, writable, row["covered_paths"]))
     if len(versions) != 1:
         raise Failure("%s: the platforms report different versions: %s" % (rid, sorted(versions)))
     version, pip = versions.pop()
-    findings = trivy(pinned, "linux/amd64")
+    findings = trivy(pinned["linux/amd64"], "linux/amd64")
     new = dict(row)
     new.update(version=version, index_digest=index, platforms=manifests, exact_tag=version + row["tag"][len(row["series"]):])
     if row["kind"] == "python":
