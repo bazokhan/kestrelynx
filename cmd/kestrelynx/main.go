@@ -79,7 +79,7 @@ func main() {
 
 	r := runner.Runner{
 		Lister:                   lister,
-		Scanner:                  scanner.Trivy{Severity: cfg.Scan.Severity},
+		Scanner:                  scanner.Trivy{Severity: cfg.Scan.Severity, DockerHost: trivyDockerHost(cfg)},
 		Notifier:                 notifier,
 		NotifyOnClean:            cfg.Notify.NotifyOnClean,
 		FullReportDay:            runner.NoFullReport,
@@ -308,7 +308,7 @@ func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 		// Comparison mode: the databases PrepareDB fixes are the only ones
 		// any scan of the cycle uses. The registry logins reach Trivy only for
 		// a scan that fetches from the login's own host.
-		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true, Auth: auth, Challenger: challenger},
+		Scanner: scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true, Auth: auth, Challenger: challenger, DockerHost: trivyDockerHost(cfg)},
 		NewRegistry: func(b *registry.Budget) remediation.Registry {
 			c := registry.New(registry.Options{Budget: b, MaxTagPages: l.TagPagesPerRepository, Auth: auth})
 			challenger.use(c)
@@ -339,6 +339,16 @@ func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 		}
 	}
 	return pc
+}
+
+// trivyDockerHost is the Docker socket image scans read local images from:
+// the one the container list comes from, or none on Kubernetes, where no
+// Docker socket is configured.
+func trivyDockerHost(cfg config.Config) string {
+	if cfg.Kubernetes.Enabled {
+		return ""
+	}
+	return cfg.Docker.Socket
 }
 
 // buildLister constructs the Runtime Adapter cfg.Kubernetes.Enabled selects

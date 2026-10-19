@@ -233,3 +233,17 @@ func TestBuildPlanConfigChallengesShareTheCycleBudget(t *testing.T) {
 		t.Error("the new cycle's budget was not used")
 	}
 }
+
+func TestTrivyDockerHost(t *testing.T) {
+	cfg := config.Config{Docker: config.DockerConfig{Socket: "/run/user/1000/docker.sock"}}
+	if got := trivyDockerHost(cfg); got != "/run/user/1000/docker.sock" {
+		t.Errorf("docker host = %q, want the configured socket", got)
+	}
+	if tr, ok := buildPlanConfig(cfg).Scanner.(scanner.Trivy); !ok || tr.DockerHost != "/run/user/1000/docker.sock" {
+		t.Errorf("plan scanner = %#v, want the configured socket", buildPlanConfig(cfg).Scanner)
+	}
+	cfg.Kubernetes.Enabled = true
+	if got := trivyDockerHost(cfg); got != "" {
+		t.Errorf("docker host on Kubernetes = %q, want none", got)
+	}
+}

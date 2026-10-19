@@ -122,6 +122,36 @@ func TestTrivyArgs_RefFallbackUnchanged(t *testing.T) {
 	}
 }
 
+// DockerHost points scans that may read the local image store at the
+// configured socket; a registry-pinned scan reads no local store.
+func TestTrivyArgs_DockerHost(t *testing.T) {
+	tr := New()
+	tr.DockerHost = "/run/user/1000/docker.sock"
+	id := "sha256:" + strings.Repeat("a", 64)
+	host := []string{"--docker-host", "unix:///run/user/1000/docker.sock"}
+	base := []string{"image", "--quiet", "--format", "json", "--severity", "HIGH,CRITICAL"}
+
+	got := tr.trivyArgs(pinnedTarget(t, "nginx:1.25", id))
+	want := append(append(append([]string{}, base...), host...), "--image-src", "docker", id)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pinned args = %v, want %v", got, want)
+	}
+
+	got = tr.trivyArgs(refTarget("nginx:1.25"))
+	want = append(append(append([]string{}, base...), host...), "nginx:1.25")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ref args = %v, want %v", got, want)
+	}
+
+	digest := "sha256:" + strings.Repeat("f", 64)
+	got = tr.trivyArgs(registryTarget(t, "nginx:1.25", "docker.io/library/nginx", digest, "linux", "amd64"))
+	for _, a := range got {
+		if a == "--docker-host" {
+			t.Errorf("registry-pinned args = %v, want no --docker-host", got)
+		}
+	}
+}
+
 func TestTrivyArgs_RegistryPinned(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("f", 64)
 	target := registryTarget(t, "nginx:1.25", "docker.io/library/nginx", digest, "linux", "amd64")

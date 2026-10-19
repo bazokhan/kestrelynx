@@ -37,6 +37,10 @@ type Trivy struct {
 	// where that answer leads (see regauth.Credential.Permits). Without a
 	// Challenger no login is passed on.
 	Challenger AuthChallenger
+	// DockerHost is the path of the Docker Engine socket that image scans
+	// read local images from, so Trivy reads the same engine KestreLynx
+	// lists containers from. Empty leaves Trivy's own default.
+	DockerHost string
 }
 
 // New returns a Trivy with KestreLynx defaults (HIGH/CRITICAL, trivy on PATH).
@@ -116,14 +120,23 @@ func (t Trivy) trivyArgs(target ScanTarget) []string {
 	}
 	switch {
 	case pinnedByConfig(target):
-		return append(args, "--image-src", "docker", target.Subject.Key.Digest.String())
+		return append(t.dockerHostArgs(args), "--image-src", "docker", target.Subject.Key.Digest.String())
 	case pinnedByRegistry(target):
 		platform := target.Subject.Key.Platform.OS + "/" + target.Subject.Key.Platform.Architecture
 		ref := target.Registry.Repository + "@" + target.Registry.Digest.String()
 		return append(args, "--image-src", "remote", "--platform", platform, ref)
 	default:
-		return append(args, target.Subject.Ref)
+		return append(t.dockerHostArgs(args), target.Subject.Ref)
 	}
+}
+
+// dockerHostArgs adds --docker-host for a scan that may read the local
+// Docker image store; a registry-pinned scan never does and gets none.
+func (t Trivy) dockerHostArgs(args []string) []string {
+	if t.DockerHost == "" {
+		return args
+	}
+	return append(args, "--docker-host", "unix://"+t.DockerHost)
 }
 
 // pinnedOf derives ImageScan.Pinned: Subject.Resolved, the scan succeeded,
