@@ -318,6 +318,28 @@ class ResolveRowTest(unittest.TestCase):
         self.assertEqual(new["index_digest"], index)
         self.assertEqual(new["platforms"], {"linux/amd64": amd, "linux/arm64": arm})
 
+    def test_an_unchanged_row_still_heads_its_findings(self):
+        index, amd, arm = "sha256:" + "1" * 64, "sha256:" + "2" * 64, "sha256:" + "3" * 64
+        names = ("resolve_index", "run", "exact_versions", "image_config", "scan_image", "trivy")
+        saved = {n: getattr(u, n) for n in names}
+        report = []
+        try:
+            u.resolve_index = lambda image, tag: (index, {"linux/amd64": amd, "linux/arm64": arm})
+            u.run = lambda *cmd, **kw: fake_process()
+            u.exact_versions = lambda row, ref, plat: ("26.1.0", "")
+            u.image_config = lambda ref, plat: {"Env": ["NODE_VERSION=26.1.0"]}
+            u.scan_image = lambda ref, plat: ["/tmp"]
+            u.trivy = lambda ref, plat: [("CVE-2026-1", "brace-expansion", "2.0.2", "2.0.3")]
+            row = {"id": "node26", "kind": "node", "series": "26", "version": "26.1.0", "image": "node", "tag": "26-bookworm-slim",
+                   "exact_tag": "26.1.0-bookworm-slim", "index_digest": index, "platforms": {"linux/amd64": amd, "linux/arm64": arm},
+                   "covered_paths": ["/tmp"], "checked": "2026-10-12"}
+            u.resolve_row(row, None, "2026-10-19", report)
+        finally:
+            for n, f in saved.items():
+                setattr(u, n, f)
+        self.assertEqual(report[0], "- node26: unchanged, 26.1.0 (pip -)")
+        self.assertTrue(report[1].startswith("  - Trivy (HIGH, CRITICAL, fixed): 1 finding(s)"))
+
 
 class DateTest(unittest.TestCase):
     def test_only_calendar_dates_are_dates(self):

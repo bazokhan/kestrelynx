@@ -465,6 +465,9 @@ def resolve_row(row, facts, today, report):
         report.append("- %s: %s (pip %s) %s -> %s" % (rid, version, pip or "-", row.get("index_digest", "")[:19], index[:19]))
     elif new != row:
         report.append("- %s: support dates refreshed (end of support %s, %s)" % (rid, new["eol"], new["support"]))
+    else:
+        # The findings below belong to a row too when its image stays.
+        report.append("- %s: unchanged, %s (pip %s)" % (rid, version, pip or "-"))
     new["checked"] = today
     report.append("  - Trivy (HIGH, CRITICAL, fixed): %d finding(s)%s" % (len(findings), "".join("\n    - %s %s %s -> %s" % (f[0], f[1], f[2], f[3]) for f in findings[:20])))
     return new
