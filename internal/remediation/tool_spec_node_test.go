@@ -21,6 +21,15 @@ func nodeSpec(t *testing.T, m DependencyManager, manifest string, files map[stri
 func TestNodeSelection(t *testing.T) {
 	pnpm := func(field string) string { return withField(pnpmManifest, field) }
 	npm := func(field string) string { return withField(npmManifest, field) }
+	// imageVersion is the exact version of a row's pinned image, read from the
+	// table so the cases keep holding when the weekly update moves the pins.
+	imageVersion := func(id string) string {
+		r, ok := worker.LookupRuntime(id)
+		if !ok || r.Version == "" {
+			t.Fatalf("runtime %s has no pinned version", id)
+		}
+		return r.Version
+	}
 	cases := []struct {
 		name     string
 		manager  DependencyManager
@@ -35,13 +44,13 @@ func TestNodeSelection(t *testing.T) {
 	}{
 		{name: "nothing declared uses the newest series in long-term support", manager: ManagerPnpm, manifest: pnpmManifest, runtime: "node24", basis: RuntimeBasisDefault},
 		{name: ".nvmrc 26", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "26"}, runtime: "node26", basis: RuntimeBasisFile, floor: "26.0.0"},
-		{name: ".node-version v26.11.1 has the image's own version", manager: ManagerPnpm, manifest: pnpmManifest, files: map[string]string{".node-version": "v26.11.1"}, runtime: "node26", basis: RuntimeBasisFile},
+		{name: ".node-version v<node26 image> has the image's own version", manager: ManagerPnpm, manifest: pnpmManifest, files: map[string]string{".node-version": "v" + imageVersion("node26")}, runtime: "node26", basis: RuntimeBasisFile},
 		{name: "engines.node >=26", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=26"}`), runtime: "node26", basis: RuntimeBasisLowestInRange, floor: "26.0.0"},
 		{name: "engines.node >=24 takes the lowest series", manager: ManagerPnpm, manifest: pnpm(`"engines":{"node":">=24"}`), runtime: "node24", basis: RuntimeBasisLowestInRange, floor: "24.0.0"},
 		{name: "npm 12 declared on Node.js 26", manager: ManagerNpm, manifest: npm(`"packageManager":"npm@12.2.0"`), files: map[string]string{".nvmrc": "26"}, runtime: "node26", basis: RuntimeBasisFile, floor: "26.0.0", tool: "12.2.0"},
 		{name: ".nvmrc 22", manager: ManagerPnpm, manifest: pnpmManifest, files: map[string]string{".nvmrc": "22\n"}, runtime: "node22", basis: RuntimeBasisFile, floor: "22.0.0"},
 		{name: ".nvmrc 24", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".nvmrc": "v24\n"}, runtime: "node24", basis: RuntimeBasisFile, floor: "24.0.0"},
-		{name: ".node-version with the image's own version has no floor", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".node-version": "22.23.3"}, runtime: "node22", basis: RuntimeBasisFile},
+		{name: ".node-version with the image's own version has no floor", manager: ManagerNpm, manifest: npmManifest, files: map[string]string{".node-version": imageVersion("node22")}, runtime: "node22", basis: RuntimeBasisFile},
 		{name: ".node-version 22.5.0 is the floor", manager: ManagerNpm, manifest: npm(`"engines":{"node":">=22.5.0"}`), files: map[string]string{".node-version": "22.5.0"}, runtime: "node22", basis: RuntimeBasisFile, floor: "22.5.0"},
 		{name: ".nvmrc 22 with engines.node >=22.12 floors at 22.12.0", manager: ManagerPnpm, manifest: pnpm(`"engines":{"node":">=22.12"}`), files: map[string]string{".nvmrc": "22"}, runtime: "node22", basis: RuntimeBasisFile, floor: "22.12.0"},
 		{name: "engines.node >=20 and engines.pnpm >=11 run on the lowest series that is in support", manager: ManagerPnpm,
