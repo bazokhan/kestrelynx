@@ -120,12 +120,28 @@ func TestLoop_ShortIntervalDrivesHeartbeatFasterThanFloor(t *testing.T) {
 			return map[string]containerGroup{}, nil, 0, nil
 		},
 	}
-	go runWriter(s.evidenceFD, s.writerCh, s.writerReportCh)
-	var writes int32
+	writerDone := make(chan struct{})
 	go func() {
+		defer close(writerDone)
+		runWriter(s.evidenceFD, s.writerCh, s.writerReportCh)
+	}()
+	var writes int32
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
 		for range s.writerReportCh {
 			atomic.AddInt32(&writes, 1)
 		}
+	}()
+	// Stop both goroutines before the evidence file is closed, so neither
+	// outlives the test and the writer never writes to a closed descriptor.
+	// The loop has returned by then, so nothing sends on writerCh any more,
+	// and once the writer has exited nothing sends on writerReportCh.
+	defer func() {
+		close(s.writerCh)
+		<-writerDone
+		close(s.writerReportCh)
+		<-readerDone
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testWindow)
