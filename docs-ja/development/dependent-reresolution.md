@@ -36,7 +36,7 @@
 
 仕組みは[依存元からの再解決](../documentation/remediation-logic.md#dependent-reresolution)、対応範囲と上限は[再解決の対応範囲と上限](../documentation/remediation-reference.md#dependent-reresolution-limits)にまとめている。
 
-## 決めたこと
+## 決定事項
 
 ### 脆弱性を増やさないための検査
 

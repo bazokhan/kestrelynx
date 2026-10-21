@@ -40,6 +40,7 @@ nav:
       - 稼働時の使用状況（実験的）: documentation/runtime-usage.md
   - 開発ログ:
       - 概要: development/index.md
+      - Kubernetes での修正 PR の開発: development/kubernetes-remediation.md
       - 依存元からの再解決の開発: development/dependent-reresolution.md
       - 修正計画と修正PRの開発: development/remediation-pull-requests.md
       - 短命なコンテナのスキャンの開発: development/short-lived-containers.md
