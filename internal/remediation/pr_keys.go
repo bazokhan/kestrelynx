@@ -36,6 +36,7 @@ const (
 	composeBranchPrefix    = branchPrefix + "compose/"
 	dockerfileBranchPrefix = branchPrefix + "dockerfile/"
 	languageBranchPrefix   = branchPrefix + "language/"
+	kubernetesBranchPrefix = branchPrefix + "kubernetes/"
 )
 
 // The kinds of update the stage opens pull requests for. The empty kind of an
@@ -45,6 +46,9 @@ const (
 	prKindCompose    = "compose"
 	prKindDockerfile = "dockerfile"
 	prKindLanguage   = "language"
+	// prKindKubernetes is a tag update of the containers of a Kubernetes
+	// manifest. Its keys and marker also hold the set of workloads it changes.
+	prKindKubernetes = "kubernetes"
 )
 
 // kindOf normalizes the kind recorded in an attempt or a marker.
@@ -70,6 +74,8 @@ func branchPrefixOf(kind string) string {
 		return dockerfileBranchPrefix
 	case prKindLanguage:
 		return languageBranchPrefix
+	case prKindKubernetes:
+		return kubernetesBranchPrefix
 	}
 	return composeBranchPrefix
 }
@@ -123,6 +129,27 @@ func UpdateKey(targetKey, currentRef, candidateTag, candidateDigest string) stri
 		CandidateTag    string `json:"candidate_tag"`
 		CandidateDigest string `json:"candidate_digest"`
 	}{targetKey, normalizedRef(currentRef), candidateTag, candidateDigest})
+}
+
+// KubernetesUpdateKey identifies one proposed update of a Kubernetes target:
+// UpdateKey's inputs and the set of workloads the update changes, in any
+// order. A different set is a different update. The other kinds' keys are not
+// computed with it.
+func KubernetesUpdateKey(targetKey, currentRef, candidateTag, candidateDigest string, affected []string) string {
+	return hashCanonical(struct {
+		TargetKey       string   `json:"target_key"`
+		CurrentRef      string   `json:"current_ref"`
+		CandidateTag    string   `json:"candidate_tag"`
+		CandidateDigest string   `json:"candidate_digest"`
+		Affected        []string `json:"affected"`
+	}{targetKey, normalizedRef(currentRef), candidateTag, candidateDigest, sortedCopy(affected)})
+}
+
+// KubernetesBranchName is the branch of a Kubernetes attempt:
+// kestrelynx/kubernetes/<display>-<tag>-<12 hex of the attempt key>, with the
+// display part built as BranchName builds it, from the names of the objects.
+func KubernetesBranchName(names []string, tag, attemptKey string) (string, error) {
+	return branchNameFor(kubernetesBranchPrefix, names, tag, attemptKey)
 }
 
 // AttemptKey identifies the content of one attempt of an update: the commit

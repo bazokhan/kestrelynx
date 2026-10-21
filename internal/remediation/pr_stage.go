@@ -84,6 +84,9 @@ type PRStageInput struct {
 	Plan       Plan
 	Containers []inventory.Container
 	Mappings   []ComposeMapping
+	// Kubernetes are the Kubernetes manifest mappings; their repositories are
+	// examined and written to like those of the Compose mappings.
+	Kubernetes []KubernetesMapping
 	// Repositories are further repositories to examine and, for their units,
 	// to write to: those the Dockerfile mappings name, which a Compose mapping
 	// need not share. A repository of a unit is always examined.
@@ -181,6 +184,9 @@ type prRun struct {
 	halt     *halt     // all GitHub work ended (rate limit, budget, deadline)
 	problems []PRStageProblem
 	newPRs   int
+	// kubeMappings are the cycle's Kubernetes manifest mappings, all of them:
+	// an edit of a file is checked against every mapping of the file.
+	kubeMappings []KubernetesMapping
 }
 
 func (r *prRun) now() time.Time { return r.s.cfg.Now().UTC() }
@@ -412,6 +418,7 @@ func (rs *repoState) ours(pr github.PullRequest) bool {
 func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 	r := &prRun{s: s, ctx: ctx, byKey: map[string]*repoState{}}
 	units := buildComposeUnits(in.Plan, in.Containers, in.Mappings)
+	units = append(units, buildKubernetesUnits(in.Plan, in.Containers, in.Kubernetes)...)
 	units = append(units, buildDockerfileUnits(in.Plan)...)
 	units = append(units, buildLanguageUnits(in.Plan)...)
 	addRepo := func(name string) {
@@ -423,6 +430,9 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 		}
 	}
 	for _, m := range in.Mappings {
+		addRepo(m.Repository)
+	}
+	for _, m := range in.Kubernetes {
 		addRepo(m.Repository)
 	}
 	for _, name := range in.Repositories {
@@ -464,6 +474,7 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 		r.reconcileRepo(rs)
 	}
 
+	r.kubeMappings = in.Kubernetes
 	views := make([]PRUnit, len(units))
 	for i, u := range units {
 		views[i] = r.processUnit(in.Plan, u)
@@ -546,6 +557,9 @@ func unitView(u *composeUnit) PRUnit {
 	}
 	if u.df != nil {
 		v.Kind = prKindDockerfile
+	}
+	if u.kube != nil {
+		v.Kind = prKindKubernetes
 	}
 	if u.lang != nil {
 		v.Kind, v.ItemKey, v.Language = prKindLanguage, u.lang.item.Key, u.lang.view
@@ -723,6 +737,8 @@ func (r *prRun) processUnit(plan Plan, u *composeUnit) PRUnit {
 		v.Language = languageViewOfTied(*u.lang.item, rec)
 	} else if u.lang != nil {
 		c.updateKey = LangUpdateKey(c.targetKey, u.lang.record.Packages, u.lang.record.ManifestEdits, u.lang.record.Chain...)
+	} else if u.kube != nil {
+		c.updateKey = KubernetesUpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest, u.workloads)
 	} else {
 		c.updateKey = UpdateKey(c.targetKey, u.current, u.candidate.Tag, u.candidate.TopDigest)
 	}
@@ -811,12 +827,18 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		if u.df != nil && !r.dockerfileSourceUnchanged(c, base) {
 			return
 		}
+		if u.kube != nil && !r.noImageUpdaterFile(c, base) {
+			return
+		}
 		file, err := r.s.cfg.Source.ReadFile(r.ctx, rs.name, base, u.path)
 		if err != nil {
 			var nr *github.NotRegularFileError
 			notFound, unusable, what := ReasonComposeFileNotFound, ReasonComposeFileUnusable, "read the Compose file"
 			if u.df != nil {
 				notFound, unusable, what = ReasonDockerfileFileNotFound, ReasonDockerfileFileUnusable, "read the Dockerfile"
+			}
+			if u.kube != nil {
+				notFound, unusable, what = ReasonManifestFileNotFound, ReasonManifestFileUnusable, "read the manifest"
 			}
 			switch {
 			case errors.Is(err, github.ErrNotFound):
@@ -853,6 +875,8 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		branch, err = LanguageBranchName(u.services, string(u.lang.manager), attemptKey)
 	case u.df != nil:
 		branch, err = DockerfileBranchName(u.services, u.candidate.Tag, attemptKey)
+	case u.kube != nil:
+		branch, err = KubernetesBranchName(u.kubeBranchNames(), u.candidate.Tag, attemptKey)
 	default:
 		branch, err = BranchName(u.services, u.candidate.Tag, attemptKey)
 	}
@@ -935,6 +959,9 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		if u.candidate != nil {
 			fresh.CandidateTag, fresh.CandidateDigest = u.candidate.Tag, u.candidate.TopDigest
 		}
+		if u.kube != nil {
+			fresh.Affected = append([]string(nil), u.workloads...)
+		}
 		if u.lang != nil {
 			fresh.Changes, fresh.Lang, fresh.Language = changes, u.lang.record, u.lang.view
 		}
@@ -1000,6 +1027,8 @@ func (r *prRun) dockerfileSourceUnchanged(c *unitCtx, base string) bool {
 // prChange is the change an edit made, as the pull request body describes it.
 type prChange struct {
 	compose    []ComposeChange
+	manifest   []ManifestImageChange
+	unchanged  []string
 	dockerfile DockerfileChange
 }
 
@@ -1007,6 +1036,28 @@ type prChange struct {
 // the unit's status was set.
 func (r *prRun) editSource(c *unitCtx, content []byte) ([]byte, prChange, bool) {
 	u := c.u
+	if u.kube != nil {
+		// The gate is here, on the bytes that are about to be edited: the same
+		// read, the same commit, the same content.
+		var fileMappings []KubernetesMapping
+		for _, m := range r.kubeMappings {
+			if kubeFileKey(m) == u.kube.file {
+				fileMappings = append(fileMappings, m)
+			}
+		}
+		if detail := kubeSourceConflict(content, fileMappings); detail != "" {
+			c.set(PRStatusManual, ReasonMappingConflict, "in "+u.path+", "+detail)
+			return nil, prChange{}, false
+		}
+		edit, prob := EditManifestImageTag(ManifestEditRequest{
+			Content: content, Targets: u.kube.targets, Current: u.current, Declared: u.kube.declared, NewTag: u.candidate.Tag,
+		})
+		if prob != nil {
+			c.set(PRStatusManual, prob.Reason, prob.Error())
+			return nil, prChange{}, false
+		}
+		return edit.Content, prChange{manifest: edit.Changes, unchanged: edit.Unchanged}, true
+	}
 	if u.df == nil {
 		edit, prob := EditComposeImageTag(ComposeEditRequest{Content: content, Services: u.services, Current: u.current, NewTag: u.candidate.Tag})
 		if prob != nil {
@@ -1257,6 +1308,7 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA, InputBlobSHA: a.InputSHA,
 		Changes:   a.fileChanges(),
 		TargetKey: a.TargetKey, UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, FixTargets: a.FixTargets, Lang: a.Lang,
+		Affected: a.Affected,
 	}
 	if marker.FixTargets == nil {
 		marker.FixTargets = []FixTarget{}
@@ -1286,10 +1338,18 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = c.u.lang.title
+	} else if c.u.kube != nil {
+		body, err = buildKubernetesPRBody(kubernetesBodyInput{
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef, Declared: c.u.kube.declared,
+			Workloads: c.u.workloads, AlsoRunning: c.u.also, Targets: c.u.kube.targets, Management: c.u.kube.management,
+			Changes: change.manifest, Unchanged: change.unchanged, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
+		})
+		title = composeUnitTitle(imageRepo, a.CandidateTag, a.Path)
 	} else if c.u.df != nil {
 		body, err = buildDockerfilePRBody(dockerfileBodyInput{
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef,
-			Workloads: c.u.workloads, Stage: c.u.df.stage, Change: change.dockerfile, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
+			Workloads: c.u.workloads, Management: ManagementOf(c.plan, c.u.workloads), Stage: c.u.df.stage, Change: change.dockerfile, CandidateTag: a.CandidateTag, Evidence: a.Evidence,
 			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = dockerfileUnitTitle(imageRepo, a.CandidateTag, a.Path)
@@ -1371,7 +1431,7 @@ func (r *prRun) recordFromAttempt(a *AttemptRecord, pr github.PullRequest) PRRec
 		Branch: a.Branch, Number: pr.Number, URL: pr.HTMLURL, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, HeadSHA: a.CommitSHA,
 		Path: a.Path, Locations: a.Locations, State: pullState(pr), FixTargets: a.FixTargets, Services: a.Services,
 		CurrentRef: a.CurrentRef, CandidateTag: a.CandidateTag, CandidateDigest: a.CandidateDigest,
-		Evidence: a.Evidence, Lang: a.Lang, Language: a.Language, CreatedAt: now, UpdatedAt: now,
+		Evidence: a.Evidence, Lang: a.Lang, Language: a.Language, Affected: a.Affected, CreatedAt: now, UpdatedAt: now,
 	}
 	return rec
 }

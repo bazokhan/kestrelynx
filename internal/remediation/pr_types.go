@@ -38,25 +38,48 @@ const (
 // Reasons of the pull request stage.
 const (
 	ReasonComposeSetNotAdopted Reason = "compose_set_not_adopted"
-	ReasonComposeFileNotFound  Reason = "compose_file_not_found"
-	ReasonComposeFileUnusable  Reason = "compose_file_unusable"
-	ReasonPRLimit              Reason = "pr_limit"
-	ReasonCandidateChanged     Reason = "candidate_changed"
-	ReasonBaseMoved            Reason = "base_moved"
-	ReasonGitHubRateLimited    Reason = "github_rate_limited"
-	ReasonWriteOutcomeUnknown  Reason = "write_outcome_unknown"
-	ReasonStoreLocked          Reason = "store_locked"
-	ReasonStorageFailed        Reason = "storage_failed"
-	ReasonStorageFull          Reason = "storage_full"
-	ReasonRecordsUnverified    Reason = "records_unverified"
-	ReasonReconcileFailed      Reason = "reconciliation_failed"
-	ReasonRepositoryMismatch   Reason = "repository_mismatch"
-	ReasonAttemptUnsettled     Reason = "attempt_unsettled"
-	ReasonBranchNotOurs        Reason = "branch_not_ours"
-	ReasonPullNotAsCreated     Reason = "pull_request_not_as_created"
-	ReasonGitHubRefused        Reason = "github_refused"
-	ReasonGitHubError          Reason = "github_error"
-	ReasonRegistryRecheck      Reason = "candidate_recheck_failed"
+	// ReasonKubernetesSetNotAdopted: a container of the unit runs an image that
+	// is not an adopted candidate, or the images have different candidates; a
+	// pull request never covers part of the containers that run the image in
+	// the file.
+	ReasonKubernetesSetNotAdopted Reason = "kubernetes_set_not_adopted"
+	// ReasonInstancesMissing: a mapped container has no running instance, or an
+	// instance has no plan item, so the set of what the edit changes cannot be
+	// verified. ReasonMixedReferences: the running instances of the mapped
+	// containers do not all run, or declare, the same reference (a rollout in
+	// progress, for example).
+	ReasonInstancesMissing Reason = "instances_missing"
+	// ReasonMappingConflict: two mappings of the same file resolve to the same
+	// container of the same document, so one edit would change both.
+	ReasonMappingConflict Reason = "mapping_conflict"
+	ReasonMixedReferences Reason = "mixed_references"
+	// ReasonManifestFileNotFound and ReasonManifestFileUnusable: the mapped
+	// manifest is absent at the base branch, or cannot be edited as text (not a
+	// regular file, a Git LFS pointer, too large).
+	ReasonManifestFileNotFound Reason = "manifest_file_not_found"
+	ReasonManifestFileUnusable Reason = "manifest_file_unusable"
+	// ReasonImageUpdaterFile: the manifest's directory holds the write-back file
+	// of Argo CD Image Updater, so another tool owns the tags there.
+	ReasonImageUpdaterFile    Reason = "image_updater_file"
+	ReasonComposeFileNotFound Reason = "compose_file_not_found"
+	ReasonComposeFileUnusable Reason = "compose_file_unusable"
+	ReasonPRLimit             Reason = "pr_limit"
+	ReasonCandidateChanged    Reason = "candidate_changed"
+	ReasonBaseMoved           Reason = "base_moved"
+	ReasonGitHubRateLimited   Reason = "github_rate_limited"
+	ReasonWriteOutcomeUnknown Reason = "write_outcome_unknown"
+	ReasonStoreLocked         Reason = "store_locked"
+	ReasonStorageFailed       Reason = "storage_failed"
+	ReasonStorageFull         Reason = "storage_full"
+	ReasonRecordsUnverified   Reason = "records_unverified"
+	ReasonReconcileFailed     Reason = "reconciliation_failed"
+	ReasonRepositoryMismatch  Reason = "repository_mismatch"
+	ReasonAttemptUnsettled    Reason = "attempt_unsettled"
+	ReasonBranchNotOurs       Reason = "branch_not_ours"
+	ReasonPullNotAsCreated    Reason = "pull_request_not_as_created"
+	ReasonGitHubRefused       Reason = "github_refused"
+	ReasonGitHubError         Reason = "github_error"
+	ReasonRegistryRecheck     Reason = "candidate_recheck_failed"
 	// ReasonSourceChanged: the base branch moved and a file the plan was made
 	// from is no longer the same.
 	ReasonSourceChanged Reason = "source_changed"
@@ -87,6 +110,9 @@ const (
 	ReasonProposalNotFound       Reason = "proposal_not_found"
 	ReasonWorkImageNotConfigured Reason = "work_image_not_configured"
 	ReasonWorkImageUnavailable   Reason = "work_image_unavailable"
+	// ReasonWorkNamespaceNotConfigured: language package updates on Kubernetes
+	// run in work Pods of a dedicated namespace, and none is available.
+	ReasonWorkNamespaceNotConfigured Reason = "work_namespace_not_configured"
 )
 
 // PRState is the state of a pull request record.
@@ -280,14 +306,17 @@ type PRRecord struct {
 	// UserModified marks a pull request whose head, base or head repository
 	// is not what this tool created. It still suppresses its update but is
 	// never resumed from, replaced or used to replace another.
-	UserModified    bool          `json:"user_modified,omitempty"`
-	ModifiedReason  string        `json:"modified_reason,omitempty"`
-	FixTargets      []FixTarget   `json:"fix_targets,omitempty"`
-	Services        []string      `json:"services,omitempty"`
-	CurrentRef      string        `json:"current_ref"`
-	CandidateTag    string        `json:"candidate_tag"`
-	CandidateDigest string        `json:"candidate_digest"`
-	Replacing       []Replacement `json:"replacing,omitempty"`
+	UserModified    bool        `json:"user_modified,omitempty"`
+	ModifiedReason  string      `json:"modified_reason,omitempty"`
+	FixTargets      []FixTarget `json:"fix_targets,omitempty"`
+	Services        []string    `json:"services,omitempty"`
+	CurrentRef      string      `json:"current_ref"`
+	CandidateTag    string      `json:"candidate_tag"`
+	CandidateDigest string      `json:"candidate_digest"`
+	// Affected are the workload keys a Kubernetes update changes; the other
+	// kinds have none.
+	Affected  []string      `json:"affected,omitempty"`
+	Replacing []Replacement `json:"replacing,omitempty"`
 	// Recovered marks a record rebuilt from GitHub; it has no evidence.
 	Recovered bool `json:"recovered,omitempty"`
 	// MarkerOnly marks a pull request known to be this tool's only by the
@@ -336,14 +365,16 @@ type AttemptRecord struct {
 	Detail     string        `json:"detail,omitempty"`
 	PRNumber   int           `json:"pr_number,omitempty"`
 	// PendingOp is the write whose outcome is unknown, settled by reading.
-	PendingOp       string               `json:"pending_op,omitempty"`
-	Services        []string             `json:"services,omitempty"`
-	Locations       []string             `json:"locations"`
-	CurrentRef      string               `json:"current_ref"`
-	CandidateTag    string               `json:"candidate_tag"`
-	CandidateDigest string               `json:"candidate_digest"`
-	FixTargets      []FixTarget          `json:"fix_targets,omitempty"`
-	Evidence        *VerificationSummary `json:"evidence,omitempty"`
+	PendingOp       string   `json:"pending_op,omitempty"`
+	Services        []string `json:"services,omitempty"`
+	Locations       []string `json:"locations"`
+	CurrentRef      string   `json:"current_ref"`
+	CandidateTag    string   `json:"candidate_tag"`
+	CandidateDigest string   `json:"candidate_digest"`
+	// Affected are the workload keys a Kubernetes update changes.
+	Affected   []string             `json:"affected,omitempty"`
+	FixTargets []FixTarget          `json:"fix_targets,omitempty"`
+	Evidence   *VerificationSummary `json:"evidence,omitempty"`
 	// Changes are the files of the commit when it holds more than the one
 	// file Path, Mode and NewBlobSHA describe (a language update); Lang is
 	// what identifies a language update.
@@ -445,7 +476,9 @@ type PRStageProblem struct {
 // FROM of a Dockerfile, or the packages updated in one lockfile.
 type PRUnit struct {
 	// Kind is "dockerfile" for a base image update, "language" for a
-	// lockfile update and empty for a Compose tag update. For a Dockerfile,
+	// lockfile update, "kubernetes" for a manifest tag update and empty for a
+	// Compose tag update. For a Kubernetes update Services, Locations and
+	// Workloads are all the workload keys of the edited containers. For a Dockerfile,
 	// Path is the Dockerfile, Locations hold the
 	// edited FROM's position, Services the services of Workloads and Current
 	// the base image the FROM names.

@@ -54,3 +54,41 @@ func TestWorkloadParts(t *testing.T) {
 		}
 	}
 }
+
+// With pull requests on, Kubernetes gets the pull request stage with the
+// manifest mappings, whose repositories the stage examines, and a language
+// stage that builds no updater.
+func TestBuildPlanConfig_KubernetesPullRequests(t *testing.T) {
+	cfg := config.Config{
+		Kubernetes: config.KubernetesConfig{Enabled: true},
+		State:      config.StateConfig{Path: "/var/lib/kestrelynx/state.json"},
+		Remediation: config.RemediationConfig{
+			Enabled: true, StorageDir: "/data/remediation",
+			GitHub:       config.RemediationGitHubConfig{Token: "ghp_exampletoken"},
+			PullRequests: config.RemediationPullRequestsConfig{Enabled: true},
+			Limits:       config.RemediationLimits{NewPRsPerCycle: 2, OpenPRs: 5},
+			Mappings: []config.RemediationMapping{
+				{Workload: "deployment/shop/web/app", Repository: "ex/deploy", BaseBranch: "main", Manifest: &config.RemediationManifestSource{Path: "apps/web.yaml", ObjectName: "prod-web"}},
+				{Workload: "deployment/shop/web/app", Repository: "ex/app", BaseBranch: "main", Dockerfile: &config.RemediationDockerfileSource{Path: "Dockerfile"}},
+			},
+		},
+	}
+	pc := buildPlanConfig(cfg)
+	if pc.PullRequests == nil || pc.PullRequests.NewStage == nil {
+		t.Fatal("no pull request stage")
+	}
+	want := remediation.KubernetesMapping{Workload: "deployment/shop/web/app", Repository: "ex/deploy", BaseBranch: "main", Path: "apps/web.yaml", ObjectName: "prod-web"}
+	if got := pc.PullRequests.Kubernetes; len(got) != 1 || got[0] != want {
+		t.Errorf("Kubernetes mappings = %+v, want %+v", got, want)
+	}
+	if got := pc.PullRequests.Repositories; len(got) != 2 {
+		t.Errorf("repositories = %v, want both the Dockerfile's and the manifest's", got)
+	}
+	if len(pc.Dockerfiles) != 1 || pc.Dockerfiles[0].Workload != "deployment/shop/web/app" {
+		t.Errorf("Dockerfile mappings = %+v", pc.Dockerfiles)
+	}
+	lc := kubernetesLanguageConfig()
+	if lc.NewUpdater != nil || lc.Unavailable == nil || !lc.Unavailable.Manual || lc.Unavailable.Reason != remediation.ReasonWorkNamespaceNotConfigured {
+		t.Errorf("language config = %+v", lc)
+	}
+}

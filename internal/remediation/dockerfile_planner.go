@@ -622,6 +622,9 @@ func (r *run) dockerfileEntity(in ImageInput, base DockerfileBase, sel *dfSelect
 		return outcome(tmp.Category, tmp.Reason, tmp.Detail)
 	}
 
+	if reason, detail, ok := declaredCheck(in.Declared, in.Scan.Subject.Ref); !ok {
+		return outcome(CategoryNotComparable, reason, detail)
+	}
 	if reason, detail, ok := baselineReady(in.Scan); !ok {
 		cat := CategoryNotComparable
 		if reason == ReasonScanFailed {

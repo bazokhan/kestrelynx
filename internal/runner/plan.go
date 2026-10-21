@@ -86,6 +86,9 @@ type LanguageUpdateConfig struct {
 type LanguageUnavailable struct {
 	Reason remediation.Reason
 	Detail string
+	// Manual says that no update can ever run in this process, so the update
+	// candidates become manual items instead of being put off.
+	Manual bool
 }
 
 // PullRequestConfig turns on the pull request stage of the plan. A PlanConfig
@@ -95,8 +98,10 @@ type PullRequestConfig struct {
 	// registry client to re-resolve candidates and with GitHub clients that
 	// carry the cycle's request budget.
 	NewStage func(resolver remediation.CandidateResolver) (PRStage, error)
-	// Mappings are the Compose mappings of the configuration.
-	Mappings []remediation.ComposeMapping
+	// Mappings are the Compose mappings of the configuration, Kubernetes the
+	// Kubernetes manifest mappings.
+	Mappings   []remediation.ComposeMapping
+	Kubernetes []remediation.KubernetesMapping
 	// Repositories are the repositories the Dockerfile mappings name, which
 	// the stage examines and writes to besides those of Mappings.
 	Repositories []string
@@ -384,6 +389,11 @@ func (r Runner) runLanguageUpdates(ctx context.Context, cfg *LanguageUpdateConfi
 			"pr_candidates", plan.CountLanguage(remediation.CategoryPRCandidate))
 		return
 	}
+	if cfg.Unavailable != nil && cfg.Unavailable.Manual {
+		n := remediation.MarkLanguageManual(plan, cfg.Unavailable.Reason, cfg.Unavailable.Detail)
+		log.Warn("dependency updates are not run", "reason", cfg.Unavailable.Reason, "manual", n, "tied_to_existing_pull_requests", bound)
+		return
+	}
 	if cfg.Unavailable != nil {
 		n := remediation.DeferLanguageUpdates(plan, cfg.Unavailable.Reason, cfg.Unavailable.Detail)
 		log.Warn("dependency updates are not run", "reason", cfg.Unavailable.Reason, "deferred", n, "tied_to_existing_pull_requests", bound)
@@ -454,7 +464,7 @@ func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, res
 		}}
 		return
 	}
-	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Repositories: cfg.Repositories})
+	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Kubernetes: cfg.Kubernetes, Repositories: cfg.Repositories})
 	res.Attach(plan)
 	created := 0
 	for _, u := range res.Units {

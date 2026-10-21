@@ -284,8 +284,8 @@ func (s Secret) MarshalText() ([]byte, error) { return []byte(s.redacted()), nil
 func (s Secret) LogValue() slog.Value         { return slog.StringValue(s.redacted()) }
 
 // RemediationMapping ties a running workload to the repository that
-// holds its source. Exactly one of Compose, Dependencies and Dockerfile is
-// set.
+// holds its source. Exactly one of Compose, Manifest, Dependencies and
+// Dockerfile is set.
 type RemediationMapping struct {
 	// Workload is the running workload: compose/<project>/<service> with the
 	// Docker adapter, <kind>/<namespace>/<name>/<container> with Kubernetes.
@@ -296,6 +296,9 @@ type RemediationMapping struct {
 	// Compose names the Compose file (and the service in it) that deploys
 	// the workload.
 	Compose *RemediationComposeSource
+	// Manifest names the Kubernetes manifest file that defines the workload's
+	// container.
+	Manifest *RemediationManifestSource
 	// Dependencies names the directory whose lockfiles resolve the
 	// workload's language packages.
 	Dependencies *RemediationDependenciesSource
@@ -307,6 +310,17 @@ type RemediationMapping struct {
 type RemediationComposeSource struct {
 	Path    string // repository-relative, normalized
 	Service string
+}
+
+// RemediationManifestSource locates the object that defines a Kubernetes
+// workload's container in a manifest file.
+type RemediationManifestSource struct {
+	Path string // repository-relative, normalized
+	// ObjectKind and ObjectName name the object in the file when it is not
+	// the workload's own kind and name (a name prefix a later tool adds, for
+	// example); empty means the workload's.
+	ObjectKind string
+	ObjectName string
 }
 
 // RemediationDependenciesSource locates a dependency root.
@@ -424,6 +438,13 @@ type rawConfig struct {
 				Path    string `yaml:"path"`
 				Service string `yaml:"service"`
 			} `yaml:"compose"`
+			Manifest *struct {
+				Path   string `yaml:"path"`
+				Object *struct {
+					Kind string `yaml:"kind"`
+					Name string `yaml:"name"`
+				} `yaml:"object"`
+			} `yaml:"manifest"`
 			Dependencies *struct {
 				Directory string `yaml:"directory"`
 			} `yaml:"dependencies"`
@@ -609,6 +630,12 @@ func Parse(data []byte) (Config, error) {
 		if m.Compose != nil {
 			rm.Compose = &RemediationComposeSource{Path: m.Compose.Path, Service: m.Compose.Service}
 		}
+		if m.Manifest != nil {
+			rm.Manifest = &RemediationManifestSource{Path: m.Manifest.Path}
+			if m.Manifest.Object != nil {
+				rm.Manifest.ObjectKind, rm.Manifest.ObjectName = m.Manifest.Object.Kind, m.Manifest.Object.Name
+			}
+		}
 		if m.Dependencies != nil {
 			rm.Dependencies = &RemediationDependenciesSource{Directory: m.Dependencies.Directory}
 		}
@@ -734,9 +761,6 @@ func validateRemediation(c *Config) error {
 	r := &c.Remediation
 	if r.PullRequests.Enabled && !r.Enabled {
 		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.enabled")
-	}
-	if r.PullRequests.Enabled && c.Kubernetes.Enabled {
-		return fmt.Errorf("config: remediation.pull_requests.enabled is not supported with kubernetes.enabled; the fix plan alone is available on Kubernetes")
 	}
 	if r.PullRequests.Enabled && r.GitHub.Token.Value() == "" {
 		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.github.token")

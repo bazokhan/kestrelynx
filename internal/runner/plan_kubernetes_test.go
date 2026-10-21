@@ -490,3 +490,50 @@ func TestPlanInputs_DeclaredProblemReachesEveryEntityOfTheReference(t *testing.T
 		}
 	}
 }
+
+// recordingStage is a pull request stage that records its input.
+type recordingStage struct{ in *remediation.PRStageInput }
+
+func (s recordingStage) Run(_ context.Context, in remediation.PRStageInput) remediation.PRStageResult {
+	*s.in = in
+	return remediation.PRStageResult{}
+}
+
+// With pull requests on, the stage gets the Kubernetes mappings and the
+// cycle's containers, and language updates, which cannot run in work Pods yet,
+// are reported as manual rather than started or put off.
+func TestPlanKubernetes_PullRequestStageAndManualLanguage(t *testing.T) {
+	h := newKubeHarness(t, "aliased")
+	var got remediation.PRStageInput
+	mappings := []remediation.KubernetesMapping{{Workload: "deployment/shop/pinned/app", Repository: "example/deploy", BaseBranch: "main", Path: "apps/pinned.yaml"}}
+	h.r.Plan.PullRequests = &PullRequestConfig{
+		NewStage:   func(remediation.CandidateResolver) (PRStage, error) { return recordingStage{&got}, nil },
+		Kubernetes: mappings,
+	}
+	updaterBuilt := false
+	h.r.Plan.Language = &LanguageUpdateConfig{
+		Unavailable: &LanguageUnavailable{Reason: remediation.ReasonWorkNamespaceNotConfigured, Manual: true, Detail: "no work Pods yet"},
+		NewUpdater: func(context.Context, LanguageUpdateInput) (LanguageUpdater, error) {
+			updaterBuilt = true
+			return nil, nil
+		},
+	}
+	plan := h.run(t)
+
+	if len(got.Kubernetes) != 1 || got.Kubernetes[0] != mappings[0] {
+		t.Errorf("the stage got Kubernetes mappings %+v", got.Kubernetes)
+	}
+	if len(got.Containers) == 0 || got.Containers[0].Declared == nil {
+		t.Error("the stage got no containers with their declarations")
+	}
+	if updaterBuilt {
+		t.Error("a language updater was built")
+	}
+	if len(plan.LanguageItems) != 1 {
+		t.Fatalf("language items = %d", len(plan.LanguageItems))
+	}
+	li := plan.LanguageItems[0]
+	if li.Category != remediation.CategoryManual || li.Reason != remediation.ReasonWorkNamespaceNotConfigured || li.UpdateExecuted {
+		t.Errorf("language item = %s/%s (%s)", li.Category, li.Reason, li.Detail)
+	}
+}

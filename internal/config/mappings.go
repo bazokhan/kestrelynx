@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/github"
@@ -26,62 +25,37 @@ func ParseWorkloadKey(key string) (project, service string, err error) {
 	return parts[1], parts[2], nil
 }
 
+// manifestObjectKinds are the Kind spellings of the objects that define each
+// kind of workload in a manifest.
+var manifestObjectKinds = map[inventory.WorkloadKind]string{
+	inventory.WorkloadDeployment:  "Deployment",
+	inventory.WorkloadStatefulSet: "StatefulSet",
+	inventory.WorkloadDaemonSet:   "DaemonSet",
+	inventory.WorkloadJob:         "Job",
+	inventory.WorkloadCronJob:     "CronJob",
+	inventory.WorkloadPod:         "Pod",
+}
+
 // KubernetesWorkload is a parsed <kind>/<namespace>/<name>/<container> key.
-type KubernetesWorkload struct {
-	Kind      inventory.WorkloadKind
-	Namespace string
-	Name      string
-	Container string
-}
+type KubernetesWorkload = inventory.KubernetesWorkload
 
-var (
-	dns1123Label     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
-	dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
-)
-
-// kubernetesWorkloadKinds are the kinds the Kubernetes adapter reports.
-var kubernetesWorkloadKinds = map[string]inventory.WorkloadKind{
-	"deployment":  inventory.WorkloadDeployment,
-	"statefulset": inventory.WorkloadStatefulSet,
-	"daemonset":   inventory.WorkloadDaemonSet,
-	"job":         inventory.WorkloadJob,
-	"cronjob":     inventory.WorkloadCronJob,
-	"pod":         inventory.WorkloadPod,
-}
-
-// ParseKubernetesWorkloadKey splits a <kind>/<namespace>/<name>/<container>
-// workload key, the form notifications and the webhook show for a Kubernetes
-// container. The container is part of the key: one Pod's containers can come
-// from different images and different sources. Names follow the Kubernetes
-// rules (a DNS-1123 label for namespace and container, a DNS-1123 subdomain
-// of at most 253 bytes for the workload name).
+// ParseKubernetesWorkloadKey splits a Kubernetes workload key; see
+// inventory.ParseKubernetesWorkloadKey.
 func ParseKubernetesWorkloadKey(key string) (KubernetesWorkload, error) {
-	parts := strings.Split(key, "/")
-	if len(parts) != 4 {
-		return KubernetesWorkload{}, fmt.Errorf("must be <kind>/<namespace>/<name>/<container>")
-	}
-	kind, ok := kubernetesWorkloadKinds[parts[0]]
-	if !ok {
-		return KubernetesWorkload{}, fmt.Errorf("has an unknown kind %q (allowed: deployment, statefulset, daemonset, job, cronjob, pod)", parts[0])
-	}
-	if !dns1123Label.MatchString(parts[1]) {
-		return KubernetesWorkload{}, fmt.Errorf("has an invalid namespace")
-	}
-	if len(parts[2]) > 253 || !dns1123Subdomain.MatchString(parts[2]) {
-		return KubernetesWorkload{}, fmt.Errorf("has an invalid workload name")
-	}
-	if !dns1123Label.MatchString(parts[3]) {
-		return KubernetesWorkload{}, fmt.Errorf("has an invalid container name")
-	}
-	return KubernetesWorkload{Kind: kind, Namespace: parts[1], Name: parts[2], Container: parts[3]}, nil
+	return inventory.ParseKubernetesWorkloadKey(key)
 }
 
 // validateMappings checks every mapping on its own and then the mappings
 // against each other. kubernetes says which adapter the keys are for: the
-// Compose form with Docker, the Kubernetes form otherwise. With Kubernetes
-// only dependency mappings are accepted. The checks are:
-//   - a workload has at most one Compose entry, at most one Dependencies
-//     entry and at most one Dockerfile entry;
+// Compose form with Docker, the Kubernetes form otherwise. A Compose mapping
+// belongs to Docker, a manifest mapping to Kubernetes; dependency and
+// Dockerfile mappings to both. The checks are:
+//   - a workload has at most one entry of each source, and at most one of
+//     Compose and Manifest, since two places would decide its image tag;
+//   - a manifest object of a namespace is edited on behalf of one workload
+//     container only (mappings that differ in namespace are told apart here;
+//     a document without a namespace that two of them resolve to is refused
+//     when the file is edited);
 //   - a Compose service of a file is edited on behalf of one workload only;
 //   - a dependency root is always read from the same branch, so several
 //     workloads may share it only when they agree on that;
@@ -92,10 +66,12 @@ func ParseKubernetesWorkloadKey(key string) (KubernetesWorkload, error) {
 func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 	type routeKey struct{ workload, route string }
 	type composeKey struct{ repo, path, service string }
+	type manifestKey struct{ repo, path, kind, namespace, name, container string }
 	type depKey struct{ repo, dir string }
 	type dockerfileKey struct{ repo, path string }
 	routes := map[routeKey]int{}
 	composes := map[composeKey]int{}
+	manifests := map[manifestKey]int{}
 	deps := map[depKey]int{}
 	depBranch := map[depKey]string{}
 	dockerfiles := map[dockerfileKey]int{}
@@ -103,21 +79,21 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 
 	for i, m := range ms {
 		at := fmt.Sprintf("remediation.mappings[%d]", i)
+		var kw KubernetesWorkload
 		var keyErr error
 		if kubernetes {
-			_, keyErr = ParseKubernetesWorkloadKey(m.Workload)
+			kw, keyErr = ParseKubernetesWorkloadKey(m.Workload)
 		} else {
 			_, _, keyErr = ParseWorkloadKey(m.Workload)
 		}
 		if keyErr != nil {
 			return fmt.Errorf("config: %s.workload %q %v", at, m.Workload, keyErr)
 		}
-		if kubernetes && (m.Compose != nil || m.Dockerfile != nil) {
-			kind := "compose"
-			if m.Compose == nil {
-				kind = "dockerfile"
-			}
-			return fmt.Errorf("config: %s sets a %s mapping, which is not supported with kubernetes.enabled; only dependencies mappings are", at, kind)
+		if kubernetes && m.Compose != nil {
+			return fmt.Errorf("config: %s sets a compose mapping, which belongs to the Docker adapter; use manifest with kubernetes.enabled", at)
+		}
+		if !kubernetes && m.Manifest != nil {
+			return fmt.Errorf("config: %s sets a manifest mapping, which requires kubernetes.enabled", at)
 		}
 		repo, err := github.ParseRepo(m.Repository)
 		if err != nil {
@@ -127,13 +103,13 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 			return fmt.Errorf("config: %s.base_branch %q is not a valid branch name", at, m.BaseBranch)
 		}
 		set := 0
-		for _, present := range []bool{m.Compose != nil, m.Dependencies != nil, m.Dockerfile != nil} {
+		for _, present := range []bool{m.Compose != nil, m.Manifest != nil, m.Dependencies != nil, m.Dockerfile != nil} {
 			if present {
 				set++
 			}
 		}
 		if set != 1 {
-			return fmt.Errorf("config: %s must set exactly one of compose, dependencies and dockerfile", at)
+			return fmt.Errorf("config: %s must set exactly one of compose, manifest, dependencies and dockerfile", at)
 		}
 		repoKey := strings.ToLower(repo.String())
 		switch {
@@ -154,6 +130,31 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 				return fmt.Errorf("config: %s maps service %q of %s in %s, already mapped by remediation.mappings[%d] for another workload", at, m.Compose.Service, m.Compose.Path, m.Repository, j)
 			}
 			composes[ck] = i
+		case m.Manifest != nil:
+			if !github.ValidPath(m.Manifest.Path, false) {
+				return fmt.Errorf("config: %s.manifest.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, m.Manifest.Path)
+			}
+			wantKind := manifestObjectKinds[kw.Kind]
+			if k := m.Manifest.ObjectKind; k != "" && k != wantKind {
+				return fmt.Errorf("config: %s.manifest.object.kind %q must be %q, the kind of workload %q", at, k, wantKind, m.Workload)
+			}
+			if n := m.Manifest.ObjectName; n != "" && !inventory.ValidDNS1123Subdomain(n) {
+				return fmt.Errorf("config: %s.manifest.object.name %q is not a valid object name", at, n)
+			}
+			objName := m.Manifest.ObjectName
+			if objName == "" {
+				objName = kw.Name
+			}
+			rk := routeKey{m.Workload, "manifest"}
+			if j, dup := routes[rk]; dup {
+				return fmt.Errorf("config: %s repeats the manifest mapping of workload %q already set by remediation.mappings[%d]", at, m.Workload, j)
+			}
+			routes[rk] = i
+			mk := manifestKey{repoKey, m.Manifest.Path, wantKind, kw.Namespace, objName, kw.Container}
+			if j, dup := manifests[mk]; dup {
+				return fmt.Errorf("config: %s maps container %q of %s %q of namespace %s in %s of %s, already mapped by remediation.mappings[%d] for another workload", at, kw.Container, wantKind, objName, kw.Namespace, m.Manifest.Path, m.Repository, j)
+			}
+			manifests[mk] = i
 		case m.Dockerfile != nil:
 			if !github.ValidPath(m.Dockerfile.Path, false) {
 				return fmt.Errorf("config: %s.dockerfile.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, m.Dockerfile.Path)

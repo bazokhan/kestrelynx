@@ -2,7 +2,6 @@ package state
 
 import (
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/analyze"
@@ -28,27 +27,7 @@ type RefChange struct {
 //     the last element of the adapter's namespace/pod/container name, so a
 //     sidecar is told apart from the main container of the same Pod
 //   - a container with no known workload: container/<name>
-func WorkloadKey(c inventory.Container) string {
-	w := c.Workload
-	switch {
-	case w.Kind == inventory.WorkloadCompose:
-		if w.Group == "" || w.Name == "" {
-			return ""
-		}
-		return "compose/" + w.Group + "/" + w.Name
-	case w.Known():
-		i := strings.LastIndexByte(c.Name, '/')
-		if i < 0 || i == len(c.Name)-1 || w.Group == "" || w.Name == "" {
-			return ""
-		}
-		return string(w.Kind) + "/" + w.Group + "/" + w.Name + "/" + c.Name[i+1:]
-	default:
-		if c.Name == "" {
-			return ""
-		}
-		return "container/" + c.Name
-	}
-}
+func WorkloadKey(c inventory.Container) string { return c.WorkloadKey() }
 
 // workloadKeys returns the sorted, de-duplicated workload keys of containers.
 func workloadKeys(containers []inventory.Container) []string {

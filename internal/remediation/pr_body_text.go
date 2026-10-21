@@ -76,6 +76,15 @@ type prText struct {
 	DRunning, DCurrentBase, DCandidateBase, DLayer, DVerRec string
 	DTargets, DOther, DScanned, DAttribution                string
 
+	// Kubernetes bodies.
+	HeadPremises, HeadDeploy                       string
+	KWhat, KRunning, KDeclared, KContainers, KAlso string
+	KPremiseSource, KPremiseOwner, KCronJob        string
+	KReflect, KChainsIntro, KChainLine, KNoChains  string
+	KUnconfirmed, KUnchanged                       string
+	KOwnerNative, KOwnerHelm, KOwnerArgo           string
+	KOwnerFluxKust, KOwnerFluxHelm, KChainSep      string
+
 	// Language package bodies.
 	LWhat, LDir, LManager, LWorkloads, LFiles                                   string
 	LEntryOne, LEntryMany                                                       string
@@ -182,6 +191,29 @@ var enPRText = prText{
 	DOther:         "- Other findings of the compared base images that remain in the candidate base image: %[1]d; introduced by the candidate base image: %[2]d\n",
 	DScanned:       "Both base images were scanned by Trivy %s",
 	DAttribution:   "\nTrivy attributes a package to the lowest layer that holds that name and version, so a package installed again by a later instruction of the Dockerfile can still be attributed to a base image layer. A finding listed above is therefore matched to the base image, not proven to come from it.\n",
+
+	HeadPremises:   "What this change relies on",
+	HeadDeploy:     "After merging",
+	KWhat:          "KestreLynx proposes a new image tag for %[1]d container(s) in %[2]s of %[3]s.\n\n",
+	KRunning:       "- Running image: %s\n",
+	KDeclared:      "- Image declared in the Pod specs: %s\n",
+	KContainers:    "- Containers edited: %s\n",
+	KAlso:          "- Also running this image, not edited (no manifest mapping): %s\n",
+	KPremiseSource: "- This file is taken to be the one the cluster is deployed from, with the final value of the image: another file, a Helm values file or a setting of a GitOps tool may override it. KestreLynx did not check this.\n",
+	KPremiseOwner:  "- No other tool is taken to own this image tag. Only Flux image automation markers on the edited lines and Argo CD Image Updater write-back files in the directory were looked for.\n",
+	KCronJob:       "- Jobs that already exist are not affected: a change to a CronJob applies to the Jobs it starts after the change is applied, and the Pod template of an existing Job cannot be changed.\n",
+	KReflect:       "- Merging this pull request may deploy the change: a tool outside KestreLynx (Argo CD, Flux or a CI job) can apply a merged change automatically. KestreLynx does not deploy it and does not know whether such a tool is set up. Review the change before merging.\n",
+	KChainsIntro:   "- Management tools detected on the workloads, read from markers on the objects (claims, not verified facts):\n",
+	KChainLine:     "  - %[1]s: %[2]s\n",
+	KNoChains:      "- No management tool was detected for these workloads. That does not mean there is none: Argo CD tracking by label is not read, and Jobs and Pods are not checked for markers.\n",
+	KUnchanged:     "\nContainers of the same Pod template that use the same image and are not changed, so they keep its tag: %s\n",
+	KUnconfirmed:   "- Not confirmed: whether the change was rolled out after merging, and whether the findings are gone from the running image.\n",
+	KOwnerNative:   "%[1]s %[2]s",
+	KOwnerHelm:     "Helm release %[1]s in %[2]s",
+	KOwnerArgo:     "Argo CD application %s",
+	KOwnerFluxKust: "Flux Kustomization %[1]s in %[2]s",
+	KOwnerFluxHelm: "Flux HelmRelease %[1]s in %[2]s",
+	KChainSep:      " -> ",
 
 	LWhat:               "KestreLynx proposes updating %[1]d package %[2]s in %[3]s of %[4]s with %[5]s.\n\n",
 	LDir:                "- Dependency directory: %s\n",
@@ -328,6 +360,29 @@ var jaPRText = prText{
 	DOther:         "- 比較した両ベースイメージのその他の検出結果のうち、候補のベースイメージに残るもの: %[1]d 件、候補のベースイメージで新たに入るもの: %[2]d 件\n",
 	DScanned:       "両方のベースイメージを Trivy %s でスキャンしました",
 	DAttribution:   "\nTrivy は、同じ名前と版のパッケージを、それを含む最も下のレイヤーに割り当てます。そのため、Dockerfile の後ろの命令で再びインストールされたパッケージも、ベースイメージのレイヤーに割り当てられることがあります。上に挙げた検出結果はベースイメージに対応付けたものであり、ベースイメージ由来であると証明したものではありません。\n",
+
+	HeadPremises:   "この変更の前提",
+	HeadDeploy:     "マージ後",
+	KWhat:          "KestreLynx は、%[3]s の %[2]s にある %[1]d 個のコンテナについて、新しいイメージのタグを提案します。\n\n",
+	KRunning:       "- 稼働中のイメージ: %s\n",
+	KDeclared:      "- Pod の spec が指すイメージ: %s\n",
+	KContainers:    "- 編集するコンテナ: %s\n",
+	KAlso:          "- 同じイメージで稼働しているが編集しないもの(マニフェストの対応付けがない): %s\n",
+	KPremiseSource: "- このファイルがクラスタへの配備元であり、イメージの最終的な値がここにあるものとして扱います。別のファイル、Helm の values、GitOps ツールの設定がこの値を上書きしている場合があります。KestreLynx はこれを確認していません。\n",
+	KPremiseOwner:  "- 他のツールがこのイメージのタグを管理していないものとして扱います。確認したのは、編集する行の Flux image automation の目印と、同じディレクトリの Argo CD Image Updater の書き戻しファイルだけです。\n",
+	KCronJob:       "- すでにある Job には反映されません。CronJob の変更は、適用後に開始される Job から効き、既存の Job の Pod テンプレートは変更できません。\n",
+	KReflect:       "- このプルリクエストをマージすると、変更がそのまま配備される場合があります。KestreLynx の外のツール(Argo CD、Flux、CI)が、マージされた変更を自動で反映できるためです。KestreLynx は配備を行わず、そのようなツールがあるかどうかも分かりません。マージ前に変更を確認してください。\n",
+	KChainsIntro:   "- ワークロードで検出した管理ツール(オブジェクトの目印から読んだもので、検証済みの事実ではありません):\n",
+	KChainLine:     "  - %[1]s: %[2]s\n",
+	KNoChains:      "- これらのワークロードでは管理ツールを検出できませんでした。ないことを意味しません。Argo CD のラベルによる追跡は読まず、Job と Pod は目印を調べていません。\n",
+	KUnchanged:     "\n同じ Pod テンプレートで同じイメージを使うが、変更しないコンテナ(現在のタグのまま残ります): %s\n",
+	KUnconfirmed:   "- 未確認: マージ後にロールアウトされたか、稼働中のイメージから所見が消えたか。\n",
+	KOwnerNative:   "%[1]s %[2]s",
+	KOwnerHelm:     "Helm リリース %[1]s(%[2]s)",
+	KOwnerArgo:     "Argo CD アプリケーション %s",
+	KOwnerFluxKust: "Flux Kustomization %[1]s(%[2]s)",
+	KOwnerFluxHelm: "Flux HelmRelease %[1]s(%[2]s)",
+	KChainSep:      " -> ",
 
 	LWhat:               "KestreLynx は、%[4]s の %[3]s にある %[1]d 件のパッケージ%[2]sを %[5]s で更新することを提案します。\n\n",
 	LDir:                "- 依存関係のディレクトリ: %s\n",

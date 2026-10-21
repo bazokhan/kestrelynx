@@ -19,6 +19,9 @@ type dockerfileBodyInput struct {
 	UpdateKey, AttemptKey           string
 	Marker                          string
 	Language                        BodyLanguage
+	// Management are the management chains of the workloads, for Kubernetes
+	// workloads.
+	Management []WorkloadChains
 }
 
 // buildDockerfilePRBody renders the body of a base image pull request. It
@@ -83,6 +86,9 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 		b.WriteString("\n")
 	}
 	b.WriteString(t.DAttribution)
+	if anyKubernetes(in.Workloads) {
+		writeKubernetesDeploy(t, &b, in.Workloads, in.Management)
+	}
 
 	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }

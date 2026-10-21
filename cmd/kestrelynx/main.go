@@ -129,7 +129,11 @@ func main() {
 		}
 		r.Plan = buildPlanConfig(cfg)
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
-			r.Plan.Language = buildLanguageConfig(cfg, log)
+			if cfg.Kubernetes.Enabled {
+				r.Plan.Language = kubernetesLanguageConfig()
+			} else {
+				r.Plan.Language = buildLanguageConfig(cfg, log)
+			}
 		}
 		l := cfg.Remediation.Limits
 		log.Info("fix plan enabled",
@@ -245,6 +249,32 @@ func dockerfileMappings(ms []config.RemediationMapping) []remediation.Dockerfile
 	return out
 }
 
+// kubernetesLanguageConfig is the language update stage on Kubernetes: language
+// updates would run in work Pods, which are not available, so no Docker work
+// container is set up and the update candidates are reported as manual.
+func kubernetesLanguageConfig() *runner.LanguageUpdateConfig {
+	return &runner.LanguageUpdateConfig{Unavailable: &runner.LanguageUnavailable{
+		Reason: remediation.ReasonWorkNamespaceNotConfigured, Manual: true,
+		Detail: "language package updates on Kubernetes run in work Pods, which are not available yet",
+	}}
+}
+
+// kubernetesMappings picks the mappings that edit a Kubernetes manifest.
+// Config validation has already checked the workload keys.
+func kubernetesMappings(ms []config.RemediationMapping) []remediation.KubernetesMapping {
+	var out []remediation.KubernetesMapping
+	for _, m := range ms {
+		if m.Manifest == nil {
+			continue
+		}
+		out = append(out, remediation.KubernetesMapping{
+			Workload: m.Workload, Repository: m.Repository, BaseBranch: m.BaseBranch,
+			Path: m.Manifest.Path, ObjectKind: m.Manifest.ObjectKind, ObjectName: m.Manifest.ObjectName,
+		})
+	}
+	return out
+}
+
 // dockerfileRepositories lists the repositories of the Dockerfile mappings,
 // each once.
 func dockerfileRepositories(ms []remediation.DockerfileMapping) []string {
@@ -278,6 +308,9 @@ func pullRequestRepositories(ms []config.RemediationMapping) []string {
 	for _, m := range dependencyMappings(ms) {
 		add(m.Repository)
 	}
+	for _, m := range kubernetesMappings(ms) {
+		add(m.Repository)
+	}
 	return out
 }
 
@@ -305,13 +338,15 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 			return stage, nil
 		},
 		Mappings:     composeMappings(rc.Mappings),
+		Kubernetes:   kubernetesMappings(rc.Mappings),
 		Repositories: pullRequestRepositories(rc.Mappings),
 		Store:        store,
 	}
 }
 
-// buildPlanConfig assembles the read-only fix plan. With Kubernetes, config
-// validation allows no pull requests and only dependency mappings.
+// buildPlanConfig assembles the fix plan and, with pull requests enabled, the
+// pull request stage. With Kubernetes, config validation allows manifest,
+// Dockerfile and dependency mappings.
 func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 	rc := cfg.Remediation
 	l := rc.Limits

@@ -84,7 +84,8 @@ func replaceable(rec, old *PRRecord, inherits func(FixTarget) bool) bool {
 	if old == rec || old.RepoID != rec.RepoID || old.State != PRStateOpen || old.UserModified || old.MarkerOnly ||
 		rec.UserModified || rec.MarkerOnly ||
 		old.TargetKey != rec.TargetKey || old.UpdateKey == rec.UpdateKey ||
-		old.BaseBranch != rec.BaseBranch || old.Path != rec.Path || strings.Join(old.Locations, "\x00") != strings.Join(rec.Locations, "\x00") {
+		old.BaseBranch != rec.BaseBranch || old.Path != rec.Path || strings.Join(old.Locations, "\x00") != strings.Join(rec.Locations, "\x00") ||
+		strings.Join(old.Affected, "\x00") != strings.Join(rec.Affected, "\x00") {
 		return false
 	}
 	if kindOf(rec.Kind) == prKindLanguage {

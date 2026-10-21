@@ -56,9 +56,31 @@ type composeUnit struct {
 
 	candidate *ImageState // shared by every item when the unit is adopted
 
-	// df is set for a Dockerfile unit and lang for a language unit.
+	// df is set for a Dockerfile unit, lang for a language unit and kube for a
+	// Kubernetes manifest unit. A Kubernetes unit's services and workloads are
+	// the workload keys of its containers; its locations are theirs images' places.
 	df   *dockerfileUnitData
 	lang *languageUnitData
+	kube *kubeUnitData
+}
+
+// notAdoptedReason is the reason of a unit whose images are not all adopted
+// candidates.
+func (u *composeUnit) notAdoptedReason() Reason {
+	if u.kube != nil {
+		return ReasonKubernetesSetNotAdopted
+	}
+	return ReasonComposeSetNotAdopted
+}
+
+// locationOf is the location of one member of the unit: the image key of a
+// Compose service, the location of a Kubernetes container's image in its
+// object (ManifestTarget.Location).
+func (u *composeUnit) locationOf(member string) string {
+	if u.kube != nil {
+		return u.kube.location[member]
+	}
+	return "services." + member + ".image"
 }
 
 // normalizedRef is the reference in the form units are grouped by: the
@@ -213,7 +235,7 @@ func (u *composeUnit) checkAdopted() {
 	var cand *ImageState
 	for _, it := range u.items {
 		if it.Category != CategoryPRCandidate || it.Candidate == nil || it.Comparison == nil {
-			u.manual, u.manualReason = true, ReasonComposeSetNotAdopted
+			u.manual, u.manualReason = true, u.notAdoptedReason()
 			u.manualDetail = fmt.Sprintf("%s is %s, not an adopted candidate; a pull request never covers part of the services running the image", it.Current.Ref, it.Category)
 			return
 		}
@@ -222,7 +244,7 @@ func (u *composeUnit) checkAdopted() {
 			continue
 		}
 		if it.Candidate.Tag != cand.Tag || it.Candidate.TopDigest != cand.TopDigest {
-			u.manual, u.manualReason = true, ReasonComposeSetNotAdopted
+			u.manual, u.manualReason = true, u.notAdoptedReason()
 			u.manualDetail = fmt.Sprintf("the running entities have different candidates (%s and %s)", cand.Ref, it.Candidate.Ref)
 			return
 		}
@@ -276,7 +298,7 @@ func (u *composeUnit) perLocation(pairs func(*Item) map[verdictKey]bool) []FixTa
 				}
 			}
 		}
-		loc := "services." + s + ".image"
+		loc := u.locationOf(s)
 		for k := range acc {
 			out = append(out, FixTarget{Location: loc, VulnID: k.vuln, Package: k.coord})
 		}
@@ -326,7 +348,7 @@ func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
 		}
 		for _, s := range u.services {
 			if containsItem(u.svcItems[s], it) {
-				ev.Locations = append(ev.Locations, "services."+s+".image")
+				ev.Locations = append(ev.Locations, u.locationOf(s))
 			}
 		}
 		intel := map[verdictKey]Target{}
@@ -387,7 +409,10 @@ func sortServiceRefs(s []ServiceRef) {
 		if a.Service != b.Service {
 			return a.Service < b.Service
 		}
-		return a.Container < b.Container
+		if a.Container != b.Container {
+			return a.Container < b.Container
+		}
+		return a.Workload < b.Workload
 	})
 }
 
@@ -397,6 +422,9 @@ func sortFixTargets(f []FixTarget) {
 
 // kind is the kind of update the unit proposes.
 func (u *composeUnit) kind() string {
+	if u.kube != nil {
+		return prKindKubernetes
+	}
 	if u.df != nil {
 		return prKindDockerfile
 	}

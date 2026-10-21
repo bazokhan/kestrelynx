@@ -60,14 +60,12 @@ func TestParse_KubernetesMappings(t *testing.T) {
 
 func TestParse_KubernetesMappingsRejected(t *testing.T) {
 	composeSource := "      compose:\n        path: compose.yaml\n        service: web\n"
-	dockerfileSource := "      dockerfile:\n        path: Dockerfile\n"
 	for name, tc := range map[string]struct{ mapping, want string }{
-		"compose key":        {k8sMapping("compose/shop/web", depSource), "workload"},
-		"container missing":  {k8sMapping("deployment/shop/web", depSource), "<kind>/<namespace>/<name>/<container>"},
-		"unknown kind":       {k8sMapping("replicaset/shop/web/app", depSource), "unknown kind"},
-		"compose mapping":    {k8sMapping("deployment/shop/web/app", composeSource), "compose mapping"},
-		"dockerfile mapping": {k8sMapping("deployment/shop/web/app", dockerfileSource), "dockerfile mapping"},
-		"repeated route":     {k8sMapping("deployment/shop/web/app", depSource) + k8sMapping("deployment/shop/web/app", depSource), "repeats the dependencies mapping"},
+		"compose key":       {k8sMapping("compose/shop/web", depSource), "workload"},
+		"container missing": {k8sMapping("deployment/shop/web", depSource), "<kind>/<namespace>/<name>/<container>"},
+		"unknown kind":      {k8sMapping("replicaset/shop/web/app", depSource), "unknown kind"},
+		"compose mapping":   {k8sMapping("deployment/shop/web/app", composeSource), "compose mapping, which belongs to the Docker adapter"},
+		"repeated route":    {k8sMapping("deployment/shop/web/app", depSource) + k8sMapping("deployment/shop/web/app", depSource), "repeats the dependencies mapping"},
 	} {
 		_, err := Parse([]byte(minimal + k8sHeader + tc.mapping))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -111,5 +109,76 @@ func TestMappingsOutsideScope(t *testing.T) {
 	}
 	if got := c.MappingsOutsideScope(); len(got) != 1 || got[0] != "deployment/other/web/app" {
 		t.Errorf("outside scope = %v, want the other namespace's workload", got)
+	}
+}
+
+const manifestSource = "      manifest:\n        path: apps/web/deployment.yaml\n"
+
+func TestParse_KubernetesRoutes(t *testing.T) {
+	routes := k8sMapping("deployment/shop/web/app", manifestSource) +
+		k8sMapping("deployment/shop/web/app", "      dockerfile:\n        path: Dockerfile\n") +
+		k8sMapping("deployment/shop/web/app", depSource)
+	c, err := Parse([]byte(minimal + k8sHeader + routes))
+	if err != nil {
+		t.Fatalf("manifest, dockerfile and dependencies of one workload: %v", err)
+	}
+	if m := c.Remediation.Mappings[0]; m.Manifest == nil || m.Manifest.Path != "apps/web/deployment.yaml" || m.Manifest.ObjectKind != "" {
+		t.Errorf("manifest mapping = %+v", m.Manifest)
+	}
+	obj := "      manifest:\n        path: apps/web/deployment.yaml\n        object:\n          kind: Deployment\n          name: prod-web\n"
+	c, err = Parse([]byte(minimal + k8sHeader + k8sMapping("deployment/shop/web/app", obj)))
+	if err != nil {
+		t.Fatalf("object override: %v", err)
+	}
+	if m := c.Remediation.Mappings[0].Manifest; m.ObjectKind != "Deployment" || m.ObjectName != "prod-web" {
+		t.Errorf("object = %+v", m)
+	}
+}
+
+func TestParse_ManifestMappingsRejected(t *testing.T) {
+	obj := func(kind, name string) string {
+		return "      manifest:\n        path: web.yaml\n        object:\n          kind: " + kind + "\n          name: " + name + "\n"
+	}
+	for name, tc := range map[string]struct{ mapping, want string }{
+		"absolute path":               {k8sMapping("deployment/shop/web/app", "      manifest:\n        path: /web.yaml\n"), "manifest.path"},
+		"dotdot path":                 {k8sMapping("deployment/shop/web/app", "      manifest:\n        path: ../web.yaml\n"), "manifest.path"},
+		"no path":                     {k8sMapping("deployment/shop/web/app", "      manifest:\n        path: \"\"\n"), "manifest.path"},
+		"wrong kind":                  {k8sMapping("deployment/shop/web/app", obj("StatefulSet", "web")), "object.kind"},
+		"lower-case kind":             {k8sMapping("deployment/shop/web/app", obj("deployment", "web")), "object.kind"},
+		"bad object name":             {k8sMapping("deployment/shop/web/app", obj("Deployment", "Web_1")), "object.name"},
+		"repeated":                    {k8sMapping("deployment/shop/web/app", manifestSource) + k8sMapping("deployment/shop/web/app", manifestSource), "repeats the manifest mapping"},
+		"same object, same namespace": {k8sMapping("deployment/shop/web/app", manifestSource) + k8sMapping("deployment/shop/web2/app", "      manifest:\n        path: apps/web/deployment.yaml\n        object:\n          name: web\n"), "already mapped"},
+		"unknown key":                 {k8sMapping("deployment/shop/web/app", "      manifest:\n        path: web.yaml\n        affects: []\n"), "affects"},
+		"two sources at once":         {k8sMapping("deployment/shop/web/app", manifestSource+depSource), "exactly one"},
+	} {
+		_, err := Parse([]byte(minimal + k8sHeader + tc.mapping))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to contain %q", name, err, tc.want)
+		}
+	}
+	// The same object name in two namespaces of one file is two edit points.
+	ns := k8sMapping("deployment/shop/web/app", manifestSource) + k8sMapping("deployment/prod/web/app", manifestSource)
+	if _, err := Parse([]byte(minimal + k8sHeader + ns)); err != nil {
+		t.Errorf("one object name in two namespaces: %v", err)
+	}
+	// The same object edited for two containers is fine.
+	two := k8sMapping("deployment/shop/web/app", manifestSource) + k8sMapping("deployment/shop/web/log", manifestSource)
+	if _, err := Parse([]byte(minimal + k8sHeader + two)); err != nil {
+		t.Errorf("two containers of one object: %v", err)
+	}
+	// A manifest mapping needs Kubernetes, and a compose one needs Docker.
+	_, err := Parse([]byte(minimal + "\nremediation:\n  mappings:\n" + k8sMapping("compose/shop/web", manifestSource)))
+	if err == nil || !strings.Contains(err.Error(), "requires kubernetes.enabled") {
+		t.Errorf("manifest in Docker mode: %v", err)
+	}
+}
+
+func TestParse_KubernetesDockerfileMappingAccepted(t *testing.T) {
+	c, err := Parse([]byte(minimal + k8sHeader + k8sMapping("deployment/shop/web/app", "      dockerfile:\n        path: Dockerfile\n        target: build\n")))
+	if err != nil {
+		t.Fatalf("dockerfile mapping with kubernetes.enabled: %v", err)
+	}
+	if m := c.Remediation.Mappings[0]; m.Dockerfile == nil || m.Dockerfile.Target != "build" {
+		t.Errorf("mapping = %+v", m)
 	}
 }

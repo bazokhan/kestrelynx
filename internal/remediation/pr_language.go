@@ -187,6 +187,22 @@ func DeferLanguageUpdates(plan *Plan, reason Reason, detail string) int {
 	return n
 }
 
+// MarkLanguageManual turns every dependency update candidate of the plan into
+// a manual item with the reason, for a process in which no language update can
+// ever run (not for one that failed to run it), and returns how many it
+// changed.
+func MarkLanguageManual(plan *Plan, reason Reason, detail string) int {
+	n := 0
+	for i := range plan.LanguageItems {
+		it := &plan.LanguageItems[i]
+		if it.Category == CategoryDependencyUpdateCandidate {
+			it.Category, it.Reason, it.Detail = CategoryManual, reason, detail
+			n++
+		}
+	}
+	return n
+}
+
 // fileProposal is the record of the pull request of the repository that
 // stands for an item with the fingerprint.
 func (r *prRun) fileProposal(rs *repoState, it LanguageItem, fingerprint string) *PRRecord {

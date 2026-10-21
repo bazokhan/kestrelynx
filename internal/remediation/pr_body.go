@@ -139,49 +139,57 @@ func buildPRBody(in prBodyInput) (string, error) {
 		fmt.Fprintf(&b, t.CChange, mdCode(c.Location), mdCode(c.Old), mdCode(c.New))
 	}
 
+	writeImageVerification(t, &b, in.Evidence)
+
+	return assembleBodyText(b.String(), in.Marker, t.CutNote)
+}
+
+// writeImageVerification writes the verification section of the body of a
+// tag update: for each running image the candidate it was compared with and
+// the findings resolved, remaining and introduced.
+func writeImageVerification(t *prText, b *strings.Builder, evidence *VerificationSummary) {
 	b.WriteString("\n## " + t.HeadVerification + "\n")
-	if ev := in.Evidence; ev != nil {
+	if ev := evidence; ev != nil {
 		for _, it := range ev.Items {
 			b.WriteString("\n")
-			fmt.Fprintf(&b, t.CVerRunning, mdCode(it.Current.Ref))
+			fmt.Fprintf(b, t.CVerRunning, mdCode(it.Current.Ref))
 			if it.Current.ConfigDigest != "" {
-				fmt.Fprintf(&b, t.ConfigDigest, mdCode(it.Current.ConfigDigest))
+				fmt.Fprintf(b, t.ConfigDigest, mdCode(it.Current.ConfigDigest))
 			}
 			if it.Current.Platform != "" {
-				fmt.Fprintf(&b, t.PlatformPart, mdCode(it.Current.Platform))
+				fmt.Fprintf(b, t.PlatformPart, mdCode(it.Current.Platform))
 			}
 			b.WriteString("\n")
 			if it.Current.DigestKindUnverified {
 				b.WriteString(t.DigestNote)
 			}
-			fmt.Fprintf(&b, t.CCandidate,
+			fmt.Fprintf(b, t.CCandidate,
 				mdCode(it.Candidate.Ref), mdCode(it.Candidate.TopDigest), mdCode(it.Candidate.ManifestDigest), mdCode(it.Candidate.ConfigDigest), mdCode(it.Candidate.Platform))
-			fmt.Fprintf(&b, t.Locations, codeListIn(t, it.Locations, maxListedNames))
-			fmt.Fprintf(&b, t.VerRecord,
+			fmt.Fprintf(b, t.Locations, codeListIn(t, it.Locations, maxListedNames))
+			fmt.Fprintf(b, t.VerRecord,
 				ev.PlanGeneratedAt.UTC().Format(time.RFC3339), mdCode(it.BaselineScan), mdCode(it.CandidateScan))
-			fmt.Fprintf(&b, t.CTargets, len(it.Resolved), len(it.Remaining))
-			fmt.Fprintf(&b, t.COther, len(it.OtherResolved), len(it.OtherRemaining), len(it.Introduced))
-			writeVulnListIn(t, &b, t.TitleResolved, it.Resolved)
-			writeVulnListIn(t, &b, t.TitleRemainingTargeted, it.Remaining)
+			fmt.Fprintf(b, t.CTargets, len(it.Resolved), len(it.Remaining))
+			fmt.Fprintf(b, t.COther, len(it.OtherResolved), len(it.OtherRemaining), len(it.Introduced))
+			writeVulnListIn(t, b, t.TitleResolved, it.Resolved)
+			writeVulnListIn(t, b, t.TitleRemainingTargeted, it.Remaining)
 			if len(it.OtherResolved) > 0 {
-				writeVulnListIn(t, &b, t.TitleOtherResolvedImage, it.OtherResolved)
+				writeVulnListIn(t, b, t.TitleOtherResolvedImage, it.OtherResolved)
 			}
-			writeVulnListIn(t, &b, t.TitleOtherRemainingImage, it.OtherRemaining)
-			writeVulnListIn(t, &b, t.TitleIntroduced, it.Introduced)
+			writeVulnListIn(t, b, t.TitleOtherRemainingImage, it.OtherRemaining)
+			writeVulnListIn(t, b, t.TitleIntroduced, it.Introduced)
 		}
 		b.WriteString("\n")
-		fmt.Fprintf(&b, t.CScanned, mdCode(ev.TrivyVersion))
+		fmt.Fprintf(b, t.CScanned, mdCode(ev.TrivyVersion))
 		if ev.VulnDBUpdatedAt != nil {
-			fmt.Fprintf(&b, t.DBBuilt, ev.VulnDBUpdatedAt.UTC().Format(time.RFC3339))
+			fmt.Fprintf(b, t.DBBuilt, ev.VulnDBUpdatedAt.UTC().Format(time.RFC3339))
 		}
-		fmt.Fprintf(&b, t.SeverityEnd, codeListIn(t, ev.Severities, 10))
+		fmt.Fprintf(b, t.SeverityEnd, codeListIn(t, ev.Severities, 10))
 		if ev.Scope != "" {
-			fmt.Fprintf(&b, t.ScopeEnd, mdCode(ev.Scope))
+			fmt.Fprintf(b, t.ScopeEnd, mdCode(ev.Scope))
 		}
 		b.WriteString("\n")
 	}
 
-	return assembleBodyText(b.String(), in.Marker, t.CutNote)
 }
 
 // assembleBody appends the marker to text, cutting text first if needed.

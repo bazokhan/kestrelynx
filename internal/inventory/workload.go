@@ -1,6 +1,9 @@
 package inventory
 
-import "unicode"
+import (
+	"strings"
+	"unicode"
+)
 
 // WorkloadKind identifies how a Container's Workload was determined.
 // WorkloadUnknown is the zero value on purpose: a Workload that was never
@@ -107,4 +110,35 @@ func ValidComposeName(v string) bool {
 		}
 	}
 	return true
+}
+
+// WorkloadKey identifies the workload a container belongs to, for matching a
+// reference's runners across cycles and for the keys of configuration. "" means
+// no usable key.
+//
+//   - Compose: compose/<project>/<service>
+//   - Kubernetes: <kind>/<namespace>/<name>/<container>, the container being
+//     the last element of the adapter's namespace/pod/container name, so a
+//     sidecar is told apart from the main container of the same Pod
+//   - a container with no known workload: container/<name>
+func (c Container) WorkloadKey() string {
+	w := c.Workload
+	switch {
+	case w.Kind == WorkloadCompose:
+		if w.Group == "" || w.Name == "" {
+			return ""
+		}
+		return "compose/" + w.Group + "/" + w.Name
+	case w.Known():
+		i := strings.LastIndexByte(c.Name, '/')
+		if i < 0 || i == len(c.Name)-1 || w.Group == "" || w.Name == "" {
+			return ""
+		}
+		return string(w.Kind) + "/" + w.Group + "/" + w.Name + "/" + c.Name[i+1:]
+	default:
+		if c.Name == "" {
+			return ""
+		}
+		return "container/" + c.Name
+	}
 }

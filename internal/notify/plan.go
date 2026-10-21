@@ -367,8 +367,10 @@ func remediationPayloadOf(p *PlanInfo) *remediationPayload {
 const maxWebhookFixTargets = 100
 
 type prUnitPayload struct {
-	// Kind is "dockerfile" for a base image update and "language" for a
-	// lockfile update; absent for a Compose tag update. For a Dockerfile,
+	// Kind is "dockerfile" for a base image update, "language" for a
+	// lockfile update and "kubernetes" for a manifest tag update (Services,
+	// Workloads and Locations are then all workload keys); absent for a
+	// Compose tag update. For a Dockerfile,
 	// Path is the Dockerfile, Services the services of its workloads and
 	// CurrentRef the base image its FROM names. For a language update, Path
 	// is the lockfile, ItemKey the language item and Language what it

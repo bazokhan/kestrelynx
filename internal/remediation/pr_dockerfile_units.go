@@ -71,12 +71,15 @@ func buildDockerfileUnits(plan Plan) []*composeUnit {
 	return out
 }
 
-// workloadService is the service part of a compose/<project>/<service> key.
+// workloadService is the service part of a compose/<project>/<service> key,
+// and the workload's name in a Kubernetes key
+// <kind>/<namespace>/<name>/<container>.
 func workloadService(key string) string {
-	if i := strings.LastIndex(key, "/"); i >= 0 {
-		return key[i+1:]
+	parts := strings.Split(key, "/")
+	if len(parts) == 4 {
+		return parts[2]
 	}
-	return key
+	return parts[len(parts)-1]
 }
 
 // entityID names a running image of an item in the records.

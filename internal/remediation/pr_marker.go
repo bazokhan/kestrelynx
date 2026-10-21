@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/github"
+	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 )
 
 // A pull request body ends with one marker line, an HTML comment holding one
@@ -55,6 +56,10 @@ type PRMarker struct {
 	AttemptKey      string       `json:"attempt_key"`
 	FixTargets      []FixTarget  `json:"fix_targets"`
 	Lang            *LangRecord  `json:"lang,omitempty"`
+	// Affected is the set of workloads a Kubernetes update changes (workload
+	// keys, sorted). It is part of the update key, so it is required in the
+	// marker of a Kubernetes update and invalid in any other.
+	Affected []string `json:"affected,omitempty"`
 }
 
 // supersedeMarker is the marker of a supersede comment.
@@ -133,6 +138,24 @@ func parsePRMarker(body string) (PRMarker, error) {
 	if m.V != markerV {
 		return PRMarker{}, fmt.Errorf("the marker has version %d, this build reads %d", m.V, markerV)
 	}
+	// The field's presence is checked apart from its value: a marker of any
+	// other kind carries none, not even an empty or null one.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(found[0]), &probe); err != nil {
+		return PRMarker{}, fmt.Errorf("the marker is malformed: %v", err)
+	}
+	has := false
+	for key := range probe {
+		if strings.EqualFold(key, "affected") {
+			if key != "affected" {
+				return PRMarker{}, fmt.Errorf("the marker is malformed: the field %q is not spelled \"affected\"", key)
+			}
+			has = true
+		}
+	}
+	if has != (m.Kind == prKindKubernetes) {
+		return PRMarker{}, errors.New("the marker is malformed: the set of affected workloads belongs to a Kubernetes update only, which needs one")
+	}
 	if err := m.wellFormed(); err != nil {
 		return PRMarker{}, fmt.Errorf("the marker is malformed: %v", err)
 	}
@@ -141,8 +164,10 @@ func parsePRMarker(body string) (PRMarker, error) {
 
 func (m PRMarker) wellFormed() error {
 	switch {
-	case m.Kind != "" && m.Kind != prKindDockerfile && m.Kind != prKindLanguage:
+	case m.Kind != "" && m.Kind != prKindDockerfile && m.Kind != prKindLanguage && m.Kind != prKindKubernetes:
 		return fmt.Errorf("unknown kind %q", m.Kind)
+	case (m.Kind == prKindKubernetes) != (len(m.Affected) > 0):
+		return errors.New("the set of affected workloads belongs to a Kubernetes update only, which needs one")
 	case (m.Kind == prKindLanguage) != (m.Lang != nil):
 		return errors.New("the language record belongs to a language update only")
 	case m.RepoID <= 0:
@@ -161,6 +186,11 @@ func (m PRMarker) wellFormed() error {
 		return errors.New("no changes")
 	case m.TargetKey == "" || m.UpdateKey == "" || m.AttemptKey == "":
 		return errors.New("a key is missing")
+	}
+	for i, w := range m.Affected {
+		if _, err := inventory.ParseKubernetesWorkloadKey(w); err != nil || (i > 0 && m.Affected[i-1] >= w) {
+			return errors.New("the affected workloads are not sorted, distinct Kubernetes workload keys")
+		}
 	}
 	for _, c := range m.Changes {
 		if !github.ValidPath(c.Path, false) || !isSHA(c.BlobSHA) || (c.Mode != "100644" && c.Mode != "100755") {
@@ -222,6 +252,8 @@ func (m PRMarker) verify(repoID int64) error {
 	var uk string
 	if m.Lang != nil {
 		uk = LangUpdateKey(tk, m.Lang.Packages, m.Lang.ManifestEdits, m.Lang.Chain...)
+	} else if m.Kind == prKindKubernetes {
+		uk = KubernetesUpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest, m.Affected)
 	} else {
 		uk = UpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest)
 	}
