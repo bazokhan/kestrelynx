@@ -80,7 +80,7 @@ notify:
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `remediation.enabled` | `false` | 修正計画を有効にします。 |
+| `remediation.enabled` | `false` | Docker・Kubernetesモードで読み取り専用の修正計画を有効にします。 |
 | `remediation.pull_requests.enabled` | `false` | 修正PRを有効にします。修正計画の有効化とGitHub tokenが必要です。 |
 
 各設定で行う処理は[計画とPRの実行範囲](remediation-logic.md#plan-and-pr-execution)を参照してください。
@@ -132,13 +132,16 @@ tokenの送付先は[認証情報の送付範囲](outbound-communication.md#cred
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `remediation.mappings` | `[]` | 稼働中のComposeワークロードとGitHub上のソースファイルを対応付けます。 |
+| `remediation.mappings` | `[]` | 稼働中のCompose・KubernetesワークロードとGitHub上のソースファイルを対応付けます。 |
 
 各項目に`workload`、`repository`、`base_branch`と、ちょうど1種類のソースを設定します。
 
+Kubernetesモードでは`dependencies`だけを指定できます。
+修正計画が有効で、対応付けの名前空間が`kubernetes.namespaces`の対象外の場合は、起動時に警告し、その対応付けは計画に使われません。
+
 | 対応付け内のフィールド | 必須条件・形式 |
 | --- | --- |
-| `workload` | 必須で、稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`です。 |
+| `workload` | 必須で、Dockerモードでは稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`、Kubernetesモードでは`<kind>/<namespace>/<name>/<container>`です。`kind`は`deployment`・`statefulset`・`daemonset`・`job`・`cronjob`・`pod`です。 |
 | `repository` | 必須で、`owner/name`形式のGitHubリポジトリです。 |
 | `base_branch` | 必須で、ソースの取得元とPRの宛先に使う有効なGitブランチ名です。 |
 | `compose.path` / `compose.service` | Composeの対応付けで必須の、リポジトリ相対のComposeファイルとサービス名です。 |
@@ -214,7 +217,8 @@ Composeの`build`からの特定と明示したDockerfileとの照合は[ベー�
 
 - `remediation.enabled`を有効にせず、PRだけを有効にした場合
 - `remediation.github.token`なしでPRを有効にした場合
-- `kubernetes.enabled: true`で修正計画を有効にした場合
+- `kubernetes.enabled: true`と`remediation.pull_requests.enabled: true`を併用した場合
+- Kubernetesモードで`compose`または`dockerfile`の対応付けを指定した場合
 
 機能が無効でも、tokenの形式、保存先、対応付け、処理上限、レジストリ認証、作業用コンテナの設定を検証します。
 この設定の検証だけで、リモートのリポジトリやイメージにアクセスできることは確認しません。

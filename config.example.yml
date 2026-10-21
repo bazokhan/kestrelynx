@@ -130,8 +130,9 @@ runtime:
   # enabled above is also true.
   mute_unfixable_not_in_use: false
 
-# Fix plan (experimental). Docker only (including Compose source mappings);
-# enabling it with kubernetes.enabled is a configuration error.
+# Fix plan (experimental). Available in Docker and Kubernetes modes.
+# Kubernetes plans show published-image updates, floating-tag re-pull guidance,
+# and language-package candidates.
 #
 # Both plans and pull requests are disabled by default. Plans select candidates
 # for published images, Dockerfile base images and npm/pnpm/pip/uv packages.
@@ -208,12 +209,19 @@ runtime:
 #   # container recreation. It is independent of state.path and defaults to a
 #   # directory inside the supplied state volume.
 #   storage_dir: /var/lib/kestrelynx/remediation
-#   # Where each running Compose workload's source lives. Read and validated at
+#   # Where each running workload's source lives. Read and validated at
 #   # startup. Each entry sets exactly one of compose (the Compose file and
 #   # service that deploy it), dependencies (the directory holding its lockfiles)
 #   # or dockerfile (the Dockerfile that builds its image). Paths are
 #   # repository-relative and normalized; "." is the repository root. Example
 #   # names only.
+#   #
+#   # Docker workload keys use compose/<project>/<service>. Kubernetes keys use
+#   # <kind>/<namespace>/<name>/<container>, where kind is deployment,
+#   # statefulset, daemonset, job, cronjob or pod.
+#   # Kubernetes accepts only dependencies mappings; compose and dockerfile
+#   # mappings are configuration errors. With planning enabled, mappings outside
+#   # kubernetes.namespaces produce a startup warning and have no effect.
 #   #
 #   # For an image you build yourself, the findings in the layers of its base
 #   # image are not fixed by a package update; a newer base image is. A

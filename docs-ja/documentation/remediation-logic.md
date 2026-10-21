@@ -38,6 +38,21 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 
 ## イメージ候補の選定 {#image-selection}
 
+### Kubernetesのイメージ参照と再取得 {#kubernetes-image-references}
+
+配布イメージの候補を調べる前に、Podのspecにあるイメージ参照と稼働中の参照を照合します。
+リポジトリ名の省略形を正規化し、タグとdigestを比較します。
+
+同じ稼働イメージ参照を使うコンテナのどれかが一致しない場合、その参照の項目は`not_comparable`になります。
+理由は`declared_ref_mismatch`で、specのイメージ参照を読み取れない場合は`declared_ref_unavailable`です。
+
+浮動タグの新しい内容による改善を確認した場合、`imagePullPolicy`に応じて再取得の方法を案内します。
+
+| `imagePullPolicy` | `pull[].guidance` | 案内 |
+| --- | --- | --- |
+| `Always` | `restart_pulls` | Podを再起動すると新しい内容を取得する |
+| `IfNotPresent` | `change_tag_or_digest` | ノードにある内容を再利用するため、固定タグまたはdigestへの変更が必要 |
+| `Never` | `import_to_node` | ノードへのイメージの取り込みが必要 |
 ### 配布イメージのタグ {#published-image-tags}
 
 稼働中のイメージ参照に応じて、比較する候補を決めます。

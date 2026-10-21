@@ -10,6 +10,30 @@ For supported environments and inputs, see [Scope and requirements](remediation-
 Merge the following examples into the relevant sections of your existing `config.yml`.
 Do not add duplicate `remediation` sections to the same file.
 
+### Kubernetes configuration {#kubernetes-plans}
+
+Add `remediation.enabled: true` to your existing Kubernetes configuration.
+Published-image comparisons need no mapping; to look for language-package candidates, map a dependency directory as follows.
+
+```yaml
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: false
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+Set `workload` to the workload key shown in notifications.
+See [Source mappings](configuration.md#remediation-mappings) for the format and namespace restrictions.
+
+Apply the updated ConfigMap, restart the KestreLynx Pod, and check the logs for configuration loading and planning results.
+With the supplied deployment, use `kubectl logs -n kestrelynx deployment/kestrelynx -f` to view the logs.
+
 ### Preparing GitHub access {#prepare-github-access}
 
 1. Choose the GitHub repository to map and the branch to use as the source and PR target
@@ -18,6 +42,9 @@ Do not add duplicate `remediation` sections to the same file.
 4. Keep the configuration file containing the token readable only by its owner and exclude it from repository commits
 
 ### Identifying the workload {#identify-workload}
+
+The following steps apply to Compose.
+For Kubernetes, use the workload key from notifications as described in [Source mappings](configuration.md#remediation-mappings).
 
 1. Inspect the target running container with `docker inspect`
 2. Note the values of the `com.docker.compose.project` and `com.docker.compose.service` labels
@@ -79,6 +106,8 @@ For the destinations that receive credentials, see [Credential destinations](out
     The supplied Compose configuration stores records in the state volume. If you change `remediation.storage_dir`, choose a location that persists when the container is recreated. For details, see [Storage location](configuration.md#remediation-storage).
 
 ### Verifying remediation plan startup {#verify-fix-plans}
+
+The following steps apply to Compose; for Kubernetes startup checks, see [Kubernetes configuration](#kubernetes-plans).
 
 1. With the supplied Compose configuration, run `docker compose up -d --force-recreate kestrelynx` in the KestreLynx deployment directory
 2. Use `docker compose logs -f kestrelynx` to confirm that the configuration loaded and remediation plans are enabled

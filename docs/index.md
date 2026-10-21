@@ -19,10 +19,10 @@ Docker and Kubernetes containers with [Trivy](https://trivy.dev/).
 It sends changes since the last scan and priorities based on severity,
 [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog), and
 [EPSS](https://www.first.org/epss/) to Slack or a webhook.
-For Docker and Compose,
+For Docker, Compose, and Kubernetes,
 [remediation plans and pull requests (experimental)](documentation/remediation.md)
 support remediation by comparing rescans under the same conditions and creating
-GitHub pull requests, with both features disabled by default.
+GitHub pull requests for Docker and Compose, with both features disabled by default.
 
 [Setup](documentation/getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/kitsunetrail/kestrelynx){ .md-button }
@@ -102,6 +102,7 @@ available and annotate upgrade risk, without guaranteeing compatibility.
 
 ## Remediation plans and pull requests (experimental)
 
+Kubernetes remediation plans show published-image update candidates, guidance for pulling floating tags again, and language-package update candidates.
 For Docker and Compose, KestreLynx can propose changes to three kinds of source:
 
 - Published image tags in Compose files

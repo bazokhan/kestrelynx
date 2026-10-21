@@ -48,6 +48,22 @@ The item's `reason` and supplementary `detail` are omitted when empty.
 | `items[].tag_kind` | string | Current tag classification; omitted when unknown. |
 | `items[].priority` | string | Target priority; omitted when unavailable. |
 | `items[].services` | array of objects | Associated service information; omitted when empty. |
+| `items[].services[].workload` | string | Kubernetes workload key; each Kubernetes `services[]` element contains only this field. |
+| `items[].declared` | array of objects | Image references and pull policies from Kubernetes Pod specs; omitted when empty. |
+| `items[].declared[].workload` | string | Target workload key. |
+| `items[].declared[].ref` | string | Image reference from the spec; omitted when unreadable. |
+| `items[].declared[].pull_policy` | string | The spec's `imagePullPolicy`; omitted when unset. |
+| `items[].pull` | array of objects | Guidance grouped by pull policy for Kubernetes `pull_again` items; omitted when empty. |
+| `items[].pull[].guidance` | string | `restart_pulls`, `change_tag_or_digest`, or `import_to_node`; see [Re-pull guidance](remediation-logic.md#kubernetes-image-references) for their meanings. |
+| `items[].pull[].policy` | string | Effective pull policy from the spec or its default when unset. |
+| `items[].pull[].workloads` | array of strings | Workload keys covered by this guidance. |
+| `items[].management` | array of objects | Management chains for Kubernetes workloads; omitted when empty. |
+| `items[].management[].workload` | string | Target workload key. |
+| `items[].management[].chains` | array of arrays of objects | Management chains, each ordered from the owner nearest to the workload. |
+| `items[].management[].chains[][].kind` | string | Owner kind. |
+| `items[].management[].chains[][].resource` / `resource_id` / `name` / `scope` | string | Resource kind, identifier, name, and scope; each omitted when empty. |
+| `items[].management[].chains[][].confidence` | string | Confidence in the attribution; omitted when empty, with `claimed` indicating attribution inferred from management markers. |
+| `items[].management[].conflicting` | boolean | `true` when more than one management chain exists; omitted otherwise. |
 | `items[].current` | object | Current image information. |
 | `items[].candidate` | object | Candidate image information; omitted when there is no candidate. |
 | `items[].targets` | integer | Number of findings targeted for comparison. |

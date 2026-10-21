@@ -17,9 +17,10 @@
 | 設定の読み込みで停止する | ログに示された設定項目と、有効化設定の組み合わせを確認する | [起動時の検証](configuration.md#remediation-validation) |
 | 計画に対象の項目がない | 稼働イメージのスキャン結果、対象の深刻度、修正版情報を確認する | [イメージ候補の選定](remediation-logic.md#image-selection)・[言語パッケージの候補選定](remediation-logic.md#package-selection) |
 | 計画の記録はあるが通知がない | 通知先、送信条件、配信失敗のログを確認する | [通知を送る条件](notification-conditions.md#notification-conditions)・[修正計画の再送](notification-conditions.md#remediation-redelivery) |
-| ソースを取得できない、対象ファイルが見つからない | Composeラベル、対応付け、ベースブランチ、パス、GitHubのアクセスを確認する | [ソースの対応付け](configuration.md#remediation-mappings)・[GitHubアクセス](configuration.md#remediation-github) |
+| ソースを取得できない、対象ファイルが見つからない | ComposeラベルまたはKubernetesのワークロードキー、対応付け、ベースブランチ、パス、GitHubのアクセスを確認する | [ソースの対応付け](configuration.md#remediation-mappings)・[GitHubアクセス](configuration.md#remediation-github) |
 | 非公開イメージへアクセスできない | レジストリのホスト、認証情報、取得権限、token serviceの許可を確認する | [イメージレジストリの認証](configuration.md#remediation-registries) |
 | 新しいイメージ候補がない | 通知の理由から、新しいタグ・内容・改善の有無を確認する | [イメージ候補の理由](remediation-reference.md#image-reasons) |
+| Kubernetesの項目が`declared_ref_mismatch`または`declared_ref_unavailable`になる | 同じ稼働イメージ参照を使う各コンテナのPodのspecと稼働中の参照を確認する | [Kubernetesのイメージ参照と再取得](remediation-logic.md#kubernetes-image-references) |
 | タグ一覧の取得が途中で止まる | 取得失敗のログと、タグ取得・レジストリ要求・処理時間の上限を確認する | [タグ一覧の探索](remediation-logic.md#tag-discovery)・[処理の上限](configuration.md#remediation-limits) |
 | ローカルビルドとして扱われる | Composeの`build`と、Dockerfile・依存ファイルの対応付けを確認する | [ローカルビルドの除外](remediation-logic.md#local-builds) |
 | ベースイメージを確認できない | Dockerfileの対象ステージ、使用したベース、稼働イメージとの照合結果を確認する | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching)・[イメージ候補の理由](remediation-reference.md#image-reasons) |

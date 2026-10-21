@@ -9,12 +9,13 @@ See [Setup steps](remediation-setup.md) to enable them.
 
 | Item | Support |
 | --- | --- |
-| Container environment | Docker mode is supported; remediation plans cannot be enabled in Kubernetes mode |
-| Source mappings | Specify source edit locations for Compose workloads |
+| Container environment | Docker and Kubernetes modes are supported; Kubernetes supports remediation plans only, with PR creation not yet supported |
+| Source mappings | Specify source edit locations for Compose workloads or dependency directories for Kubernetes workloads |
 | Source host | GitHub |
 | Work containers | Linux `amd64` and `arm64` |
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
+| Kubernetes plans | Published-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
 
 ### Supported targets {#supported-targets}
 
@@ -395,6 +396,8 @@ The following tables give each code's meaning and related decision rules or chec
 | `introduced_findings` | The candidate brings new findings | [Comparison conditions](remediation-logic.md#comparison-conditions) |
 | `introduced_kev` | The candidate brings a new vulnerability on the KEV list | [Comparison conditions](remediation-logic.md#comparison-conditions) |
 | `adopted` | The candidate was adopted | [Comparison conditions](remediation-logic.md#comparison-conditions) |
+| `declared_ref_mismatch` | At least one container using the same running image reference has a different image reference in its Pod spec, resulting in `not_comparable` | [Kubernetes image references and re-pull guidance](remediation-logic.md#kubernetes-image-references) |
+| `declared_ref_unavailable` | The Pod spec's image reference cannot be read for at least one container using the same running image reference, resulting in `not_comparable` | [Kubernetes image references and re-pull guidance](remediation-logic.md#kubernetes-image-references) |
 | `digest_only` | The reference has a digest and no tag | [Distributed image tags](remediation-logic.md#published-image-tags) |
 | `tag_and_digest` | The reference has both a tag and a digest | [Distributed image tags](remediation-logic.md#published-image-tags) |
 | `prerelease` | The tag has a prerelease version format | [Distributed image tags](remediation-logic.md#published-image-tags) |

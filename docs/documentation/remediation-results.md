@@ -36,6 +36,8 @@ Update: base image python 3.12.3-slim → 3.12.4-slim
 | Update | Image tag or package changes proposed by the PR. |
 | Update candidate | A proposed change that does not necessarily have a PR yet. |
 | Re-pull | The comparison supports updating to new content under the same tag. |
+| Pull policy | The image pull policy and re-pull guidance for the affected workloads, shown on Kubernetes re-pull items. |
+| Managed by (from markers) | The management chain shown when Kubernetes resources carry management markers; attribution is inferred from those markers. |
 | Rebuild | Expected resolution based on a dependency version constraint, or guidance to pull the base again and rebuild. |
 | Needs a decision | Manual handling is needed for the source, version constraints, update method, comparison results, or similar issues. |
 | Deferred | Processing could not proceed because of limits, waiting periods, retrieval problems, or similar issues. |

@@ -6,8 +6,8 @@
 
 ## Overview {#overview}
 
-Remediation plans propose image and dependency updates based on findings from images running with Docker and Compose.
-Enabling fix pull requests also creates GitHub PRs for eligible updates.
+Remediation plans propose image and dependency updates based on findings from images running with Docker, Compose, and Kubernetes.
+Enabling fix pull requests in Docker mode also creates GitHub PRs for eligible updates.
 
 You are responsible for checking changes, merging, pulling or building images, deploying, and checking the deployment.
 For details, see [Execution scope of plans and PRs](remediation-logic.md#plan-and-pr-execution).

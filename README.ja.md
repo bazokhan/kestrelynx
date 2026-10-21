@@ -10,7 +10,7 @@
 [設定リファレンス](docs-ja/documentation/configuration.md) ·
 [動作報告](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)
 
-> 稼働中のDocker・KubernetesコンテナのイメージをTrivyで定期的にスキャンし、**前回からの変化と、深刻度・CISA KEV・EPSSに基づく優先度**をSlackやWebhookへ通知するOSSです。Docker・Compose向けの**修正計画と修正PR（実験的）**で、更新候補の比較からGitHubへのPR作成まで修正を支援します（既定で無効）。
+> 稼働中のDocker・KubernetesコンテナのイメージをTrivyで定期的にスキャンし、**前回からの変化と、深刻度・CISA KEV・EPSSに基づく優先度**をSlackやWebhookへ通知するOSSです。Docker・Compose・Kubernetes向けの**修正計画**と、Docker・Compose向けの**修正PR（実験的）**で、更新候補の比較からGitHubへのPR作成まで修正を支援します（既定で無効）。
 
 ## 主な機能
 
@@ -25,7 +25,7 @@
 - **環境の識別**：Slack見出しへの任意の環境名の表示
 - **対象コンテナの識別**：汎用Webhookへのコンテナ名・Composeプロジェクト／サービス・Kubernetes Workload情報の付加
 - **稼働イメージの検証**：digestなどによるスキャン対象の固定と実体の一致確認
-- **修正計画と修正PR（実験的）**：Docker向けの配布イメージ・Dockerfileのベース・npm／pnpm／pip／uv依存の更新候補と、任意のGitHubのPR作成
+- **修正計画と修正PR（実験的）**：Docker・Kubernetes向けの配布イメージ・npm／pnpm／pip／uv依存の更新候補と、Docker向けのDockerfileのベース更新候補・任意のGitHubのPR作成
 
 ## 対応環境
 
@@ -101,7 +101,7 @@
 
 ## 修正計画と修正PR（実験的）
 
-- Docker・Compose向けに、イメージと依存パッケージの更新を提案する
+- Docker・Compose・Kubernetes向けに、イメージと依存パッケージの更新を提案する
 - 修正計画と任意のGitHub PR作成は、どちらも既定で無効
 - 利用者が変更を確認し、マージ、配置、配置後の確認を行う
 

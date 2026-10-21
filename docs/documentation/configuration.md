@@ -80,7 +80,7 @@ See the [remediation overview](remediation.md#contents) for an entry point and [
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `remediation.enabled` | `false` | Enable remediation plans. |
+| `remediation.enabled` | `false` | Enable read-only remediation plans in Docker or Kubernetes mode. |
 | `remediation.pull_requests.enabled` | `false` | Enable fix pull requests; requires remediation plans and a GitHub token. |
 
 See [Plan and PR execution scope](remediation-logic.md#plan-and-pr-execution) for the processing enabled by each setting.
@@ -132,13 +132,16 @@ See [Credential destinations](outbound-communication.md#credential-destinations)
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `remediation.mappings` | `[]` | Map running Compose workloads to their GitHub source files. |
+| `remediation.mappings` | `[]` | Map running Compose or Kubernetes workloads to their GitHub source files. |
 
 Each entry sets `workload`, `repository`, and `base_branch`, plus exactly one source type.
 
+Kubernetes mode accepts only `dependencies` mappings.
+When remediation plans are enabled and a mapping's namespace is outside `kubernetes.namespaces`, startup logs a warning and the mapping has no effect on the plan.
+
 | Field within a mapping | Requirements and format |
 | --- | --- |
-| `workload` | Required; `compose/<project>/<service>`, matching the running workload's Compose labels. |
+| `workload` | Required; in Docker mode, `compose/<project>/<service>`, matching the running workload's Compose labels; in Kubernetes mode, `<kind>/<namespace>/<name>/<container>`, where `kind` is `deployment`, `statefulset`, `daemonset`, `job`, `cronjob`, or `pod`. |
 | `repository` | Required; GitHub repository in `owner/name` form. |
 | `base_branch` | Required; valid Git branch name used to read sources and as the PR base. |
 | `compose.path` / `compose.service` | Required for Compose mappings; repository-relative Compose file and service name. |
@@ -214,7 +217,8 @@ The following combinations cause startup errors.
 
 - Enabling PRs without `remediation.enabled`
 - Enabling PRs without `remediation.github.token`
-- Enabling remediation plans with `kubernetes.enabled: true`
+- Setting both `kubernetes.enabled: true` and `remediation.pull_requests.enabled: true`
+- Specifying a `compose` or `dockerfile` mapping in Kubernetes mode
 
 Token format, storage, mappings, processing limits, registry credentials, and work container settings are validated even when the feature is disabled.
 These configuration checks do not establish that a remote repository or image is accessible.

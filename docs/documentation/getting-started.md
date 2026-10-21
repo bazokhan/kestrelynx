@@ -60,7 +60,7 @@ limits are described in [Runtime usage](runtime-usage.md).
 
 ### Remediation plans and pull requests {#remediation}
 
-See the [remediation overview](remediation.md#overview) for an overview of the Docker feature.
+See the [remediation overview](remediation.md#overview) for an overview of the feature on Docker and Kubernetes.
 
 | Action | Instructions |
 | --- | --- |
@@ -81,6 +81,8 @@ the following manifests.
 | `pvc.yaml` | PersistentVolumeClaim `kestrelynx-state`, requesting 1 GiB with `ReadWriteOnce` access. |
 | `deployment.yaml` | Single-replica Deployment with the `Recreate` strategy, configuration mounted at `/etc/kestrelynx`, and state at `/var/lib/kestrelynx`. |
 
+Enabling remediation plans adds LIST calls for `deployments`, `statefulsets`, `daemonsets`, and `cronjobs` to the usual discovery calls.
+The supplied read-only ClusterRole can be used unchanged.
 Configure at least one notification destination in
 `deploy/kubernetes/configmap.yaml`. Its `config.yml` must set
 `kubernetes.enabled: true` and must not set `docker.socket` to a value, including `""`.

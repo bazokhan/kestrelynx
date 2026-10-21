@@ -48,6 +48,22 @@
 | `items[].tag_kind` | string | 現在のタグの分類で、不明なら省略 |
 | `items[].priority` | string | 対象の優先度で、情報なしは省略 |
 | `items[].services` | objectの配列 | 対応するサービスの情報で、空なら省略 |
+| `items[].services[].workload` | string | Kubernetesのワークロードキーで、Kubernetesの`services[]`の各要素はこのフィールドだけを含む |
+| `items[].declared` | objectの配列 | KubernetesのPodのspecにあるイメージ参照と取得方針で、空なら省略 |
+| `items[].declared[].workload` | string | 対象のワークロードキー |
+| `items[].declared[].ref` | string | specのイメージ参照で、読み取れない場合は省略 |
+| `items[].declared[].pull_policy` | string | specの`imagePullPolicy`で、未指定なら省略 |
+| `items[].pull` | objectの配列 | Kubernetesの`pull_again`項目に付く取得方針ごとの案内で、空なら省略 |
+| `items[].pull[].guidance` | string | `restart_pulls`・`change_tag_or_digest`・`import_to_node`のいずれかで、意味は[再取得の案内](remediation-logic.md#kubernetes-image-references)を参照 |
+| `items[].pull[].policy` | string | specの指定または未指定時の既定値に基づく取得方針 |
+| `items[].pull[].workloads` | stringの配列 | この案内の対象となるワークロードキー |
+| `items[].management` | objectの配列 | Kubernetesのワークロードごとの管理元のつながりで、空なら省略 |
+| `items[].management[].workload` | string | 対象のワークロードキー |
+| `items[].management[].chains` | objectの二重配列 | 管理元のつながりの一覧で、各配列はワークロードに近い管理元から順に並ぶ |
+| `items[].management[].chains[][].kind` | string | 管理元の種類 |
+| `items[].management[].chains[][].resource` / `resource_id` / `name` / `scope` | string | リソースの種類・識別子・名前・範囲で、それぞれ空なら省略 |
+| `items[].management[].chains[][].confidence` | string | 管理元の判断の確かさで、空なら省略し、管理元の印による推定は`claimed` |
+| `items[].management[].conflicting` | boolean | 複数の管理元のつながりがある場合は`true`で、それ以外は省略 |
 | `items[].current` | object | 現在のイメージ情報 |
 | `items[].candidate` | object | 候補のイメージ情報で、候補がなければ省略 |
 | `items[].targets` | integer | 比較対象の所見数 |

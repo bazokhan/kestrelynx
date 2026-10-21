@@ -14,7 +14,9 @@ Docker · Kubernetes · Trivy · CISA KEV · EPSS
 
 # コンテナイメージの脆弱性スキャン・通知・修正
 
-KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンするOSSです。前回からの変化と、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度をSlackやWebhookへ通知します。Docker・Compose向けには、[修正計画と修正PR（実験的）](documentation/remediation.md)を備え、同じ条件での再スキャン結果の比較とGitHubへのPR作成を通じて修正を支援します（既定で無効）。
+KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンするOSSです。前回からの変化と、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度をSlackやWebhookへ通知します。
+
+Docker・Compose・Kubernetes向けの修正計画と、Docker・Compose向けの[修正PR（実験的）](documentation/remediation.md)を備え、同じ条件での再スキャン結果の比較とGitHubへのPR作成を通じて修正を支援します（既定で無効）。
 
 [セットアップ](documentation/getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/kitsunetrail/kestrelynx){ .md-button }
@@ -87,6 +89,7 @@ Trivyでスキャンし、既定では修正版のないものも含めてHIGH�
 
 ## 修正計画と修正PR（実験的）
 
+Kubernetesの修正計画は、配布イメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補を提示します。
 Docker・Compose向けに、次の3種類のソースの変更を提案できます。
 
 - Composeファイルの配布イメージのタグ

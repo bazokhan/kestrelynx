@@ -61,7 +61,7 @@ Dockerでは、任意のSensor（実験的）を追加すると使用中のパ�
 
 ### 修正計画と修正PR {#remediation}
 
-Docker向けの機能の概要は[修正計画の案内](remediation.md#overview)を参照してください。
+Docker・Kubernetes向けの機能の概要は[修正計画の案内](remediation.md#overview)を参照してください。
 
 | 操作 | 手順 |
 | --- | --- |
@@ -82,6 +82,8 @@ Docker向けの機能の概要は[修正計画の案内](remediation.md#overview
 | `pvc.yaml` | アクセスモード`ReadWriteOnce`で1 GiBを要求するPersistentVolumeClaim `kestrelynx-state`です。 |
 | `deployment.yaml` | `Recreate`戦略を使用するレプリカ数1のDeploymentです。設定を`/etc/kestrelynx`に、状態データを`/var/lib/kestrelynx`にマウントします。 |
 
+修正計画を有効にすると、通常の取得対象に加えて`deployments`・`statefulsets`・`daemonsets`・`cronjobs`をLISTします。
+配布の読み取り専用ClusterRoleは、そのまま使用できます。
 `deploy/kubernetes/configmap.yaml`に少なくとも1つの通知先を設定してください。
 その中の`config.yml`には`kubernetes.enabled: true`を設定し、`docker.socket`には
 空文字列`""`を含む値を設定しないでください。キーの省略または値の`null`指定は受け付けます。

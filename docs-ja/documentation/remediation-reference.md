@@ -9,12 +9,13 @@
 
 | 項目 | 対応範囲 |
 | --- | --- |
-| コンテナ環境 | Dockerモードに対応し、Kubernetesモードでは修正計画を有効にできない |
-| ソースの対応付け | ComposeのWorkloadに対して、変更先のソースを指定 |
+| コンテナ環境 | Docker・Kubernetesモードに対応し、Kubernetesでは修正計画だけを利用でき、PR作成は未対応 |
+| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadには依存ディレクトリを指定 |
 | ソースホスト | GitHub |
 | 作業用コンテナ | Linuxの`amd64`・`arm64` |
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
+| Kubernetesの計画 | 配布イメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
 
 ### 更新対象 {#supported-targets}
 
@@ -395,6 +396,8 @@ PR記録の`state`には、次の値があります。
 | `introduced_findings` | 候補で新たな所見が入る | [比較条件](remediation-logic.md#comparison-conditions) |
 | `introduced_kev` | 候補でKEV掲載の脆弱性が新たに入る | [比較条件](remediation-logic.md#comparison-conditions) |
 | `adopted` | 候補を採用した | [比較条件](remediation-logic.md#comparison-conditions) |
+| `declared_ref_mismatch` | 同じ稼働イメージ参照を使うコンテナのいずれかで、Podのspecのイメージ参照と稼働中の参照が一致しないため`not_comparable`になる | [Kubernetesのイメージ参照と再取得](remediation-logic.md#kubernetes-image-references) |
+| `declared_ref_unavailable` | 同じ稼働イメージ参照を使うコンテナのいずれかで、Podのspecのイメージ参照を読み取れないため`not_comparable`になる | [Kubernetesのイメージ参照と再取得](remediation-logic.md#kubernetes-image-references) |
 | `digest_only` | タグがなくdigestだけで指定されている | [配布イメージのタグ](remediation-logic.md#published-image-tags) |
 | `tag_and_digest` | タグとdigestの両方で指定されている | [配布イメージのタグ](remediation-logic.md#published-image-tags) |
 | `prerelease` | タグがプレリリース版の形式である | [配布イメージのタグ](remediation-logic.md#published-image-tags) |

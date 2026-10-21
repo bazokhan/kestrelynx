@@ -10,6 +10,30 @@
 以下の設定例は、既存の`config.yml`の該当箇所へ統合してください。
 同じファイルに`remediation`セクションを重複して追加しないでください。
 
+### Kubernetesの設定 {#kubernetes-plans}
+
+Kubernetesの既存設定に`remediation.enabled: true`を追加します。
+配布イメージの比較には対応付けが不要で、言語パッケージの候補を調べる場合は次のように依存ディレクトリを指定します。
+
+```yaml
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: false
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+`workload`は通知のワークロードキーに合わせます。
+形式と名前空間の制約は[ソースの対応付け](configuration.md#remediation-mappings)を参照してください。
+
+設定したConfigMapを適用してKestreLynxのPodを再起動し、ログで設定の読み込みと計画の処理結果を確認します。
+配布構成では`kubectl logs -n kestrelynx deployment/kestrelynx -f`でログを確認できます。
+
 ### GitHubアクセスの準備 {#prepare-github-access}
 
 1. 対応付けるGitHubリポジトリと、ソースの取得元・PRの宛先にするブランチを決める
@@ -18,6 +42,9 @@
 4. tokenを含む設定ファイルは所有者だけが読めるようにし、リポジトリへのコミット対象から外す
 
 ### Workloadの確認 {#identify-workload}
+
+次の手順はCompose向けです。
+Kubernetesでは[対応付けの形式](configuration.md#remediation-mappings)に従い、通知のワークロードキーを使います。
 
 1. 対象の稼働コンテナを`docker inspect`で確認する
 2. `com.docker.compose.project`と`com.docker.compose.service`のラベル値を控える
@@ -79,6 +106,8 @@ remediation:
     配布のCompose構成では、記録は状態保存用のボリュームに保存されます。`remediation.storage_dir`を変える場合は、コンテナを作り直しても残る場所を指定してください。詳細は[保存先](configuration.md#remediation-storage)を参照してください。
 
 ### 修正計画の起動確認 {#verify-fix-plans}
+
+次の手順はCompose向けで、Kubernetesの起動確認は[Kubernetesの設定](#kubernetes-plans)を参照してください。
 
 1. 配布のCompose構成では、KestreLynxの配置ディレクトリで`docker compose up -d --force-recreate kestrelynx`を実行する
 2. `docker compose logs -f kestrelynx`で、設定の読み込みと修正計画の有効化を確認する

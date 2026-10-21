@@ -38,6 +38,21 @@ See [Source mappings](configuration.md#remediation-mappings) for the mapping con
 
 ## Image candidate selection {#image-selection}
 
+### Kubernetes image references and re-pull guidance {#kubernetes-image-references}
+
+Before looking for published-image candidates, KestreLynx checks the image reference in the Pod spec against the running reference.
+It normalizes abbreviated repository names and compares tags and digests.
+
+If any container using the same running image reference has a mismatch, items for that reference become `not_comparable`.
+The reason is `declared_ref_mismatch`, or `declared_ref_unavailable` when the spec's image reference cannot be read.
+
+When new content under a floating tag is confirmed to improve the findings, re-pull guidance depends on `imagePullPolicy`.
+
+| `imagePullPolicy` | `pull[].guidance` | Guidance |
+| --- | --- | --- |
+| `Always` | `restart_pulls` | Restarting the Pods pulls the new content. |
+| `IfNotPresent` | `change_tag_or_digest` | Nodes reuse existing content, so a fixed tag or digest is needed. |
+| `Never` | `import_to_node` | The image must be imported onto the node. |
 ### Distributed image tags {#published-image-tags}
 
 The running image reference determines which candidate to compare.
