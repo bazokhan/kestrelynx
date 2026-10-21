@@ -9,19 +9,20 @@
 
 | 項目 | 対応範囲 |
 | --- | --- |
-| コンテナ環境 | Docker・Kubernetesモードに対応し、Kubernetesでは修正計画だけを利用でき、PR作成は未対応 |
-| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadには依存ディレクトリを指定 |
+| コンテナ環境 | Docker・Kubernetesモードで修正計画とPR作成に対応 |
+| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Dockerfile・依存ディレクトリを指定 |
 | ソースホスト | GitHub |
 | 作業用コンテナ | Linuxの`amd64`・`arm64` |
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
-| Kubernetesの計画 | 配布イメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
+| Kubernetesの計画 | 配布イメージ・Dockerfileのベースイメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
+| KubernetesのPR | プレーンなマニフェストのイメージタグとDockerfileのベースイメージの更新 |
 
 ### 更新対象 {#supported-targets}
 
 | 対象 | 取得元 | ソースの対応付け |
 | --- | --- | --- |
-| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、Composeを変更するPRには必要 |
+| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、ComposeまたはKubernetesマニフェストを変更するPRには必要 |
 | Dockerfileのベースイメージ | 公開レジストリ、認証を設定した非公開レジストリ | 計画の作成からDockerfileまたはComposeの対応付けが必要 |
 | npm・pnpmの依存パッケージ | 公開npmレジストリ | 計画の作成から依存ディレクトリの対応付けが必要 |
 | pip・uvの依存パッケージ | 公開PyPI | 計画の作成から依存ディレクトリの対応付けが必要 |
@@ -47,6 +48,26 @@
 
 タグの選び方は[配布イメージのタグ](remediation-logic.md#published-image-tags)、ビルド対象の扱いは[ローカルビルドの除外](remediation-logic.md#local-builds)を参照してください。
 
+### マニフェストの形式 {#manifest-formats}
+
+| 入力 | 対応範囲 |
+| --- | --- |
+| YAML文書 | 1ファイルに複数の文書を含むプレーンなマニフェストに対応 |
+| オブジェクト | `apps/v1`の`Deployment`・`StatefulSet`・`DaemonSet`、`batch/v1`の`Job`・`CronJob`、`v1`の`Pod` |
+| 対象の選択 | `apiVersion`・`kind`・`metadata.name`と、ファイルに値がある場合は`metadata.namespace`で文書を一意に選び、コンテナ名で編集箇所を選ぶ |
+| 編集箇所 | 通常のコンテナと、`restartPolicy: Always`を持つネイティブsidecarの`image` |
+| 編集する文字列 | 宣言と稼働中のイメージに一致する明示的なタグの部分だけを書き換え、書式とコメントを保つ |
+| 重複キー | 編集の前後で全YAML文書を検査し、重複があれば拒否 |
+| digest・`$`変数・タグなし | 編集対象のイメージ参照では手動対応 |
+| ブロックスカラー・単純な文字列以外の`image` | 手動対応 |
+| YAMLのアンカー・エイリアス・マージキー | 編集箇所への経路や、文書の識別に使う`metadata`などに関わる場合は手動対応 |
+| Fluxの`$imagepolicy` | 編集対象の`image`の行に印がある場合は手動対応 |
+| `{{` | ファイル内のどこかに含まれる場合は手動対応 |
+| `List`内のオブジェクト・通常のinit container | 編集対象外 |
+| `.argocd-source-*.yaml` | 同じディレクトリにArgo CD Image Updaterの書き戻しファイルがある場合は手動対応 |
+
+対象の名前空間をファイルで省略していても、同じ文書への対応付けが重なる場合はPRを作成しません。
+作成条件は[KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)を参照してください。
 ### Dockerfileの形式 {#dockerfile-formats}
 
 | 入力 | 対応範囲 |
@@ -412,6 +433,9 @@ PR記録の`state`には、次の値があります。
 | `floating_base_unconfirmed` | 稼働イメージの作成元のベースを確認できない | [ベースレイヤーの照合](remediation-logic.md#base-layer-matching) |
 | `dockerfile_set_not_adopted` | 同じDockerfileを使うWorkloadのすべてで、同じ候補を採用できなかった（個々のWorkloadの理由も確認する） | [ベースイメージの特定](remediation-logic.md#base-image-selection) |
 | `compose_set_not_adopted` | 同じイメージを使うサービスのすべてで、同じ候補を採用できなかった（個々のサービスの理由も確認する） | [PRを作れない場合](remediation-troubleshooting.md#check-missing-pr) |
+| `instances_missing` | 対応付けたコンテナの稼働インスタンスがない、稼働中の参照を取得できない、または更新対象に計画の項目がないインスタンスがある | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
+| `mixed_references` | 稼働インスタンスの間で、宣言または稼働中の参照が一致しない | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
+| `kubernetes_set_not_adopted` | 同じファイルで同じイメージを更新するコンテナの間で、採用した候補が一致しない | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
 
 ### ソースの理由 {#source-reasons}
 
@@ -454,6 +478,24 @@ PR記録の`state`には、次の値があります。
 | `compose_source_mismatch` | ファイルの`image`が稼働イメージと異なる | [ソースの確認](remediation-logic.md#source-verification) |
 | `compose_file_not_found` | 設定したパスにComposeファイルがない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `compose_file_unusable` | Composeファイルが編集できる種類のファイルではない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
+| `manifest_file_not_found` | 設定したパスにマニフェストがない | [マニフェストの形式](#manifest-formats) |
+| `manifest_file_unusable` | マニフェストが編集できる形のファイルではない | [マニフェストの形式](#manifest-formats) |
+| `manifest_invalid` | マニフェストを解釈できない、キーが重複している、または編集の検証に失敗した | [マニフェストの形式](#manifest-formats) |
+| `manifest_anchor_or_alias` | コンテナへの経路または文書の識別情報がYAMLのアンカー・エイリアスに関わっている | [マニフェストの形式](#manifest-formats) |
+| `manifest_merge_key` | コンテナへの経路または文書の識別情報にマージキーがある | [マニフェストの形式](#manifest-formats) |
+| `manifest_not_string` | `image`の値が単純な文字列ではない | [マニフェストの形式](#manifest-formats) |
+| `manifest_block_scalar` | `image`の値がブロックスカラーである | [マニフェストの形式](#manifest-formats) |
+| `manifest_variable` | `image`の値に変数が含まれる | [マニフェストの形式](#manifest-formats) |
+| `manifest_digest` | `image`の値にdigestが付いている | [マニフェストの形式](#manifest-formats) |
+| `manifest_tag_missing` | `image`の値にタグがない | [マニフェストの形式](#manifest-formats) |
+| `manifest_image_automation` | `image`の行にFlux image automationの印がある | [マニフェストの形式](#manifest-formats) |
+| `manifest_template` | マニフェストにテンプレートの式がある | [マニフェストの形式](#manifest-formats) |
+| `image_updater_file` | 同じディレクトリにArgo CD Image Updaterの書き戻しファイルがある | [マニフェストの形式](#manifest-formats) |
+| `source_object_missing` | マニフェストにワークロードのオブジェクトの文書がない | [マニフェストの形式](#manifest-formats) |
+| `source_object_ambiguous` | マニフェストにワークロードのオブジェクトの文書が複数ある | [マニフェストの形式](#manifest-formats) |
+| `source_container_missing` | オブジェクトに、その名前の編集できるコンテナがない | [マニフェストの形式](#manifest-formats) |
+| `source_mismatch` | ファイルの`image`が宣言または稼働中のイメージと異なる | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
+| `mapping_conflict` | ファイルの2つ以上の対応付けが、同じ文書の同じコンテナを指している | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
 | `dependency_files_not_found` | 依存ファイルが見つからない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | 依存ファイルの組み合わせが複数あり、一意に決められない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `dependency_file_unusable` | 依存ファイルを利用できない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
@@ -503,6 +545,7 @@ PR記録の`state`には、次の値があります。
 | `pip_target_undecidable` | パッケージが動く環境を判断できない | [pipの検証環境](remediation-logic.md#pip-target-environment) |
 | `pip_target_mismatch` | pipの依存解決対象と、パッケージが動く環境が一致しない | [pipの検証環境](remediation-logic.md#pip-target-environment) |
 | `work_image_not_configured` | 更新用の作業環境が用意されていない | [更新を実行できない場合](remediation-troubleshooting.md#check-update-failure) |
+| `work_namespace_not_configured` | Kubernetesでは言語パッケージの更新はまだ手動対応で、PRを作成しない | [対応範囲](#scope-and-requirements) |
 | `work_image_unavailable` | 作業用イメージを用意できなかった | [公式イメージの固定](remediation-logic.md#worker-images) |
 
 ### ツール取得の理由 {#tool-reasons}

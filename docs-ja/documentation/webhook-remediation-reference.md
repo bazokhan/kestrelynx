@@ -367,8 +367,12 @@
 | `pull_request_summary` | object | 状態値をキー、整数の件数を値とする集計で、処理単位がなければ省略 |
 | `pull_requests` | objectの配列 | PR処理の単位で、該当なしは省略 |
 | `pull_requests[].key` | string | 処理単位の識別子 |
-| `pull_requests[].kind` | string | ベースイメージ更新は`dockerfile`、言語パッケージ更新は`language`で、Composeのタグ更新では省略 |
+| `pull_requests[].kind` | string | Kubernetesマニフェストのタグ更新は`kubernetes`、ベースイメージ更新は`dockerfile`、言語パッケージ更新は`language`で、Composeのタグ更新では省略 |
 | `pull_requests[].repo` / `pull_requests[].base_branch` / `pull_requests[].path` | string | 対象リポジトリ・ベースブランチ・ファイルパス |
+| `pull_requests[].services` | stringの配列 | `kind: kubernetes`では`<kind>/<namespace>/<name>/<container>`形式のワークロードキーで、該当なしは`[]` |
+| `pull_requests[].workloads` | stringの配列 | 対象ワークロードのキーで、空なら省略 |
+| `pull_requests[].also_running[].workload` | string | 同じイメージで稼働していてマニフェストの対応付けがないKubernetesワークロードのキー |
+| `pull_requests[].fix_targets[].location` | string | `kind: kubernetes`では`<Kind>/<namespace>/<name>/<container>`形式の編集位置で、`Kind`と`name`は対応付けたファイル内のオブジェクト、`namespace`はワークロードの名前空間 |
 | `pull_requests[].status` | string | PR処理の状態 |
 | `pull_requests[].reason` / `pull_requests[].detail` | string | 理由と補足で、空なら省略 |
 | `pull_requests[].number` | integer | PR番号で、`0`なら省略 |
@@ -397,6 +401,8 @@
 | `held_range` | string | 更新を妨げていた版指定（例: `0.0.8`）で、空なら省略 |
 | `held_by` | string | 間にあるパッケージが古い版を指定する場合の名前で、直接依存自身が指定する場合などは省略 |
 
+KubernetesマニフェストのPR記録にある`locations`も、`<Kind>/<namespace>/<name>/<container>`形式を使います。
+Webhookの`pull_requests[]`には`locations`配列を出力せず、修正対象の位置は`fix_targets[].location`に出力します。
 既存PRに対応付けた回は、PR側の`language.remaining`からパッケージの除外情報を補います。
 その回の更新・検査の実行有無が`false`でも、`packages[]`に`left_out`・`action`・`reason`が付く場合があります。
 

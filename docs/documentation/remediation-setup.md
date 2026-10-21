@@ -125,11 +125,41 @@ Complete [Verifying remediation plan startup](#verify-fix-plans) before enabling
 
     For language package updates, KestreLynx creates, starts, and removes work containers through the Docker API. Mounting the Docker socket with `:ro` does not restrict API operations, so the supplied Compose configuration does not need to change to `:rw`. If you use a Docker API proxy, allow these operations.
 
+### Kubernetes PR configuration {#kubernetes-pull-requests}
+
+This example updates the image tag for `deployment/example/web/app` in `apps/web.yaml` and the base image for `deployment/example/api/app` in `docker/Dockerfile`.
+Add the GitHub token and mappings to the existing Kubernetes configuration and enable `remediation.pull_requests.enabled`.
+
+```yaml
+remediation:
+  enabled: true
+  github:
+    token: "REPLACE_WITH_GITHUB_TOKEN"
+  pull_requests:
+    enabled: true
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      manifest:
+        path: apps/web.yaml
+    - workload: deployment/example/api/app
+      repository: example/application
+      base_branch: main
+      dockerfile:
+        path: docker/Dockerfile
+        target: runtime
+```
+
+Apply the configuration and restart the KestreLynx Pod.
+RBAC remains read-only for scanning; no cluster write permissions are required.
+
+See [Manifest formats](remediation-reference.md#manifest-formats) for editable inputs and [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) for creation requirements.
 ### Enabling PR creation {#enable-pr-creation}
 
 1. Confirm that the token configured in [Preparing GitHub access](#prepare-github-access) has the access needed to create PRs
 2. Enable PR creation while keeping the existing mappings, credentials, and storage location
-3. Recreate the KestreLynx container and confirm in the logs that PR creation is enabled
+3. Recreate the KestreLynx container on Docker or restart its Pod on Kubernetes and confirm in the logs that PR creation is enabled
 
 ```yaml
 remediation:

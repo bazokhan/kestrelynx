@@ -79,6 +79,17 @@ Slack may shorten long package lists and similar content with “and … more.�
 | Source information and check results at planning time | [Saved record details](#saved-details) |
 | Details of retrieval or execution failures | [Collecting diagnostics](remediation-troubleshooting.md#collect-diagnostics) |
 
+### Kubernetes PR display {#kubernetes-pr-results}
+
+Slack displays manifest tag updates with the target file and a link to the PR.
+When management markers are present, manifest and Dockerfile PR entries also show the management chain.
+
+PR bodies for Kubernetes include the following information.
+
+- A notice that external automatic synchronization or CI may apply changes after merging, whether or not a management tool is detected
+- Management tools such as Argo CD, Flux, and Helm as claims from object markers, without treating the actual management relationship as verified
+- A notice in CronJob and Job manifest PRs that existing Jobs are not affected
+- Workloads running the same image without a manifest mapping, and unchanged containers in the same Pod template, in manifest PRs
 ## Interpreting update results {#interpreting-updates}
 
 ### Update targets and adopted versions {#target-and-adopted-version}
@@ -154,7 +165,7 @@ Other fields are described in [Re-resolution results](webhook-remediation-refere
 ### Re-pull guidance {#repull-guidance}
 
 “Re-pull” means that a comparison with the content currently referenced by the same tag confirmed an improvement.
-Because the tag string does not change, this guidance alone does not create a PR to update the Compose tag.
+Because the tag string does not change, this guidance alone does not create a PR to update a Compose or Kubernetes manifest tag.
 
 `resolves 3 of 4 findings` means that three of the four findings being compared were no longer detected in the candidate.
 It does not mean that running containers have been replaced with that content.
@@ -186,12 +197,12 @@ The comparison targets depend on the type of update.
 | Dockerfile base image | The current base image and the candidate base image. |
 | Language package | Dependency files before and after the update. |
 
-For Compose image tag updates and Dockerfile base image updates, PR bodies separate targeted findings from other findings.
+For Compose and Kubernetes manifest image tag updates and Dockerfile base image updates, PR bodies separate targeted findings from other findings.
 
 - Targeted findings have a reported fixed version; for Dockerfile updates, they are limited to findings in the base image’s layers; `Resolved` and Remaining counts for these targets are also the counts used in remediation plans in Slack and webhooks
 - Other findings that remain in the candidate are shown separately, along with Introduced findings
 - Other findings include those with no reported fixed version and any others outside the update's targets
-- Compose PRs also show counts for other findings that the candidate no longer reports, with a list only when such findings exist
+- Compose and Kubernetes manifest PRs also show counts for other findings that the candidate no longer reports, with a list only when such findings exist
 
 !!! note "Resolution and running state"
 

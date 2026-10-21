@@ -136,7 +136,8 @@ See [Credential destinations](outbound-communication.md#credential-destinations)
 
 Each entry sets `workload`, `repository`, and `base_branch`, plus exactly one source type.
 
-Kubernetes mode accepts only `dependencies` mappings.
+Kubernetes mode accepts `manifest`, `dockerfile`, and `dependencies` mappings.
+`compose` is available only in Docker mode, and `manifest` only in Kubernetes mode.
 When remediation plans are enabled and a mapping's namespace is outside `kubernetes.namespaces`, startup logs a warning and the mapping has no effect on the plan.
 
 | Field within a mapping | Requirements and format |
@@ -145,6 +146,9 @@ When remediation plans are enabled and a mapping's namespace is outside `kuberne
 | `repository` | Required; GitHub repository in `owner/name` form. |
 | `base_branch` | Required; valid Git branch name used to read sources and as the PR base. |
 | `compose.path` / `compose.service` | Required for Compose mappings; repository-relative Compose file and service name. |
+| `manifest.path` | Required for manifest mappings; repository-relative file path. |
+| `manifest.object.kind` | Optional; defaults to the workload kind and, when specified, must be the matching `Deployment`, `StatefulSet`, `DaemonSet`, `Job`, `CronJob`, or `Pod`. |
+| `manifest.object.name` | Optional; defaults to the workload name, or names the object in the file when specified. |
 | `dockerfile.path` | Required for Dockerfile mappings; repository-relative Dockerfile. |
 | `dockerfile.target` | Optional build stage; omitting it selects the last stage; at most 128 bytes of letters, digits, `_`, `.`, or `-`, starting with a letter. |
 | `dependencies.directory` | Required for dependency-file mappings; dependency directory, with `.` representing the repository root. |
@@ -153,6 +157,7 @@ When remediation plans are enabled and a mapping's namespace is outside `kuberne
 - A workload can have one mapping of each source type in separate entries
 - Shared dependency directories or Dockerfiles must use the same base branch
 - A service in the same Compose file in the same repository must not be mapped to multiple workloads
+- A container of an object with the same kind, namespace, and name in the same manifest and repository must not be mapped to multiple workloads
 - Repository names are case-insensitive when checking for duplicates
 
 See [Base image identification](remediation-logic.md#base-image-selection) for discovery from Compose `build` and matching against an explicit Dockerfile, and [Supported input formats](remediation-reference.md#supported-inputs) for supported inputs.
@@ -217,8 +222,8 @@ The following combinations cause startup errors.
 
 - Enabling PRs without `remediation.enabled`
 - Enabling PRs without `remediation.github.token`
-- Setting both `kubernetes.enabled: true` and `remediation.pull_requests.enabled: true`
-- Specifying a `compose` or `dockerfile` mapping in Kubernetes mode
+- Specifying a `manifest` mapping in Docker mode
+- Specifying a `compose` mapping in Kubernetes mode
 
 Token format, storage, mappings, processing limits, registry credentials, and work container settings are validated even when the feature is disabled.
 These configuration checks do not establish that a remote repository or image is accessible.

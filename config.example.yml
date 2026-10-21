@@ -131,7 +131,7 @@ runtime:
   mute_unfixable_not_in_use: false
 
 # Fix plan (experimental). Available in Docker and Kubernetes modes.
-# Kubernetes plans show published-image updates, floating-tag re-pull guidance,
+# Kubernetes plans show published-image and Dockerfile base updates, floating-tag re-pull guidance,
 # and language-package candidates.
 #
 # Both plans and pull requests are disabled by default. Plans select candidates
@@ -162,13 +162,13 @@ runtime:
 #
 # remediation:
 #   enabled: true
-#   # Create PRs for checked changes: Compose services.<service>.image tags,
+#   # Create PRs for checked changes: Compose or plain Kubernetes manifest image tags,
 #   # Dockerfile FROM tags, or language dependency files. Image tag updates
 #   # stay in the same major/minor series; language updates can cross major
-#   # versions. Requires remediation.enabled, Docker mode, source mappings and
+#   # versions. Requires remediation.enabled, source mappings and
 #   # github.token. No automatic merge or deployment; existing branches are
 #   # not rewritten. PR creation can start the repository's pull_request CI.
-#   # Language updates run in disposable Docker work containers, with their
+#   # On Docker, language updates run in disposable work containers, with their
 #   # output and before/after dependency-file scans checked by KestreLynx.
 #   # Neither application tests nor image rebuilds are run. Off by default.
 #   pull_requests:
@@ -211,17 +211,41 @@ runtime:
 #   storage_dir: /var/lib/kestrelynx/remediation
 #   # Where each running workload's source lives. Read and validated at
 #   # startup. Each entry sets exactly one of compose (the Compose file and
-#   # service that deploy it), dependencies (the directory holding its lockfiles)
-#   # or dockerfile (the Dockerfile that builds its image). Paths are
+#   # service that deploy it), dependencies (the directory holding its lockfiles),
+#   # dockerfile (the Dockerfile that builds its image), or manifest (the Kubernetes
+#   # manifest file). Paths are
 #   # repository-relative and normalized; "." is the repository root. Example
 #   # names only.
 #   #
 #   # Docker workload keys use compose/<project>/<service>. Kubernetes keys use
 #   # <kind>/<namespace>/<name>/<container>, where kind is deployment,
 #   # statefulset, daemonset, job, cronjob or pod.
-#   # Kubernetes accepts only dependencies mappings; compose and dockerfile
+#   # Kubernetes accepts manifest, dockerfile and dependencies mappings; compose
 #   # mappings are configuration errors. With planning enabled, mappings outside
 #   # kubernetes.namespaces produce a startup warning and have no effect.
+#   # manifest mappings require Kubernetes mode. manifest.path is required;
+#   # object.kind and object.name are optional and default to the workload's.
+#   # An explicit object.kind must match the workload kind, for example Deployment.
+#   # One container in a manifest object can be mapped to only one workload.
+#   #
+#   # Kubernetes example entries, used instead of the Compose entries below:
+#   # - workload: deployment/example/web/app
+#   #   repository: example/deployment
+#   #   base_branch: main
+#   #   manifest:
+#   #     path: apps/web.yaml
+#   #     object:
+#   #       kind: Deployment
+#   #       name: web
+#   # - workload: deployment/example/api/app
+#   #   repository: example/application
+#   #   base_branch: main
+#   #   dockerfile:
+#   #     path: docker/Dockerfile
+#   #     target: runtime
+#   #
+#   # Kubernetes PRs use the existing read-only scan RBAC. Merging may trigger
+#   # deployment through external automatic synchronization or CI.
 #   #
 #   # For an image you build yourself, the findings in the layers of its base
 #   # image are not fixed by a package update; a newer base image is. A

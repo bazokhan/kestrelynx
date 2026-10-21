@@ -12,7 +12,7 @@ Creating a remediation plan and creating fix pull requests involve different ope
 | Execution scope | What KestreLynx does |
 | --- | --- |
 | Remediation plans only | Selects candidates from running-image findings, reads mapped sources, and compares scan results for image candidates. |
-| Fix pull requests enabled | Performs planning, runs language package updates and checks in work containers, and creates and manages PRs for changes that meet the requirements. |
+| Fix pull requests enabled | Performs planning, runs language package updates and checks in work containers in Docker mode, and creates and manages eligible PRs within each mode's supported scope. |
 
 - Planning alone does not run package managers, create work containers, or write to GitHub
 - Planning alone still saves plan and delivery records locally
@@ -59,7 +59,7 @@ The running image reference determines which candidate to compare.
 
 | Tag type | Candidate selection | Treatment after adoption |
 | --- | --- | --- |
-| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the Compose tag if source-editing requirements are also met. |
+| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the tag in Compose or a Kubernetes manifest if source-editing requirements are also met. |
 | Floating tag | Selects the content the same tag currently points to in the registry. | Produces re-pull guidance if an improvement is confirmed, without a PR because the reference does not change. |
 
 - A candidate with the same image content as the running image is not an update candidate
@@ -67,8 +67,27 @@ The running image reference determines which candidate to compare.
 - The candidate tag is checked again before PR creation, and processing is deferred if it points to different content than during the comparison
 
 Candidate adoption follows [Scan comparison conditions](#comparison-conditions) and [Verification scope by target](#verification-scope).
-See [Compose formats](remediation-reference.md#compose-formats) for editable references and unsupported forms.
+See [Compose formats](remediation-reference.md#compose-formats) and [Manifest formats](remediation-reference.md#manifest-formats) for editable references and unsupported forms.
 
+### Kubernetes manifest PRs {#kubernetes-manifest-prs}
+
+For example, if the Pod spec, running image, and mapped `apps/web.yaml` all refer to `nginx:1.27.2`, and `1.27.3` in the same series is adopted, KestreLynx creates a PR that changes only the tag in the file.
+
+PR creation checks every mapping to the same repository, base branch, and manifest.
+
+- Each mapped container has running Pods, and every running image reference is available
+- Each container's declared and running references match, without mixed references among running containers of the same workload
+- Every target updating the same image in the same file has a plan item and adopts a candidate with the same tag and digest
+- Each image reference being edited matches the Pod spec and the running reference
+
+If any running-state or candidate requirement is unmet, all PRs for that manifest are withheld.
+A healthy workload using a different image with nothing to fix is excluded from the update and does not block other PRs.
+
+If two or more mappings to the file resolve to the same container in the same document, the result requires manual action with `mapping_conflict`.
+For example, mappings from workloads in different namespaces to a document that omits its namespace are also checked for overlap before editing.
+
+Other containers in the same Pod template using the same image remain unchanged unless they are update targets, and the PR body lists them as unchanged.
+See [Source mappings](configuration.md#remediation-mappings) for configuration and [Manifest formats](remediation-reference.md#manifest-formats) for file restrictions.
 ### Tag discovery {#tag-discovery}
 
 The latest patch for a pinned tag is selected only after the end of its series has been checked.
@@ -104,6 +123,8 @@ Identification based on Compose labels and generated names is not used when the 
 ### Base image selection {#base-image-selection}
 
 For a Dockerfile, KestreLynx identifies the external image inherited by the selected build stage as the base to update.
+
+On Kubernetes, a `dockerfile` mapping selects the target, and the Pod spec must also match the running image reference.
 
 - Uses the specified `target` stage, or the last stage if `target` is omitted
 - Follows inheritance through earlier stages until it reaches a `FROM` that references an external image
@@ -655,6 +676,9 @@ See [Stored files](remediation-reference.md#stored-records) for filenames and co
 
 If PR records are missing, KestreLynx examines open and closed PRs in the configured repositories before writing.
 It recovers records from identification markers in PR-body HTML comments for `kestrelynx/` branches in the same repository.
+
+Kubernetes manifest tag-update PRs use branch names starting with `kestrelynx/kubernetes/`.
+Downgrading to an older KestreLynx version prevents it from recognizing existing Kubernetes manifest PRs.
 
 - Recalculates marker identifiers and verifies the repository and branch relationship
 - Makes no GitHub writes during recovery from missing records until all target repositories have been checked

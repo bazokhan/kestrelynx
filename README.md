@@ -10,7 +10,7 @@
 [Configuration reference](docs/documentation/configuration.md) ·
 [Trial reports](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)
 
-> Open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends **changes since the last scan and priorities based on severity, CISA KEV, and EPSS** to Slack or a webhook. **Remediation plans** for Docker, Compose, and Kubernetes and **pull requests (experimental)** for Docker and Compose support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default.
+> Open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends **changes since the last scan and priorities based on severity, CISA KEV, and EPSS** to Slack or a webhook. **Remediation plans and pull requests (experimental)** for Docker, Compose, and Kubernetes support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default.
 
 ## What it does
 
@@ -25,7 +25,7 @@
 - **Environment identification**: optional environment name in Slack headers
 - **Container identification**: container names, Compose project/service, and Kubernetes workload information in the generic webhook
 - **Running-image verification**: scan pinning to observed identifiers such as digests, with identity matching
-- **Remediation plans and pull requests (experimental)**: update candidates for published images and npm / pnpm / pip / uv dependencies on Docker and Kubernetes, with Dockerfile base update candidates and optional GitHub pull requests on Docker
+- **Remediation plans and pull requests (experimental)**: update candidates for published images, Dockerfile bases, and npm / pnpm / pip / uv dependencies on Docker and Kubernetes, with optional GitHub pull requests
 
 ## Supported environments
 
@@ -102,6 +102,7 @@ Long notifications continue in additional messages with repeated section and ima
 ## Remediation plans and pull requests (experimental)
 
 - Propose image and dependency updates for Docker, Compose, and Kubernetes
+- Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles
 - Remediation plans and optional GitHub PR creation are both disabled by default
 - Users check changes, merge, deploy, and verify after deployment
 

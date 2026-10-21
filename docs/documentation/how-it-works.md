@@ -8,7 +8,7 @@ It uses exploitation intelligence to assign priorities and compares results with
 Slack shows changes and current findings, while the generic webhook provides structured findings and diffs.
 Notification conditions and explanations of notification displays and fields are documented on separate pages.
 
-KestreLynx can also send remediation plans for Docker, Compose, and Kubernetes and create remediation PRs on GitHub for Docker and Compose (experimental, disabled by default).
+KestreLynx can also send remediation plans for Docker, Compose, and Kubernetes and create remediation PRs on GitHub (experimental, disabled by default).
 Plans propose image and dependency updates; users handle merging, building, and deployment. See [Remediation plans and pull requests](remediation.md) for details.
 
 See [Getting started](getting-started.md) for setup instructions and [Configuration](configuration.md) for settings.

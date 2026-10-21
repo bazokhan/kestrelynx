@@ -22,7 +22,7 @@ It sends changes since the last scan and priorities based on severity,
 For Docker, Compose, and Kubernetes,
 [remediation plans and pull requests (experimental)](documentation/remediation.md)
 support remediation by comparing rescans under the same conditions and creating
-GitHub pull requests for Docker and Compose, with both features disabled by default.
+GitHub pull requests, with both features disabled by default.
 
 [Setup](documentation/getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/kitsunetrail/kestrelynx){ .md-button }
@@ -103,6 +103,7 @@ available and annotate upgrade risk, without guaranteeing compatibility.
 ## Remediation plans and pull requests (experimental)
 
 Kubernetes remediation plans show published-image update candidates, guidance for pulling floating tags again, and language-package update candidates.
+Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles.
 For Docker and Compose, KestreLynx can propose changes to three kinds of source:
 
 - Published image tags in Compose files

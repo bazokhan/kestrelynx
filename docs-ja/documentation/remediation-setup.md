@@ -125,11 +125,41 @@ remediation:
 
     言語パッケージの更新では、KestreLynxがDocker APIで作業用コンテナを作成・起動・削除します。Docker socketの`:ro`はAPI操作を制限しないため、配布のCompose構成では`:rw`へ変更する必要はありません。Docker APIのプロキシを使う場合は、これらの操作を許可してください。
 
+### KubernetesのPR設定 {#kubernetes-pull-requests}
+
+`deployment/example/web/app`のイメージタグを`apps/web.yaml`で更新し、`deployment/example/api/app`のベースイメージを`docker/Dockerfile`で更新する例です。
+既存のKubernetes設定で、GitHub tokenと対応付けを設定し、`remediation.pull_requests.enabled`を有効にします。
+
+```yaml
+remediation:
+  enabled: true
+  github:
+    token: "REPLACE_WITH_GITHUB_TOKEN"
+  pull_requests:
+    enabled: true
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      manifest:
+        path: apps/web.yaml
+    - workload: deployment/example/api/app
+      repository: example/application
+      base_branch: main
+      dockerfile:
+        path: docker/Dockerfile
+        target: runtime
+```
+
+設定を反映してKestreLynxのPodを再起動します。
+RBACはスキャン用の読み取り専用のままで、クラスタへの書き込み権限は不要です。
+
+編集できる形式は[マニフェストの形式](remediation-reference.md#manifest-formats)、作成条件は[KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)を参照してください。
 ### PR作成の有効化 {#enable-pr-creation}
 
 1. [GitHubアクセスの準備](#prepare-github-access)で設定したtokenに、PR作成に必要なアクセスがあることを確認する
 2. 既存の対応付け、認証情報、保存先を保持したまま、PR作成を有効にする
-3. KestreLynxのコンテナを再作成し、ログでPR作成が有効になったことを確認する
+3. DockerではKestreLynxのコンテナを再作成し、KubernetesではPodを再起動し、ログでPR作成が有効になったことを確認する
 
 ```yaml
 remediation:

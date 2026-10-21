@@ -9,19 +9,20 @@ See [Setup steps](remediation-setup.md) to enable them.
 
 | Item | Support |
 | --- | --- |
-| Container environment | Docker and Kubernetes modes are supported; Kubernetes supports remediation plans only, with PR creation not yet supported |
-| Source mappings | Specify source edit locations for Compose workloads or dependency directories for Kubernetes workloads |
+| Container environment | Remediation plans and PR creation are supported in Docker and Kubernetes modes |
+| Source mappings | Specify source edit locations for Compose workloads or manifests, Dockerfiles, and dependency directories for Kubernetes workloads |
 | Source host | GitHub |
 | Work containers | Linux `amd64` and `arm64` |
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
-| Kubernetes plans | Published-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
+| Kubernetes plans | Published-image and Dockerfile base-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
+| Kubernetes PRs | Image tag updates in plain manifests and base image updates in Dockerfiles |
 
 ### Supported targets {#supported-targets}
 
 | Target | Source | Source mapping |
 | --- | --- | --- |
-| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose |
+| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose or Kubernetes manifests |
 | Dockerfile base image | Public registries and private registries with authentication configured | A Dockerfile or Compose mapping is required from the planning stage |
 | npm and pnpm dependencies | Public npm registry | A dependency-directory mapping is required from the planning stage |
 | pip and uv dependencies | Public PyPI | A dependency-directory mapping is required from the planning stage |
@@ -47,6 +48,26 @@ Image registry authentication is not used to retrieve dependency packages.
 
 See [Distributed image tags](remediation-logic.md#published-image-tags) for tag selection and [Excluding local builds](remediation-logic.md#local-builds) for handling build targets.
 
+### Manifest formats {#manifest-formats}
+
+| Input | Support |
+| --- | --- |
+| YAML documents | Plain manifests, including files containing multiple documents |
+| Objects | `Deployment`, `StatefulSet`, and `DaemonSet` in `apps/v1`; `Job` and `CronJob` in `batch/v1`; `Pod` in `v1` |
+| Target selection | Selects exactly one document by `apiVersion`, `kind`, `metadata.name`, and `metadata.namespace` when the file specifies a value, then selects the edit location by container name |
+| Edit location | `image` in regular containers and native sidecars with `restartPolicy: Always` |
+| Edited text | Changes only the explicit tag matching the declared and running image, preserving formatting and comments |
+| Duplicate keys | Checks all YAML documents before and after editing and rejects duplicates |
+| Digests, `$` variables, and missing tags | Require manual action in image references being edited |
+| Block scalars and `image` values other than simple strings | Require manual action |
+| YAML anchors, aliases, and merge keys | Require manual action when involved in the edit path or document identity, including `metadata` |
+| Flux `$imagepolicy` | Requires manual action when the marker appears on the target `image` line |
+| `{{` | Requires manual action when present anywhere in the file |
+| Objects inside `List` and ordinary init containers | Not edited |
+| `.argocd-source-*.yaml` | Requires manual action when an Argo CD Image Updater write-back file exists in the same directory |
+
+Even when the file omits the target namespace, overlapping mappings to the same document prevent PR creation.
+See [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) for creation requirements.
 ### Dockerfile formats {#dockerfile-formats}
 
 | Input | Support |
@@ -412,6 +433,9 @@ The following tables give each code's meaning and related decision rules or chec
 | `floating_base_unconfirmed` | The base image the running image was built from cannot be confirmed | [Base layer matching](remediation-logic.md#base-layer-matching) |
 | `dockerfile_set_not_adopted` | The same candidate could not be adopted for every workload sharing the Dockerfile (check each workload's own reason too) | [Base image selection](remediation-logic.md#base-image-selection) |
 | `compose_set_not_adopted` | The same candidate could not be adopted for every service sharing the image (check each service's own reason too) | [Checking missing PRs](remediation-troubleshooting.md#check-missing-pr) |
+| `instances_missing` | A mapped container has no running instance, a running reference is unavailable, or an instance in the update target has no plan item | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
+| `mixed_references` | Running instances do not all declare or run the same reference | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
+| `kubernetes_set_not_adopted` | Containers updating the same image in the same file do not agree on one adopted candidate | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
 
 ### Source reasons {#source-reasons}
 
@@ -454,6 +478,24 @@ The following tables give each code's meaning and related decision rules or chec
 | `compose_source_mismatch` | The `image` in the file differs from the running image | [Source verification](remediation-logic.md#source-verification) |
 | `compose_file_not_found` | The Compose file is not at the configured path | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `compose_file_unusable` | The Compose file is not a file that can be edited | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
+| `manifest_file_not_found` | The manifest is not at the configured path | [Manifest formats](#manifest-formats) |
+| `manifest_file_unusable` | The manifest is not a file that can be edited | [Manifest formats](#manifest-formats) |
+| `manifest_invalid` | The manifest cannot be parsed, repeats a key, or the edit failed verification | [Manifest formats](#manifest-formats) |
+| `manifest_anchor_or_alias` | The path to the container or document identity involves a YAML anchor or alias | [Manifest formats](#manifest-formats) |
+| `manifest_merge_key` | The path to the container or document identity contains a merge key | [Manifest formats](#manifest-formats) |
+| `manifest_not_string` | The `image` value is not a simple string | [Manifest formats](#manifest-formats) |
+| `manifest_block_scalar` | The `image` value is a block scalar | [Manifest formats](#manifest-formats) |
+| `manifest_variable` | The `image` value contains a variable | [Manifest formats](#manifest-formats) |
+| `manifest_digest` | The `image` value carries a digest | [Manifest formats](#manifest-formats) |
+| `manifest_tag_missing` | The `image` value has no tag | [Manifest formats](#manifest-formats) |
+| `manifest_image_automation` | The `image` line carries a Flux image automation marker | [Manifest formats](#manifest-formats) |
+| `manifest_template` | The manifest contains a template expression | [Manifest formats](#manifest-formats) |
+| `image_updater_file` | The same directory contains an Argo CD Image Updater write-back file | [Manifest formats](#manifest-formats) |
+| `source_object_missing` | No document in the manifest matches the workload's object | [Manifest formats](#manifest-formats) |
+| `source_object_ambiguous` | More than one document in the manifest matches the workload's object | [Manifest formats](#manifest-formats) |
+| `source_container_missing` | The object has no editable container with that name | [Manifest formats](#manifest-formats) |
+| `source_mismatch` | The file's `image` differs from the declared or running image | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
+| `mapping_conflict` | Two or more mappings to the file resolve to the same container in the same document | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
 | `dependency_files_not_found` | No dependency files were found | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | More than one set of dependency files matches, so no unique set can be selected | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `dependency_file_unusable` | A dependency file cannot be used | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
@@ -503,6 +545,7 @@ The following tables give each code's meaning and related decision rules or chec
 | `pip_target_undecidable` | The environment the packages run in cannot be determined | [pip verification environment](remediation-logic.md#pip-target-environment) |
 | `pip_target_mismatch` | The environment pip resolves for differs from the one the packages run in | [pip verification environment](remediation-logic.md#pip-target-environment) |
 | `work_image_not_configured` | No work environment is available for updates | [Checking update failures](remediation-troubleshooting.md#check-update-failure) |
+| `work_namespace_not_configured` | Language-package updates on Kubernetes still require manual action and do not create PRs | [Scope and requirements](#scope-and-requirements) |
 | `work_image_unavailable` | The work image could not be made ready | [Pinning official images](remediation-logic.md#worker-images) |
 
 ### Tool retrieval reasons {#tool-reasons}
