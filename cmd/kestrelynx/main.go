@@ -286,6 +286,21 @@ func kustomizeMappings(ms []config.RemediationMapping) []remediation.KustomizeMa
 	return out
 }
 
+// helmValuesMappings picks the mappings that edit a Helm values key.
+func helmValuesMappings(ms []config.RemediationMapping) []remediation.HelmValuesMapping {
+	var out []remediation.HelmValuesMapping
+	for _, m := range ms {
+		if m.HelmValues == nil {
+			continue
+		}
+		out = append(out, remediation.HelmValuesMapping{
+			Workload: m.Workload, Repository: m.Repository, BaseBranch: m.BaseBranch,
+			Path: m.HelmValues.Path, Key: m.HelmValues.Key, Affects: append([]string(nil), m.HelmValues.Affects...),
+		})
+	}
+	return out
+}
+
 // dockerfileRepositories lists the repositories of the Dockerfile mappings,
 // each once.
 func dockerfileRepositories(ms []remediation.DockerfileMapping) []string {
@@ -325,6 +340,9 @@ func pullRequestRepositories(ms []config.RemediationMapping) []string {
 	for _, m := range kustomizeMappings(ms) {
 		add(m.Repository)
 	}
+	for _, m := range helmValuesMappings(ms) {
+		add(m.Repository)
+	}
 	return out
 }
 
@@ -354,6 +372,7 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 		Mappings:     composeMappings(rc.Mappings),
 		Kubernetes:   kubernetesMappings(rc.Mappings),
 		Kustomize:    kustomizeMappings(rc.Mappings),
+		HelmValues:   helmValuesMappings(rc.Mappings),
 		Repositories: pullRequestRepositories(rc.Mappings),
 		Store:        store,
 	}

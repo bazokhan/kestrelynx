@@ -106,6 +106,8 @@ type PullRequestConfig struct {
 	Kubernetes []remediation.KubernetesMapping
 	// Kustomize are the Kustomize images entry mappings.
 	Kustomize []remediation.KustomizeMapping
+	// HelmValues are the Helm values key mappings.
+	HelmValues []remediation.HelmValuesMapping
 	// Repositories are the repositories the Dockerfile mappings name, which
 	// the stage examines and writes to besides those of Mappings.
 	Repositories []string
@@ -481,7 +483,7 @@ func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, res
 		}}
 		return
 	}
-	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Kubernetes: cfg.Kubernetes, Kustomize: cfg.Kustomize, Management: observedManagement(containers, bindings), Repositories: cfg.Repositories})
+	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Kubernetes: cfg.Kubernetes, Kustomize: cfg.Kustomize, HelmValues: cfg.HelmValues, Management: observedManagement(containers, bindings), Repositories: cfg.Repositories})
 	res.Attach(plan)
 	created := 0
 	for _, u := range res.Units {

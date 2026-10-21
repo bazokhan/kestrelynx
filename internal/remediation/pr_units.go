@@ -460,6 +460,9 @@ func sortFixTargets(f []FixTarget) {
 func (u *composeUnit) kind() string {
 	if u.kube != nil {
 		if u.kube.kustomize != nil {
+			if u.kube.kustomize.route == routeHelmValues {
+				return prKindHelm
+			}
 			return prKindKustomize
 		}
 		return prKindKubernetes

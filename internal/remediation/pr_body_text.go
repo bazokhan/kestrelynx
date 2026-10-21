@@ -89,6 +89,10 @@ type prText struct {
 	KustWhat, KustContainers, KustViaInit string
 	KustPremiseEntry, KustPremiseSet      string
 
+	// Helm values bodies reuse the Kustomize lines and add these.
+	HelmWhat, HelmPremiseKey, HelmFluxRelease, HelmNoRelease string
+	HelmQuoted                                               string
+
 	// Language package bodies.
 	LWhat, LDir, LManager, LWorkloads, LFiles                                   string
 	LEntryOne, LEntryMany                                                       string
@@ -219,10 +223,15 @@ var enPRText = prText{
 	KOwnerFluxHelm:   "Flux HelmRelease %[1]s in %[2]s",
 	KChainSep:        " -> ",
 	KustWhat:         "KestreLynx proposes a new tag for the Kustomize images entry %[1]s in %[2]s of %[3]s, which sets the image of %[4]d container(s).\n\n",
-	KustContainers:   "- Containers the entry is declared to act on (the configuration lists them): %s\n",
+	KustContainers:   "- Containers the edit is declared to act on (the configuration lists them): %s\n",
 	KustViaInit:      "- Ordinary init containers among them, checked through the status of their Pods and the scan of the container of the same Pod that ran the same image: %s\n",
 	KustPremiseEntry: "- The entry is taken to act on those containers and no others. KestreLynx does not render the kustomization. It checked only that the running images are the entry's result, and that no container outside the list, in the same namespace (or the same Helm release or Flux Kustomization) or in the same Pod template, declares the same image.\n",
 	KustPremiseSet:   "- The list of containers is taken to be complete. Only the containers named in the configuration were checked one by one.\n",
+	HelmWhat:         "KestreLynx proposes a new image tag at the key %[1]s of the Helm values file %[2]s of %[3]s, which sets the image of %[4]d container(s).\n\n",
+	HelmPremiseKey:   "- The key is taken to hold the final value of the image. KestreLynx does not render the chart. It did not check that no other values file, no `--set` of a CI job, and no setting of Argo CD (parameters, valuesObject, valuesFrom) overrides it, and that no other tool owns the tag; it checked only that the value in this file matches the running images, that no container outside the list, in the same namespace (or the same Helm release or Flux Kustomization) or in the same Pod template, declares the same image, and that the Flux image automation markers and Argo CD Image Updater write-back files are absent.\n",
+	HelmFluxRelease:  "- Flux HelmRelease management markers were detected on these workloads (read from markers on the objects, so a claim, not a verified fact): %s. The `spec.values` of a HelmRelease is not read here and can take precedence over this file.\n",
+	HelmQuoted:       "- The new tag is written in double quotes, which the old one did not have: without them it would not be read as a string (Helm reads YAML 1.1, where `1.10` is a number and `on` a boolean).\n",
+	HelmNoRelease:    "- No Helm release and no Flux HelmRelease was detected for these workloads, so it is not known that this values file is what deploys them.\n",
 
 	LWhat:               "KestreLynx proposes updating %[1]d package %[2]s in %[3]s of %[4]s with %[5]s.\n\n",
 	LDir:                "- Dependency directory: %s\n",
@@ -393,10 +402,15 @@ var jaPRText = prText{
 	KOwnerFluxHelm:   "Flux HelmRelease %[1]s(%[2]s)",
 	KChainSep:        " -> ",
 	KustWhat:         "KestreLynx は、%[3]s の %[2]s にある Kustomize の images の項目 %[1]s について、新しいタグを提案します。この項目は %[4]d 個のコンテナのイメージを決めます。\n\n",
-	KustContainers:   "- 項目が作用するものとして宣言されたコンテナ(設定に列挙されたもの): %s\n",
+	KustContainers:   "- 編集が作用するものとして宣言されたコンテナ(設定に列挙されたもの): %s\n",
 	KustViaInit:      "- そのうち通常の init container(Pod の status と、同じ Pod の同じイメージを動かしたコンテナのスキャンで確認): %s\n",
 	KustPremiseEntry: "- この項目が、列挙したコンテナだけに作用するものとして扱います。kustomization は描画しません。確認したのは、稼働中のイメージが項目の結果と一致すること、そして列挙にないコンテナ(同じ namespace、または同じ Helm リリース・Flux Kustomization のもの、または同じ Pod テンプレートのもの)が同じイメージを宣言していないことだけです。\n",
 	KustPremiseSet:   "- 列挙したコンテナが作用先のすべてであるものとして扱います。コンテナ単位で確認したのは、設定に挙げたものだけです。\n",
+	HelmWhat:         "KestreLynx は、%[3]s の Helm の values ファイル %[2]s のキー %[1]s について、新しいイメージのタグを提案します。このキーは %[4]d 個のコンテナのイメージを決めます。\n\n",
+	HelmPremiseKey:   "- このキーが、イメージの最終的な値を持つものとして扱います。チャートは描画しません。他の values ファイル、CI の `--set`、Argo CD の設定(parameters、valuesObject、valuesFrom)が上書きしていないこと、他のツールがタグを管理していないことは確認していません。確認したのは、このファイルの値が稼働中のイメージと一致すること、列挙にないコンテナ(同じ namespace、または同じ Helm リリース・Flux Kustomization のもの、または同じ Pod テンプレートのもの)が同じイメージを宣言していないこと、Flux image automation の目印と Argo CD Image Updater の書き戻しファイルがないことだけです。\n",
+	HelmFluxRelease:  "- 次のワークロードで Flux HelmRelease の管理マーカーを検出しました(オブジェクトの目印から読んだもので、検証済みの事実ではありません): %s。HelmRelease の `spec.values` はここでは読まず、このファイルより優先されることがあります。\n",
+	HelmQuoted:       "- 新しいタグは、元のタグにはなかった二重引用符で囲んで書きます。囲まないと文字列として読まれないためです(Helm は YAML 1.1 で読み、`1.10` は数値、`on` は真偽値になります)。\n",
+	HelmNoRelease:    "- これらのワークロードでは Helm リリースも Flux HelmRelease も検出できなかったため、この values ファイルが配備に使われるかは分かりません。\n",
 
 	LWhat:               "KestreLynx は、%[4]s の %[3]s にある %[1]d 件のパッケージ%[2]sを %[5]s で更新することを提案します。\n\n",
 	LDir:                "- 依存関係のディレクトリ: %s\n",

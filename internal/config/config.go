@@ -328,6 +328,9 @@ type RemediationMapping struct {
 	// Kustomize names the kustomization file whose images entry sets the
 	// workload's container image.
 	Kustomize *RemediationKustomizeSource
+	// HelmValues names the values file and the key in it that set the
+	// workload's container image.
+	HelmValues *RemediationHelmValuesSource
 	// Dependencies names the directory whose lockfiles resolve the
 	// workload's language packages.
 	Dependencies *RemediationDependenciesSource
@@ -362,6 +365,18 @@ type RemediationKustomizeSource struct {
 	// without a tag or a digest.
 	Image string
 	// Affects are the other containers the entry acts on, as workload keys.
+	Affects []string
+}
+
+// RemediationHelmValuesSource locates the image key of a Helm values file. The
+// key acts on every container the chart renders from it, so the containers it
+// acts on besides the workload's own are listed in Affects.
+type RemediationHelmValuesSource struct {
+	Path string // repository-relative, normalized
+	// Key is the dot-separated path of the key that holds the image: a mapping
+	// with repository and tag, or a "repository:tag" string.
+	Key string
+	// Affects are the other containers the key acts on, as workload keys.
 	Affects []string
 }
 
@@ -500,6 +515,11 @@ type rawConfig struct {
 				Image   string   `yaml:"image"`
 				Affects []string `yaml:"affects"`
 			} `yaml:"kustomize"`
+			HelmValues *struct {
+				Path    string   `yaml:"path"`
+				Key     string   `yaml:"key"`
+				Affects []string `yaml:"affects"`
+			} `yaml:"helm_values"`
 			Dependencies *struct {
 				Directory string `yaml:"directory"`
 			} `yaml:"dependencies"`
@@ -701,6 +721,9 @@ func Parse(data []byte) (Config, error) {
 		}
 		if m.Kustomize != nil {
 			rm.Kustomize = &RemediationKustomizeSource{Path: m.Kustomize.Path, Image: m.Kustomize.Image, Affects: append([]string(nil), m.Kustomize.Affects...)}
+		}
+		if m.HelmValues != nil {
+			rm.HelmValues = &RemediationHelmValuesSource{Path: m.HelmValues.Path, Key: m.HelmValues.Key, Affects: append([]string(nil), m.HelmValues.Affects...)}
 		}
 		if m.Dependencies != nil {
 			rm.Dependencies = &RemediationDependenciesSource{Directory: m.Dependencies.Directory}

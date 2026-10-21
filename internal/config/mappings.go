@@ -102,6 +102,9 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 		if !kubernetes && m.Kustomize != nil {
 			return fmt.Errorf("config: %s sets a kustomize mapping, which requires kubernetes.enabled", at)
 		}
+		if !kubernetes && m.HelmValues != nil {
+			return fmt.Errorf("config: %s sets a helm_values mapping, which requires kubernetes.enabled", at)
+		}
 		repo, err := github.ParseRepo(m.Repository)
 		if err != nil {
 			return fmt.Errorf("config: %s.repository %q must be a GitHub owner/name", at, m.Repository)
@@ -110,13 +113,13 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 			return fmt.Errorf("config: %s.base_branch %q is not a valid branch name", at, m.BaseBranch)
 		}
 		set := 0
-		for _, present := range []bool{m.Compose != nil, m.Manifest != nil, m.Kustomize != nil, m.Dependencies != nil, m.Dockerfile != nil} {
+		for _, present := range []bool{m.Compose != nil, m.Manifest != nil, m.Kustomize != nil, m.HelmValues != nil, m.Dependencies != nil, m.Dockerfile != nil} {
 			if present {
 				set++
 			}
 		}
 		if set != 1 {
-			return fmt.Errorf("config: %s must set exactly one of compose, manifest, kustomize, dependencies and dockerfile", at)
+			return fmt.Errorf("config: %s must set exactly one of compose, manifest, kustomize, helm_values, dependencies and dockerfile", at)
 		}
 		repoKey := strings.ToLower(repo.String())
 		switch {
@@ -171,6 +174,10 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 			}
 		case m.Kustomize != nil:
 			if err := validateKustomize(at, m, repoKey, kw, routes, i, tagRoutes, editPoints, kustBranch); err != nil {
+				return err
+			}
+		case m.HelmValues != nil:
+			if err := validateHelmValues(at, m, repoKey, routes, i, tagRoutes, editPoints, kustBranch); err != nil {
 				return err
 			}
 		case m.Dockerfile != nil:
@@ -314,6 +321,69 @@ func validateKustomize(at string, m RemediationMapping, repoKey string, kw Kuber
 		branches[fk] = kustBranchEntry{at, m.BaseBranch}
 	}
 	return idx.add(at, m.Workload, k.Affects, editPoint{kind: "kustomize", repo: repoKey, path: k.Path, item: "images[" + k.Image + "]"})
+}
+
+// validateHelmValues checks one helm_values mapping.
+func validateHelmValues(at string, m RemediationMapping, repoKey string, routes map[routeKey]int, i int,
+	tagRoutes map[string]int, idx editPointIndex, branches map[string]kustBranchEntry) error {
+	h := m.HelmValues
+	if !github.ValidPath(h.Path, false) {
+		return fmt.Errorf("config: %s.helm_values.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, h.Path)
+	}
+	if ext := path.Ext(h.Path); ext != ".yaml" && ext != ".yml" {
+		return fmt.Errorf("config: %s.helm_values.path %q must be a .yaml or .yml values file", at, h.Path)
+	}
+	if !validHelmKey(h.Key) {
+		return fmt.Errorf("config: %s.helm_values.key %q must be a dot-separated path of names made of letters, digits, \"_\" and \"-\" (a key that contains a dot is not supported)", at, h.Key)
+	}
+	rk := routeKey{m.Workload, "helm_values"}
+	if j, dup := routes[rk]; dup {
+		return fmt.Errorf("config: %s repeats the helm_values mapping of workload %q already set by remediation.mappings[%d]", at, m.Workload, j)
+	}
+	routes[rk] = i
+	if j, dup := tagRoutes[m.Workload]; dup {
+		return fmt.Errorf("config: %s sets a helm_values mapping for workload %q, whose image tag remediation.mappings[%d] already sets", at, m.Workload, j)
+	}
+	tagRoutes[m.Workload] = i
+	seen := map[string]bool{m.Workload: true}
+	for _, a := range h.Affects {
+		if _, err := ParseKubernetesWorkloadKey(a); err != nil {
+			return fmt.Errorf("config: %s.helm_values.affects %q %v", at, a, err)
+		}
+		if seen[a] {
+			return fmt.Errorf("config: %s.helm_values.affects lists %q more than once or lists the mapped workload itself", at, a)
+		}
+		seen[a] = true
+	}
+	// A file is always read from one branch, whichever route names it.
+	fk := repoKey + "\x00" + h.Path
+	if b, ok := branches[fk]; ok && b.branch != m.BaseBranch {
+		return fmt.Errorf("config: %s maps %s of %s to base_branch %q, but %s maps it to %q", at, h.Path, m.Repository, m.BaseBranch, b.at, b.branch)
+	}
+	if _, ok := branches[fk]; !ok {
+		branches[fk] = kustBranchEntry{at, m.BaseBranch}
+	}
+	return idx.add(at, m.Workload, h.Affects, editPoint{kind: "helm_values", repo: repoKey, path: h.Path, item: h.Key})
+}
+
+// validHelmKey reports whether s is a dot-separated path of non-empty names
+// made of letters, digits, "_" and "-".
+func validHelmKey(s string) bool {
+	if s == "" || len(s) > 255 {
+		return false
+	}
+	for _, seg := range strings.Split(s, ".") {
+		if seg == "" {
+			return false
+		}
+		for i := 0; i < len(seg); i++ {
+			c := seg[i]
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // validKustomizeImageName reports whether s can be the name of an images

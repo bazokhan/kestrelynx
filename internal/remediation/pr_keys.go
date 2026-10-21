@@ -38,6 +38,7 @@ const (
 	languageBranchPrefix   = branchPrefix + "language/"
 	kubernetesBranchPrefix = branchPrefix + "kubernetes/"
 	kustomizeBranchPrefix  = branchPrefix + "kustomize/"
+	helmBranchPrefix       = branchPrefix + "helm/"
 )
 
 // The kinds of update the stage opens pull requests for. The empty kind of an
@@ -54,12 +55,16 @@ const (
 	// acts on every container the file declares for it. Its keys and marker
 	// hold the set of workloads like a Kubernetes update's.
 	prKindKustomize = "kustomize"
+	// prKindHelm is a tag update at the image key of a Helm values file, which
+	// acts on every container the chart renders from it. Its keys and marker
+	// hold the set of workloads like a Kustomize update's.
+	prKindHelm = "helm_values"
 )
 
 // kindHasAffected says whether the keys and marker of an update of the kind
 // carry the set of workloads it changes.
 func kindHasAffected(kind string) bool {
-	return kind == prKindKubernetes || kind == prKindKustomize
+	return kind == prKindKubernetes || kind == prKindKustomize || kind == prKindHelm
 }
 
 // kindOf normalizes the kind recorded in an attempt or a marker.
@@ -89,6 +94,8 @@ func branchPrefixOf(kind string) string {
 		return kubernetesBranchPrefix
 	case prKindKustomize:
 		return kustomizeBranchPrefix
+	case prKindHelm:
+		return helmBranchPrefix
 	}
 	return composeBranchPrefix
 }
@@ -169,6 +176,12 @@ func KubernetesBranchName(names []string, tag, attemptKey string) (string, error
 // kestrelynx/kustomize/<display>-<tag>-<12 hex of the attempt key>.
 func KustomizeBranchName(names []string, tag, attemptKey string) (string, error) {
 	return branchNameFor(kustomizeBranchPrefix, names, tag, attemptKey)
+}
+
+// HelmBranchName is the branch of a Helm values attempt:
+// kestrelynx/helm/<display>-<tag>-<12 hex of the attempt key>.
+func HelmBranchName(names []string, tag, attemptKey string) (string, error) {
+	return branchNameFor(helmBranchPrefix, names, tag, attemptKey)
 }
 
 // AttemptKey identifies the content of one attempt of an update: the commit

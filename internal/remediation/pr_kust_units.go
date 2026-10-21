@@ -38,21 +38,85 @@ type KustomizeMapping struct {
 	Affects []string
 }
 
-// kustomizeEditKey identifies the images entry a mapping names.
-func (m KustomizeMapping) editKey() string {
-	return strings.Join([]string{"kustomize", strings.ToLower(m.Repository), m.BaseBranch, m.Path, m.Image}, "|")
+// HelmValuesMapping ties the image key of a Helm values file to the containers
+// it sets the image of: the mapped workload and the others the key acts on
+// (Affects), which are fixed by the configuration.
+type HelmValuesMapping struct {
+	// Workload is the workload key of the mapped container,
+	// <kind>/<namespace>/<name>/<container>.
+	Workload   string
+	Repository string
+	BaseBranch string
+	// Path is the values file and Key the dot-separated path of the key that
+	// holds the image.
+	Path string
+	Key  string
+	// Affects are the workload keys of the other containers the key acts on
+	// (ordinary init containers included).
+	Affects []string
 }
 
-// kustomizeFileKey identifies the kustomization file of a mapping.
-func (m KustomizeMapping) fileKey() string {
-	return strings.Join([]string{"kustomize", strings.ToLower(m.Repository), m.BaseBranch, m.Path}, "|")
+// The routes of a shared edit point.
+const (
+	routeKustomize  = "kustomize"
+	routeHelmValues = "helm_values"
+)
+
+// sharedMapping is a mapping of a shared edit point in the form the unit
+// builder works on, whichever route names it.
+type sharedMapping struct {
+	Route      string
+	Workload   string
+	Repository string
+	BaseBranch string
+	Path       string
+	// Item is the images entry name of a Kustomize mapping, the key of a Helm
+	// values mapping.
+	Item    string
+	Affects []string
+}
+
+func (m KustomizeMapping) shared() sharedMapping {
+	return sharedMapping{routeKustomize, m.Workload, m.Repository, m.BaseBranch, m.Path, m.Image, m.Affects}
+}
+
+func (m HelmValuesMapping) shared() sharedMapping {
+	return sharedMapping{routeHelmValues, m.Workload, m.Repository, m.BaseBranch, m.Path, m.Key, m.Affects}
+}
+
+// editKey identifies the entry or key a mapping names.
+func (m sharedMapping) editKey() string {
+	return strings.Join([]string{m.Route, strings.ToLower(m.Repository), m.BaseBranch, m.Path, m.Item}, "|")
+}
+
+// fileKey identifies the file of a mapping.
+func (m sharedMapping) fileKey() string {
+	return strings.Join([]string{m.Route, strings.ToLower(m.Repository), m.BaseBranch, m.Path}, "|")
+}
+
+// noun names what the edit point is in messages.
+func (m sharedMapping) noun() string {
+	if m.Route == routeHelmValues {
+		return "values key"
+	}
+	return "images entry"
+}
+
+// location is the logical location of the edit point.
+func (m sharedMapping) location() string {
+	if m.Route == routeHelmValues {
+		return m.Item
+	}
+	return KustomizeLocation(m.Item)
 }
 
 // kustomizeUnitData is what a Kustomize unit carries beyond a Kubernetes
 // manifest unit's fields.
 type kustomizeUnitData struct {
-	// image is the name of the images entry.
-	image string
+	// route is routeKustomize or routeHelmValues, and item the name of the
+	// images entry or the values key.
+	route string
+	item  string
 	// mapped are the workload keys of the mappings; the rest of the unit's
 	// workloads are the entry's other declared targets.
 	mapped []string
@@ -70,7 +134,7 @@ type podKey = string
 type kustomizeEditPoint struct {
 	key     string
 	file    string
-	first   KustomizeMapping
+	first   sharedMapping
 	mapped  []string
 	members []string // sorted: the mapped workloads and their affects
 }
@@ -78,7 +142,7 @@ type kustomizeEditPoint struct {
 // editPointsOf groups the mappings by the images entry they name. The members
 // are the union of what the mappings of the entry declare (the configuration
 // refuses mappings that declare different sets).
-func editPointsOf(mappings []KustomizeMapping) []*kustomizeEditPoint {
+func editPointsOf(mappings []sharedMapping) []*kustomizeEditPoint {
 	byKey := map[string]*kustomizeEditPoint{}
 	var order []*kustomizeEditPoint
 	for _, m := range mappings {
@@ -374,7 +438,14 @@ func ownersOf(plan Plan, observed []WorkloadChains) map[string]map[string]bool {
 // A container that is not listed but declares the entry's current value in the
 // same namespace (or the same Helm release or Flux Kustomization), or in the
 // same Pod template as a listed one, stops the unit.
-func buildKustomizeUnits(plan Plan, containers []inventory.Container, mappings []KustomizeMapping, management []WorkloadChains) []*composeUnit {
+func buildKustomizeUnits(plan Plan, containers []inventory.Container, kustomize []KustomizeMapping, helm []HelmValuesMapping, management []WorkloadChains) []*composeUnit {
+	var mappings []sharedMapping
+	for _, m := range kustomize {
+		mappings = append(mappings, m.shared())
+	}
+	for _, m := range helm {
+		mappings = append(mappings, m.shared())
+	}
 	itemIdx := map[string]int{}
 	for i := range plan.Items {
 		if _, dup := itemIdx[plan.Items[i].Key]; !dup {
@@ -452,9 +523,9 @@ func buildKustomizeUnits(plan Plan, containers []inventory.Container, mappings [
 		u := &composeUnit{
 			repo: ep.first.Repository, baseBranch: ep.first.BaseBranch, path: ep.first.Path,
 			svcItems: map[string][]*Item{},
-			kube:     &kubeUnitData{location: map[string]string{}, file: ep.file, kustomize: &kustomizeUnitData{image: ep.first.Image, mapped: ep.mapped}},
+			kube:     &kubeUnitData{location: map[string]string{}, file: ep.file, kustomize: &kustomizeUnitData{route: ep.first.Route, item: ep.first.Item, mapped: ep.mapped}},
 		}
-		loc := KustomizeLocation(ep.first.Image)
+		loc := ep.first.location()
 		u.locations = []string{loc}
 		runList := sortedSet(runs)
 		runKey := "none"
@@ -522,7 +593,7 @@ func buildKustomizeUnits(plan Plan, containers []inventory.Container, mappings [
 			u.manualDetail = fmt.Sprintf("a running instance of %s has no plan item, so the whole set cannot be verified", strings.Join(dedupeSorted(missing), ", "))
 		case len(runs) > 1 || len(declaredRefs) > 1:
 			u.manual, u.manualReason = true, ReasonMixedReferences
-			u.manualDetail = fmt.Sprintf("the instances of the containers the entry %q acts on do not all declare, or run, one reference (%s)", ep.first.Image,
+			u.manualDetail = fmt.Sprintf("the instances of the containers the %s %q acts on do not all declare, or run, one reference (%s)", ep.first.noun(), ep.first.Item,
 				strings.Join(append(sortedSet(declaredRefs), runList...), ", "))
 		default:
 			u.checkAdopted()
@@ -586,7 +657,7 @@ func undeclaredAffected(u *composeUnit, ep *kustomizeEditPoint, containers []inv
 	}
 	stop := func(format string, args ...any) *unitProblem {
 		return &unitProblem{ReasonUndeclaredAffectedWorkload, fmt.Sprintf(format, args...) +
-			fmt.Sprintf(" (list it in affects of the mapping of %s, or change what the entry acts on)", u.services[0])}
+			fmt.Sprintf(" (list it in affects of the mapping of %s, or change what the %s acts on)", u.services[0], ep.first.noun())}
 	}
 	for _, c := range containers {
 		if c.Declared == nil {
@@ -613,7 +684,7 @@ func undeclaredAffected(u *composeUnit, ep *kustomizeEditPoint, containers []inv
 				}
 			}
 			if shared != "" {
-				return stop("%s is not listed but declares %s, the value of the images entry %q, and shares %s with the listed containers", wk, c.Declared.Ref, ep.first.Image, shared)
+				return stop("%s is not listed but declares %s, the value of the %s %q, and shares %s with the listed containers", wk, c.Declared.Ref, ep.first.noun(), ep.first.Item, shared)
 			}
 		}
 	}
@@ -638,7 +709,7 @@ func undeclaredAffected(u *composeUnit, ep *kustomizeEditPoint, containers []inv
 				if inSet[object+"/"+sc.Name] || sc.Ref == "" || !sameReference(sc.Ref, value) {
 					continue
 				}
-				return stop("%s %s of pod %s is not listed but declares %s, the value of the images entry %q", sc.Kind, sc.Name, pod.id, sc.Ref, ep.first.Image)
+				return stop("%s %s of pod %s is not listed but declares %s, the value of the %s %q", sc.Kind, sc.Name, pod.id, sc.Ref, ep.first.noun(), ep.first.Item)
 			}
 		}
 	}

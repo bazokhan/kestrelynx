@@ -90,6 +90,9 @@ type PRStageInput struct {
 	// Kustomize are the Kustomize images entry mappings; their repositories are
 	// examined and written to as well.
 	Kustomize []KustomizeMapping
+	// HelmValues are the Helm values key mappings; their repositories are
+	// examined and written to as well.
+	HelmValues []HelmValuesMapping
 	// Management are the management chains of every workload the cycle
 	// observed, including those with no plan item.
 	Management []WorkloadChains
@@ -425,7 +428,7 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 	r := &prRun{s: s, ctx: ctx, byKey: map[string]*repoState{}}
 	units := buildComposeUnits(in.Plan, in.Containers, in.Mappings)
 	units = append(units, buildKubernetesUnits(in.Plan, in.Containers, in.Kubernetes)...)
-	units = append(units, buildKustomizeUnits(in.Plan, in.Containers, in.Kustomize, in.Management)...)
+	units = append(units, buildKustomizeUnits(in.Plan, in.Containers, in.Kustomize, in.HelmValues, in.Management)...)
 	units = append(units, buildDockerfileUnits(in.Plan)...)
 	units = append(units, buildLanguageUnits(in.Plan)...)
 	addRepo := func(name string) {
@@ -443,6 +446,9 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 		addRepo(m.Repository)
 	}
 	for _, m := range in.Kustomize {
+		addRepo(m.Repository)
+	}
+	for _, m := range in.HelmValues {
 		addRepo(m.Repository)
 	}
 	for _, name := range in.Repositories {
@@ -885,6 +891,8 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		branch, err = LanguageBranchName(u.services, string(u.lang.manager), attemptKey)
 	case u.df != nil:
 		branch, err = DockerfileBranchName(u.services, u.candidate.Tag, attemptKey)
+	case u.kube != nil && u.kube.kustomize != nil && u.kube.kustomize.route == routeHelmValues:
+		branch, err = HelmBranchName(u.kubeBranchNames(), u.candidate.Tag, attemptKey)
 	case u.kube != nil && u.kube.kustomize != nil:
 		branch, err = KustomizeBranchName(u.kubeBranchNames(), u.candidate.Tag, attemptKey)
 	case u.kube != nil:
@@ -1043,15 +1051,26 @@ type prChange struct {
 	unchanged  []string
 	dockerfile DockerfileChange
 	kustomize  KustomizeChange
+	helm       HelmValuesChange
 }
 
 // editSource edits the file the unit proposes a change to. ok is false after
 // the unit's status was set.
 func (r *prRun) editSource(c *unitCtx, content []byte) ([]byte, prChange, bool) {
 	u := c.u
+	if u.kube != nil && u.kube.kustomize != nil && u.kube.kustomize.route == routeHelmValues {
+		edit, prob := EditHelmValuesTag(HelmValuesEditRequest{
+			Content: content, Key: u.kube.kustomize.item, Current: u.current, Declared: u.kube.declared, NewTag: u.candidate.Tag,
+		})
+		if prob != nil {
+			c.set(PRStatusManual, prob.Reason, prob.Error())
+			return nil, prChange{}, false
+		}
+		return edit.Content, prChange{helm: edit.Change}, true
+	}
 	if u.kube != nil && u.kube.kustomize != nil {
 		edit, prob := EditKustomizeNewTag(KustomizeEditRequest{
-			Content: content, Image: u.kube.kustomize.image, Current: u.current, Declared: u.kube.declared, NewTag: u.candidate.Tag,
+			Content: content, Image: u.kube.kustomize.item, Current: u.current, Declared: u.kube.declared, NewTag: u.candidate.Tag,
 		})
 		if prob != nil {
 			c.set(PRStatusManual, prob.Reason, prob.Error())
@@ -1363,9 +1382,10 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 		title = c.u.lang.title
 	} else if c.u.kube != nil && c.u.kube.kustomize != nil {
 		body, err = buildKustomizePRBody(kustomizeBodyInput{
-			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Image: c.u.kube.kustomize.image,
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Image: c.u.kube.kustomize.item,
 			Current: a.CurrentRef, Declared: c.u.kube.declared, Workloads: c.u.workloads, ViaInit: c.u.kube.kustomize.viaInit,
 			AlsoRunning: c.u.also, Management: c.u.kube.management, Change: change.kustomize, CronJob: anyJobWorkload(c.u.workloads),
+			Helm: c.u.kube.kustomize.route == routeHelmValues, HelmChange: change.helm,
 			CandidateTag: a.CandidateTag, Evidence: a.Evidence,
 			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
