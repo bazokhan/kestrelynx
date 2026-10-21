@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sort"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 	"github.com/kitsunetrail/kestrelynx/internal/state"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // PlanScanner is the comparison-mode scanner of the fix plan (implemented by
@@ -405,6 +407,19 @@ func (r Runner) runLanguageUpdates(ctx context.Context, cfg *LanguageUpdateConfi
 		return
 	}
 	updater, err := cfg.NewUpdater(ctx, in)
+	var un *workexec.Unavailable
+	if errors.As(err, &un) {
+		// The executor says itself why nothing can run now (work Pods are at
+		// their limit, the admission policy is not in force, ...).
+		if un.Manual {
+			n := remediation.MarkLanguageManual(plan, remediation.Reason(un.Reason), un.Detail)
+			log.Warn("dependency updates are not run", "reason", un.Reason, "manual", n, "tied_to_existing_pull_requests", bound)
+		} else {
+			n := remediation.DeferLanguageUpdates(plan, remediation.Reason(un.Reason), un.Detail)
+			log.Warn("dependency updates are not run", "reason", un.Reason, "deferred", n, "tied_to_existing_pull_requests", bound)
+		}
+		return
+	}
 	if err != nil {
 		n := remediation.DeferLanguageUpdates(plan, remediation.ReasonWorkImageUnavailable, "the work image could not be made ready: "+clipText(err.Error(), 300))
 		log.Warn("dependency updates are not run: the work image could not be made ready", "err", err, "deferred", n, "tied_to_existing_pull_requests", bound)

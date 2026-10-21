@@ -3,8 +3,8 @@ package remediation
 import (
 	"context"
 
-	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // Reasons of the dependency update stage. An item the stage could not turn
@@ -108,10 +108,8 @@ const (
 
 // WorkRunner is the part of the work container client the update stage uses.
 type WorkRunner interface {
-	RunJob(ctx context.Context, spec docker.JobSpec) (docker.JobResult, error)
+	RunJob(ctx context.Context, spec workexec.JobSpec) (workexec.JobResult, error)
 }
-
-var _ WorkRunner = (*docker.WorkClient)(nil)
 
 // FSScanner scans dependency files for vulnerabilities under the cycle's
 // prepared conditions (see scanner.Trivy.ScanFS).

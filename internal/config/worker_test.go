@@ -143,3 +143,80 @@ func TestParseByteSize(t *testing.T) {
 		}
 	}
 }
+
+const workKubernetesBase = `
+kubernetes:
+  enabled: true
+remediation:
+  enabled: true
+  worker:
+    kubernetes:
+`
+
+func TestParse_WorkerKubernetesDefaults(t *testing.T) {
+	c, err := Parse([]byte(minimal + workKubernetesBase + "      namespace: kestrelynx-work\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := c.Remediation.Worker.Kubernetes
+	want := RemediationWorkerKubernetes{Namespace: "kestrelynx-work", ServiceAccount: "kestrelynx-work", PriorityClass: "kestrelynx-work", MaxConcurrentPods: 1}
+	if k != want {
+		t.Errorf("kubernetes = %+v, want %+v", k, want)
+	}
+	c, err = Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Remediation.Worker.Kubernetes != (RemediationWorkerKubernetes{}) {
+		t.Errorf("unset section = %+v", c.Remediation.Worker.Kubernetes)
+	}
+}
+
+func TestParse_WorkerKubernetesExplicit(t *testing.T) {
+	digest := "registry.example.com/kestrelynx/kestrelynx@sha256:" + strings.Repeat("a", 64)
+	c, err := Parse([]byte(minimal + workKubernetesBase + `      namespace: work-ns
+      service_account: sa-work
+      receiver_image: ` + digest + `
+      runtime_class: gvisor
+      priority_class: low
+      max_concurrent_pods: 4
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := RemediationWorkerKubernetes{Namespace: "work-ns", ServiceAccount: "sa-work", ReceiverImage: digest, RuntimeClass: "gvisor", PriorityClass: "low", MaxConcurrentPods: 4}
+	if got := c.Remediation.Worker.Kubernetes; got != want {
+		t.Errorf("kubernetes = %+v, want %+v", got, want)
+	}
+}
+
+func TestParse_WorkerKubernetesInvalid(t *testing.T) {
+	cases := map[string]struct{ yaml, want string }{
+		"no namespace":            {"      max_concurrent_pods: 2\n", "namespace"},
+		"bad namespace":           {"      namespace: Bad_NS\n", "namespace"},
+		"namespace with slash":    {"      namespace: a/b\n", "namespace"},
+		"bad service account":     {"      namespace: ns\n      service_account: Bad_SA\n", "service_account"},
+		"bad priority class":      {"      namespace: ns\n      priority_class: \"a b\"\n", "priority_class"},
+		"bad runtime class":       {"      namespace: ns\n      runtime_class: Bad\n", "runtime_class"},
+		"image by tag":            {"      namespace: ns\n      receiver_image: registry.example.com/k/k:1.0\n", "receiver_image"},
+		"image without repo":      {"      namespace: ns\n      receiver_image: \"@sha256:" + strings.Repeat("a", 64) + "\"\n", "receiver_image"},
+		"image with short digest": {"      namespace: ns\n      receiver_image: registry.example.com/k/k@sha256:abc\n", "receiver_image"},
+		"zero pods":               {"      namespace: ns\n      max_concurrent_pods: 0\n", "max_concurrent_pods"},
+		"too many pods":           {"      namespace: ns\n      max_concurrent_pods: 17\n", "max_concurrent_pods"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(minimal + workKubernetesBase + c.yaml))
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("err = %v, want it to mention %q", err, c.want)
+			}
+		})
+	}
+}
+
+func TestParse_WorkerKubernetesNeedsTheKubernetesAdapter(t *testing.T) {
+	_, err := Parse([]byte(minimal + "\nremediation:\n  enabled: true\n  worker:\n    kubernetes:\n      namespace: ns\n"))
+	if err == nil || !strings.Contains(err.Error(), "kubernetes.enabled") {
+		t.Errorf("err = %v", err)
+	}
+}

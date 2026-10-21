@@ -1,0 +1,13 @@
+# The priority class of the work Pods. It must never preempt: a work Pod that
+# cannot be placed waits instead of evicting another namespace's Pods. It must
+# not be the cluster's default class. KestreLynx has no permission over
+# PriorityClasses, and the admission policy requires a Pod's class to be this
+# one with preemptionPolicy Never.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: kestrelynx-work
+value: -100
+globalDefault: false
+preemptionPolicy: Never
+description: "KestreLynx language-package work Pods. Never preempts other Pods."

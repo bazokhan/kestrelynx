@@ -1,0 +1,17 @@
+# Applies the policy to the work namespace, chosen by the namespace's name (not
+# by labels a Pod could carry). A missing parameter ConfigMap denies every Pod.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kestrelynx-work
+spec:
+  policyName: kestrelynx-work
+  validationActions: [Deny]
+  paramRef:
+    name: kestrelynx-work-policy
+    namespace: kestrelynx-work
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kestrelynx-work

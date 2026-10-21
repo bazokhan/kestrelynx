@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // apiServer serves lists recorded from a K3s cluster (see the adapter's
@@ -535,5 +537,40 @@ func TestPlanKubernetes_PullRequestStageAndManualLanguage(t *testing.T) {
 	li := plan.LanguageItems[0]
 	if li.Category != remediation.CategoryManual || li.Reason != remediation.ReasonWorkNamespaceNotConfigured || li.UpdateExecuted {
 		t.Errorf("language item = %s/%s (%s)", li.Category, li.Reason, li.Detail)
+	}
+}
+
+// A refusal from the work Pod runner at the start of a cycle puts the
+// candidates off, or makes them manual, under the runner's own reason.
+func TestPlanKubernetes_UpdaterUnavailable(t *testing.T) {
+	for name, c := range map[string]struct {
+		un   *workexec.Unavailable
+		want remediation.Category
+	}{
+		"deferred": {&workexec.Unavailable{Reason: string(remediation.ReasonWorkPodLimit), Detail: "quota"}, remediation.CategoryDeferred},
+		"manual":   {&workexec.Unavailable{Manual: true, Reason: string(remediation.ReasonWorkClusterTooOld), Detail: "1.29"}, remediation.CategoryManual},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newKubeHarness(t, "aliased")
+			h.r.Plan.PullRequests = &PullRequestConfig{
+				NewStage: func(remediation.CandidateResolver) (PRStage, error) {
+					return recordingStage{&remediation.PRStageInput{}}, nil
+				},
+				Kubernetes: []remediation.KubernetesMapping{{Workload: "deployment/shop/pinned/app", Repository: "example/deploy", BaseBranch: "main", Path: "apps/pinned.yaml"}},
+			}
+			h.r.Plan.Language = &LanguageUpdateConfig{
+				NewUpdater: func(context.Context, LanguageUpdateInput) (LanguageUpdater, error) {
+					return nil, fmt.Errorf("start: %w", c.un)
+				},
+			}
+			plan := h.run(t)
+			if len(plan.LanguageItems) != 1 {
+				t.Fatalf("language items = %d", len(plan.LanguageItems))
+			}
+			li := plan.LanguageItems[0]
+			if li.Category != c.want || string(li.Reason) != c.un.Reason || li.Detail != c.un.Detail {
+				t.Errorf("language item = %s/%s (%s)", li.Category, li.Reason, li.Detail)
+			}
+		})
 	}
 }

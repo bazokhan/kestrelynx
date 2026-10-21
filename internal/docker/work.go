@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 	"io"
 	"log/slog"
 	"net"
@@ -92,35 +93,12 @@ type WorkConfig struct {
 	CleanupTimeout  time.Duration
 }
 
-// TransferLimits bound the tar streams in both directions.
-type TransferLimits struct {
-	MaxInputBytes     int64 // total input file bytes
-	MaxInputTarBytes  int64 // whole input archive, headers included
-	MaxInputFiles     int   // input files
-	MaxInputPathBytes int   // longest input path
-	// MaxToolBytes bounds the tool archives of a job together, and
-	// MaxProgramBytes the program the container runs. They are limits of their
-	// own so that neither takes from the room the input files have. Zero
-	// allows none.
-	MaxToolBytes    int64
-	MaxProgramBytes int64
-	LogMaxBytes     int64 // json-file max-size of the container log (one file, no rotation)
-	MaxStdoutBytes  int64 // most stdout bytes read back; at least LogMaxBytes
-}
-
-// Resources are the per-job resource values; every field is required.
-type Resources struct {
-	MemoryBytes   int64 // memory limit; swap is set to the same value (no swap)
-	NanoCPUs      int64
-	PidsLimit     int64
-	NofileLimit   int64
-	ShmSizeBytes  int64 // size of /dev/shm
-	TmpSizeBytes  int64 // size of the /tmp tmpfs
-	HomeSizeBytes int64 // size of the /home/worker tmpfs
-	// ToolsSizeBytes is the size of the tmpfs the package manager is unpacked
-	// into.
-	ToolsSizeBytes int64
-}
+// TransferLimits bound the tar streams in both directions; Resources are the
+// per-job resource values. Both are shared with the other executors.
+type (
+	TransferLimits = workexec.TransferLimits
+	Resources      = workexec.Resources
+)
 
 const (
 	defaultOpTimeout       = 30 * time.Second

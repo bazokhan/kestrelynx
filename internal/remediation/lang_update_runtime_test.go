@@ -3,12 +3,14 @@ package remediation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // specWork records the specs the stage hands to the work runner.
@@ -212,6 +214,30 @@ func TestLangUpdateWorkOutcomes(t *testing.T) {
 		}
 		it, _ := h.run()
 		wantCategory(t, it, CategoryDeferred, ReasonWorkImageUnavailable)
+	})
+	t.Run("executor limits defer with their own reason", func(t *testing.T) {
+		h := newHarness(t, "npm")
+		h.work.script = func(int, worker.Job, map[string][]byte) fakeOutcome {
+			return fakeOutcome{err: &workexec.Unavailable{Reason: string(ReasonWorkPodLimit), Detail: "2 work Pods exist (limit 2)"}}
+		}
+		it, _ := h.run()
+		wantCategory(t, it, CategoryDeferred, ReasonWorkPodLimit)
+	})
+	t.Run("executor setup problems are manual", func(t *testing.T) {
+		h := newHarness(t, "npm")
+		h.work.script = func(int, worker.Job, map[string][]byte) fakeOutcome {
+			return fakeOutcome{err: &workexec.Unavailable{Manual: true, Reason: string(ReasonWorkAdmissionUnverified), Detail: "policy not in force"}}
+		}
+		it, _ := h.run()
+		wantCategory(t, it, CategoryManual, ReasonWorkAdmissionUnverified)
+	})
+	t.Run("a result that cannot be used fails", func(t *testing.T) {
+		h := newHarness(t, "npm")
+		h.work.script = func(int, worker.Job, map[string][]byte) fakeOutcome {
+			return fakeOutcome{err: fmt.Errorf("%w: sealed to another attempt", workexec.ErrResultInvalid)}
+		}
+		it, _ := h.run()
+		wantCategory(t, it, CategoryFailed, ReasonUpdateResultInvalid)
 	})
 	t.Run("environment rejected fails", func(t *testing.T) {
 		h := newHarness(t, "npm")

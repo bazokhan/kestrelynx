@@ -1,0 +1,22 @@
+# The namespace KestreLynx runs its language-package work Pods in. Pod Security
+# enforces the restricted profile here; the admission policy in
+# validatingadmissionpolicy.yaml narrows what may be created further.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kestrelynx-work
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# The service account of the work Pods. It has no permissions, no token is
+# mounted into the Pods, and it must not have imagePullSecrets: the policy
+# requires a Pod's imagePullSecrets to be empty.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kestrelynx-work
+  namespace: kestrelynx-work
+automountServiceAccountToken: false

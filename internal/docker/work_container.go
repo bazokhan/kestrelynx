@@ -140,7 +140,7 @@ func tmpfsOpts(size int64, extra string) string {
 	return fmt.Sprintf("rw,nosuid,nodev,size=%d,%s", size, extra)
 }
 
-func (r Resources) validate() error {
+func validateResources(r Resources) error {
 	if r.MemoryBytes <= 0 || r.NanoCPUs <= 0 || r.PidsLimit <= 0 || r.NofileLimit <= 0 ||
 		r.ShmSizeBytes <= 0 || r.TmpSizeBytes <= 0 || r.HomeSizeBytes <= 0 || r.ToolsSizeBytes <= 0 {
 		return errors.New("every work resource value must be positive")

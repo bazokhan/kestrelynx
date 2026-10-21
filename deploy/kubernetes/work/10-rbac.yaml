@@ -1,0 +1,35 @@
+# What KestreLynx may do in the work namespace, and only here. It creates a
+# work Pod (and, for the checks of the admission policy, creates Pods with
+# dryRun), reads and lists Pods, deletes them, attaches to the receiving
+# container of a Pod and reads its log. It may not update or patch a Pod,
+# exec into one, create ephemeral containers, or touch any other resource.
+# The WebSocket form of attach needs get as well as create on pods/attach.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kestrelynx-work
+  namespace: kestrelynx-work
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kestrelynx-work
+  namespace: kestrelynx-work
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kestrelynx-work
+subjects:
+  - kind: ServiceAccount
+    name: kestrelynx
+    namespace: kestrelynx

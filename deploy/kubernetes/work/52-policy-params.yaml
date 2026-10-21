@@ -1,0 +1,25 @@
+# The values the policy compares a Pod with. Edit them to match the
+# installation: receiverRepository is the repository of the KestreLynx image the
+# receiving container runs (without tag or digest), workRepositories the
+# repositories of the official Node.js and Python images, or of the mirror
+# configured in remediation.worker.registry, arch the architecture of the nodes
+# and of the KestreLynx Pod, and the max* values upper bounds on what a Pod may
+# ask for. serviceAccount and priorityClass name the objects in
+# 00-namespace.yaml and 20-priorityclass.yaml. Work Pods do not use a
+# RuntimeClass, and the policy refuses one.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kestrelynx-work-policy
+  namespace: kestrelynx-work
+data:
+  serviceAccount: kestrelynx-work
+  priorityClass: kestrelynx-work
+  receiverRepository: ghcr.io/kitsunetrail/kestrelynx
+  workRepositories: docker.io/library/node,docker.io/library/python
+  arch: amd64
+  maxDeadlineSeconds: "4200"
+  maxVolume: 512Mi
+  maxCPU: "4"
+  maxMemory: 4Gi
+  maxEphemeral: 1Gi

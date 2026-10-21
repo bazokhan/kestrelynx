@@ -113,6 +113,19 @@ const (
 	// ReasonWorkNamespaceNotConfigured: language package updates on Kubernetes
 	// run in work Pods of a dedicated namespace, and none is available.
 	ReasonWorkNamespaceNotConfigured Reason = "work_namespace_not_configured"
+	// The reasons a work Pod cannot be run right now or at all: the namespace
+	// holds as many Pods or as much quota as it may, the admission policy
+	// that bounds the Pods is not verifiably in force, the configured
+	// PriorityClass does not exist, the Pod did not start in time, and the
+	// cluster is older than the lowest version the policy needs.
+	ReasonWorkPodLimit             Reason = "work_pod_limit"
+	ReasonWorkAdmissionUnverified  Reason = "work_admission_unverified"
+	ReasonWorkPriorityClassMissing Reason = "work_priority_class_missing"
+	ReasonWorkPodNotStarted        Reason = "work_pod_not_started"
+	ReasonWorkClusterTooOld        Reason = "work_cluster_too_old"
+	// ReasonWorkRuntimeClassUnsupported: a RuntimeClass is configured for the
+	// work Pods, which the work Pod runner does not support.
+	ReasonWorkRuntimeClassUnsupported Reason = "work_runtime_class_unsupported"
 )
 
 // PRState is the state of a pull request record.

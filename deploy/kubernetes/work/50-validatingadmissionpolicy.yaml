@@ -1,0 +1,103 @@
+# The admission policy of the work namespace. Pod Security (restricted) refuses
+# root, privilege and host paths, but not a high priority class, a persistent
+# volume claim by a generic ephemeral volume, another service account, a
+# mounted Secret or ConfigMap, probes and hooks that run other commands, or a
+# network-attachment annotation. This policy allows exactly the work Pod
+# KestreLynx builds and nothing else, whoever asks, so a compromised KestreLynx
+# still cannot create a different Pod. KestreLynx checks with dry-run requests,
+# once per cycle, that every rule below is in force; each rule's message is the
+# fixed text it looks for.
+#
+# What varies per installation is in the parameter ConfigMap (policy-params.yaml):
+# the service account, the priority class, the images' repositories, the node
+# architecture and the upper bounds. The binding reads that ConfigMap; a missing
+# one denies every Pod.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kestrelynx-work
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"]
+  variables:
+    # The container lists, empty when absent, so the rules never fail on a
+    # missing field.
+    - name: init
+      expression: "has(object.spec.initContainers) ? object.spec.initContainers : object.spec.containers.filter(c, false)"
+    - name: main
+      expression: "object.spec.containers"
+    - name: p
+      expression: "params.data"
+    - name: shaped
+      expression: "variables.init.size() == 1 && variables.main.size() == 1 && variables.init[0].name == 'receive' && variables.main[0].name == 'work'"
+    - name: sub
+      expression: "has(request.subResource) ? request.subResource : ''"
+    - name: defaultTolerations
+      expression: "['node.kubernetes.io/not-ready', 'node.kubernetes.io/unreachable']"
+  validations:
+    # --- UPDATE: a placed Pod may not be changed ---
+    - expression: "request.operation != 'UPDATE' || variables.sub != '' || (object.spec == oldObject.spec && object.metadata.labels == oldObject.metadata.labels && (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}))"
+      message: "KRW-update"
+    - expression: "variables.sub != 'ephemeralcontainers'"
+      message: "KRW-ephemeral"
+    # Everything below is about creation.
+    - expression: "request.operation != 'CREATE' || object.metadata.name.matches('^kestrelynx-work-[0-9a-f]{32}-[0-9a-f]{16}$')"
+      message: "KRW-name"
+    - expression: "request.operation != 'CREATE' || (has(object.metadata.labels) && object.metadata.labels.size() == 4 && object.metadata.labels['io.kestrelynx.work'] == 'v1' && object.metadata.labels['io.kestrelynx.work.instance'].matches('^[0-9a-f]{32}$') && object.metadata.labels['io.kestrelynx.work.session'].matches('^[0-9a-f]{16}$') && object.metadata.labels['io.kestrelynx.work.job'].matches('^[0-9a-f]{16}$'))"
+      message: "KRW-labels"
+    - expression: "request.operation != 'CREATE' || ((!has(object.metadata.annotations) || object.metadata.annotations.size() == 0) && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.size() == 0) && (!has(object.metadata.finalizers) || object.metadata.finalizers.size() == 0) && (!has(object.metadata.generateName) || object.metadata.generateName == ''))"
+      message: "KRW-metadata"
+    - expression: "request.operation != 'CREATE' || (object.spec.serviceAccountName == variables.p['serviceAccount'] && (!has(object.spec.serviceAccount) || object.spec.serviceAccount == object.spec.serviceAccountName) && has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false)"
+      message: "KRW-serviceaccount"
+    - expression: "request.operation != 'CREATE' || !has(object.spec.imagePullSecrets) || object.spec.imagePullSecrets.size() == 0"
+      message: "KRW-pullsecrets"
+    - expression: "request.operation != 'CREATE' || (object.spec.dnsPolicy == 'ClusterFirst' && !has(object.spec.dnsConfig) && !has(object.spec.hostAliases) && !has(object.spec.hostname) && !has(object.spec.subdomain) && !has(object.spec.setHostnameAsFQDN) && has(object.spec.enableServiceLinks) && object.spec.enableServiceLinks == false)"
+      message: "KRW-dns"
+    - expression: "request.operation != 'CREATE' || ((!has(object.spec.nodeName) || object.spec.nodeName == '') && has(object.spec.nodeSelector) && object.spec.nodeSelector.size() == 2 && object.spec.nodeSelector['kubernetes.io/os'] == 'linux' && object.spec.nodeSelector['kubernetes.io/arch'] == variables.p['arch'] && !has(object.spec.affinity) && !has(object.spec.topologySpreadConstraints) && !has(object.spec.schedulingGates) && !has(object.spec.readinessGates) && !has(object.spec.resourceClaims) && has(object.spec.schedulerName) && object.spec.schedulerName == 'default-scheduler' && has(object.spec.tolerations) && object.spec.tolerations.size() == 2 && variables.defaultTolerations.all(k, object.spec.tolerations.exists(t, has(t.key) && t.key == k)) && object.spec.tolerations.all(t, has(t.key) && t.key in variables.defaultTolerations && has(t.operator) && t.operator == 'Exists' && !has(t.value) && has(t.effect) && t.effect == 'NoExecute' && has(t.tolerationSeconds) && t.tolerationSeconds == 300))"
+      message: "KRW-placement"
+    - expression: "request.operation != 'CREATE' || (has(object.spec.priorityClassName) && object.spec.priorityClassName == variables.p['priorityClass'] && has(object.spec.preemptionPolicy) && object.spec.preemptionPolicy == 'Never')"
+      message: "KRW-priority"
+    - expression: "request.operation != 'CREATE' || (object.spec.restartPolicy == 'Never' && has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds > 0 && object.spec.activeDeadlineSeconds <= int(variables.p['maxDeadlineSeconds']) && has(object.spec.terminationGracePeriodSeconds) && object.spec.terminationGracePeriodSeconds == 5)"
+      message: "KRW-lifetime"
+    - expression: "request.operation != 'CREATE' || ((!has(object.spec.hostNetwork) || !object.spec.hostNetwork) && (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.shareProcessNamespace) || !object.spec.shareProcessNamespace) && !has(object.spec.hostUsers) && (!has(object.spec.os) || object.spec.os.name == 'linux'))"
+      message: "KRW-host"
+    - expression: "request.operation != 'CREATE' || (!has(object.spec.runtimeClassName) && !has(object.spec.overhead))"
+      message: "KRW-runtime"
+    - expression: "request.operation != 'CREATE' || (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type == 'RuntimeDefault' && !has(object.spec.securityContext.sysctls) && !has(object.spec.securityContext.seLinuxOptions) && !has(object.spec.securityContext.appArmorProfile) && !has(object.spec.securityContext.fsGroup) && !has(object.spec.securityContext.fsGroupChangePolicy) && !has(object.spec.securityContext.supplementalGroups) && !has(object.spec.securityContext.supplementalGroupsPolicy) && !has(object.spec.securityContext.windowsOptions) && !has(object.spec.securityContext.runAsUser) && !has(object.spec.securityContext.runAsGroup) && !has(object.spec.securityContext.seLinuxChangePolicy))"
+      message: "KRW-podsecurity"
+    - expression: "request.operation != 'CREATE' || (variables.shaped && (!has(object.spec.ephemeralContainers) || object.spec.ephemeralContainers.size() == 0))"
+      message: "KRW-containers"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (variables.init[0].image.matches('^' + variables.p['receiverRepository'].replace('.', '\\\\.') + '@sha256:[0-9a-f]{64}$') && variables.p['workRepositories'].split(',').exists(r, variables.main[0].image.matches('^' + r.replace('.', '\\\\.') + '@sha256:[0-9a-f]{64}$')))"
+      message: "KRW-images"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (variables.init[0].command == ['/usr/local/bin/kestrelynx', 'receive'] && !has(variables.init[0].args) && variables.main[0].command == ['/work/bin/kestrelynx-worker'] && has(variables.main[0].args) && variables.main[0].args == ['run-kubernetes', '/work/job.json'])"
+      message: "KRW-commands"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || ((variables.init + variables.main).all(c, !has(c.livenessProbe) && !has(c.readinessProbe) && !has(c.startupProbe) && !has(c.lifecycle) && !has(c.restartPolicy) && !has(c.restartPolicyRules) && !has(c.ports) && (!has(c.resizePolicy) || (c.resizePolicy.size() == 2 && c.resizePolicy.all(r, r.restartPolicy == 'NotRequired' && r.resourceName in ['cpu', 'memory'])))))"
+      message: "KRW-execpaths"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (has(variables.init[0].stdin) && variables.init[0].stdin == true && has(variables.init[0].stdinOnce) && variables.init[0].stdinOnce == true && (!has(variables.init[0].tty) || !variables.init[0].tty) && (!has(variables.main[0].stdin) || !variables.main[0].stdin) && (!has(variables.main[0].stdinOnce) || !variables.main[0].stdinOnce) && (!has(variables.main[0].tty) || !variables.main[0].tty))"
+      message: "KRW-io"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || ((!has(variables.init[0].env) || variables.init[0].env.size() == 0) && !has(variables.init[0].envFrom) && !has(variables.main[0].envFrom) && has(variables.main[0].env) && variables.main[0].env.size() == 2 && variables.main[0].env.all(e, !has(e.valueFrom) && has(e.value)) && variables.main[0].env.exists(e, e.name == 'PATH' && e.value == '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') && variables.main[0].env.exists(e, e.name == 'HOME' && e.value == '/home/worker'))"
+      message: "KRW-env"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (has(variables.init[0].securityContext) && has(variables.main[0].securityContext) && variables.init[0].securityContext.runAsUser == 10002 && variables.init[0].securityContext.runAsGroup == 10002 && variables.main[0].securityContext.runAsUser == 10001 && variables.main[0].securityContext.runAsGroup == 10001 && (variables.init + variables.main).all(c, has(c.securityContext.runAsUser) && has(c.securityContext.runAsGroup) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop == ['ALL'] && !has(c.securityContext.capabilities.add) && !has(c.securityContext.privileged) && !has(c.securityContext.procMount) && !has(c.securityContext.seLinuxOptions) && !has(c.securityContext.windowsOptions) && (!has(c.securityContext.seccompProfile) || c.securityContext.seccompProfile.type == 'RuntimeDefault') && (!has(c.securityContext.appArmorProfile) || c.securityContext.appArmorProfile.type == 'RuntimeDefault')))"
+      message: "KRW-secctx"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (variables.init[0].terminationMessagePath == '/root/.kestrelynx-termination/receive' && variables.main[0].terminationMessagePath == '/root/.kestrelynx-termination/work' && has(variables.init[0].terminationMessagePolicy) && variables.init[0].terminationMessagePolicy == 'File' && has(variables.main[0].terminationMessagePolicy) && variables.main[0].terminationMessagePolicy == 'File')"
+      message: "KRW-termination"
+    - expression: "request.operation != 'CREATE' || (has(object.spec.volumes) && object.spec.volumes.size() == 5 && ['work', 'tmp', 'home', 'tools', 'shm'].all(n, object.spec.volumes.exists(v, v.name == n)) && object.spec.volumes.all(v, has(v.emptyDir) && has(v.emptyDir.medium) && v.emptyDir.medium == 'Memory' && has(v.emptyDir.sizeLimit) && quantity(string(v.emptyDir.sizeLimit)).compareTo(quantity('0')) > 0 && quantity(string(v.emptyDir.sizeLimit)).compareTo(quantity(variables.p['maxVolume'])) <= 0))"
+      message: "KRW-volumes"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (variables.init[0].volumeMounts.size() == 1 && variables.init[0].volumeMounts[0].name == 'work' && variables.init[0].volumeMounts[0].mountPath == '/work' && (!has(variables.init[0].volumeMounts[0].readOnly) || !variables.init[0].volumeMounts[0].readOnly) && variables.main[0].volumeMounts.size() == 5 && variables.main[0].volumeMounts.exists(m, m.name == 'work' && m.mountPath == '/work' && has(m.readOnly) && m.readOnly == true) && variables.main[0].volumeMounts.exists(m, m.name == 'tmp' && m.mountPath == '/tmp' && (!has(m.readOnly) || !m.readOnly)) && variables.main[0].volumeMounts.exists(m, m.name == 'home' && m.mountPath == '/home/worker' && (!has(m.readOnly) || !m.readOnly)) && variables.main[0].volumeMounts.exists(m, m.name == 'tools' && m.mountPath == '/opt/kestrelynx-tools' && (!has(m.readOnly) || !m.readOnly)) && variables.main[0].volumeMounts.exists(m, m.name == 'shm' && m.mountPath == '/dev/shm' && (!has(m.readOnly) || !m.readOnly)) && (variables.init + variables.main).all(c, !has(c.volumeDevices) && c.volumeMounts.all(m, !has(m.subPath) && !has(m.subPathExpr) && !has(m.mountPropagation) && !has(m.recursiveReadOnly))))"
+      message: "KRW-mounts"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (variables.init + variables.main).all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) && ['cpu', 'memory', 'ephemeral-storage'].all(k, k in c.resources.requests && k in c.resources.limits && quantity(string(c.resources.requests[k])).compareTo(quantity('0')) > 0 && quantity(string(c.resources.limits[k])).compareTo(quantity('0')) > 0 && quantity(string(c.resources.requests[k])).compareTo(quantity(string(c.resources.limits[k]))) <= 0) && quantity(string(c.resources.limits['cpu'])).compareTo(quantity(variables.p['maxCPU'])) <= 0 && quantity(string(c.resources.limits['memory'])).compareTo(quantity(variables.p['maxMemory'])) <= 0 && quantity(string(c.resources.limits['ephemeral-storage'])).compareTo(quantity(variables.p['maxEphemeral'])) <= 0 && c.resources.limits.size() == 3 && c.resources.requests.size() == 3 && !has(c.resources.claims))"
+      message: "KRW-resources"
+    - expression: "request.operation != 'CREATE' || !variables.shaped || (!has(variables.init[0].workingDir) && !has(variables.main[0].workingDir))"
+      message: "KRW-workdir"

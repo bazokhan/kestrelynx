@@ -83,6 +83,16 @@ func validResultPath(name string) error {
 // standard-output block. Directories are added as needed, in a fixed order, so
 // equal input gives equal bytes.
 func EncodeResult(files map[string][]byte) ([]byte, error) {
+	tarBytes, err := EncodeResultTar(files)
+	if err != nil {
+		return nil, err
+	}
+	return ResultBlockOfTar(tarBytes), nil
+}
+
+// EncodeResultTar packs files into the result tar alone, without the block
+// around it.
+func EncodeResultTar(files map[string][]byte) ([]byte, error) {
 	names := make([]string, 0, len(files))
 	dirs := map[string]bool{}
 	for name := range files {
@@ -127,22 +137,7 @@ func EncodeResult(files map[string][]byte) ([]byte, error) {
 	if err := tw.Close(); err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(tarBuf.Bytes())
-	b64 := base64.StdEncoding.EncodeToString(tarBuf.Bytes())
-
-	var out bytes.Buffer
-	fmt.Fprintf(&out, "%s %d %d %s\n", ResultBlockStart, ProtocolVersion, tarBuf.Len(), hex.EncodeToString(sum[:]))
-	for len(b64) > 0 {
-		n := resultLineWidth
-		if len(b64) < n {
-			n = len(b64)
-		}
-		out.WriteString(b64[:n])
-		out.WriteByte('\n')
-		b64 = b64[n:]
-	}
-	out.WriteString(ResultBlockEnd + "\n")
-	return out.Bytes(), nil
+	return tarBuf.Bytes(), nil
 }
 
 // DecodeResult reads the block from a container's standard output, which is

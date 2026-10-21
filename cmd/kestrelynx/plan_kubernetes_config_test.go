@@ -87,7 +87,7 @@ func TestBuildPlanConfig_KubernetesPullRequests(t *testing.T) {
 	if len(pc.Dockerfiles) != 1 || pc.Dockerfiles[0].Workload != "deployment/shop/web/app" {
 		t.Errorf("Dockerfile mappings = %+v", pc.Dockerfiles)
 	}
-	lc := kubernetesLanguageConfig()
+	lc := kubernetesLanguageConfig(config.Config{}, quietLog())
 	if lc.NewUpdater != nil || lc.Unavailable == nil || !lc.Unavailable.Manual || lc.Unavailable.Reason != remediation.ReasonWorkNamespaceNotConfigured {
 		t.Errorf("language config = %+v", lc)
 	}

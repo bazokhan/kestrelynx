@@ -1,0 +1,18 @@
+# Upper bounds on the work namespace: how many Pods exist (finished ones count
+# until they are removed), how much they may ask for, and no persistent volume
+# claims at all (a generic ephemeral volume would create one).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: kestrelynx-work
+  namespace: kestrelynx-work
+spec:
+  hard:
+    count/pods: "8"
+    count/persistentvolumeclaims: "0"
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    requests.ephemeral-storage: 2Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    limits.ephemeral-storage: 4Gi

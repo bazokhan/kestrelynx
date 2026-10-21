@@ -193,6 +193,32 @@ type RemediationWorkerConfig struct {
 	// from instead of the build's own, which are checked against the hashes
 	// the build embeds. It is meant for developing the program.
 	ProgramDir string
+	// Kubernetes configures the work Pods that language package updates run
+	// in with Kubernetes. It is used only when Namespace is set.
+	Kubernetes RemediationWorkerKubernetes
+}
+
+// RemediationWorkerKubernetes locates and limits the work Pods.
+type RemediationWorkerKubernetes struct {
+	// Namespace is the namespace the work Pods are created in. Setting it turns
+	// the feature on; the namespace, its admission policy and the rest are
+	// applied by the user (deploy/kubernetes/work).
+	Namespace string
+	// ServiceAccount is the service account of the work Pods, one without
+	// permissions and without a token.
+	ServiceAccount string
+	// ReceiverImage is the KestreLynx image, pinned by digest, that the
+	// receiving init container runs; empty means the image of KestreLynx's own
+	// Pod (read from its status).
+	ReceiverImage string
+	// RuntimeClass is accepted so that a configuration naming one is not
+	// silently ignored; work Pods do not support a RuntimeClass, and updates
+	// are reported as manual while one is set.
+	RuntimeClass string
+	// PriorityClass is the user's PriorityClass that never preempts.
+	PriorityClass string
+	// MaxConcurrentPods bounds the work Pods that exist at once.
+	MaxConcurrentPods int
 }
 
 // RemediationToolVersions holds the settings of the package manager cache.
@@ -429,6 +455,14 @@ type rawConfig struct {
 				MinReleaseAge *time.Duration `yaml:"min_release_age"`
 				CacheMaxSize  *string        `yaml:"cache_max_size"`
 			} `yaml:"tool_versions"`
+			Kubernetes struct {
+				Namespace         string `yaml:"namespace"`
+				ServiceAccount    string `yaml:"service_account"`
+				ReceiverImage     string `yaml:"receiver_image"`
+				RuntimeClass      string `yaml:"runtime_class"`
+				PriorityClass     string `yaml:"priority_class"`
+				MaxConcurrentPods *int   `yaml:"max_concurrent_pods"`
+			} `yaml:"kubernetes"`
 		} `yaml:"worker"`
 		Mappings []struct {
 			Workload   string `yaml:"workload"`
@@ -555,6 +589,14 @@ func Parse(data []byte) (Config, error) {
 			MinReleaseAge: durationOr(rw.ToolVersions.MinReleaseAge, defaultToolMinReleaseAge),
 			CacheMaxSize:  defaultToolCacheMaxSize,
 		},
+	}
+	if k := rw.Kubernetes; k.Namespace != "" || k.ServiceAccount != "" || k.ReceiverImage != "" || k.RuntimeClass != "" || k.PriorityClass != "" || k.MaxConcurrentPods != nil {
+		wk.Kubernetes = RemediationWorkerKubernetes{
+			Namespace: k.Namespace, ServiceAccount: nonEmptyOr(k.ServiceAccount, defaultWorkServiceAccount),
+			ReceiverImage: k.ReceiverImage, RuntimeClass: k.RuntimeClass,
+			PriorityClass:     nonEmptyOr(k.PriorityClass, defaultWorkPriorityClass),
+			MaxConcurrentPods: intOr(k.MaxConcurrentPods, defaultMaxConcurrentPods),
+		}
 	}
 	if sz := rw.ToolVersions.CacheMaxSize; sz != nil {
 		n, err := parseByteSize(*sz)
@@ -794,7 +836,7 @@ func validateRemediation(c *Config) error {
 	if r.Limits.JobTimeout < minJobTimeout || r.Limits.JobTimeout > maxJobTimeout {
 		return fmt.Errorf("config: remediation.limits.job_timeout must be between %s and %s, got %s", minJobTimeout, maxJobTimeout, r.Limits.JobTimeout)
 	}
-	if err := validateWorker(r.Worker); err != nil {
+	if err := validateWorker(r.Worker, c.Kubernetes.Enabled); err != nil {
 		return err
 	}
 	if err := validateRegistries(r.Registries); err != nil {
@@ -854,7 +896,10 @@ const (
 )
 
 // validateWorker checks the settings of the work containers.
-func validateWorker(w RemediationWorkerConfig) error {
+func validateWorker(w RemediationWorkerConfig, kubernetes bool) error {
+	if err := validateWorkerKubernetes(w.Kubernetes, kubernetes); err != nil {
+		return err
+	}
 	if w.Registry != "" {
 		if !registryRE.MatchString(w.Registry) || strings.Contains(w.Registry, "//") || strings.Contains(w.Registry, "..") {
 			return fmt.Errorf("config: remediation.worker.registry must be a host and an optional path, for example registry.example.com:5000/dockerhub, with no scheme, tag or digest")
@@ -927,4 +972,53 @@ func floatOr(p *float64, def float64) float64 {
 		return *p
 	}
 	return def
+}
+
+// Defaults of remediation.worker.kubernetes.
+const (
+	defaultWorkServiceAccount = "kestrelynx-work"
+	defaultWorkPriorityClass  = "kestrelynx-work"
+	defaultMaxConcurrentPods  = 1
+	maxMaxConcurrentPods      = 16
+)
+
+var (
+	workImageRE = regexp.MustCompile(`^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$`)
+)
+
+// validateWorkerKubernetes checks the settings of the work Pods. They are
+// checked whether or not the feature is on, so a mistake shows at load time.
+func validateWorkerKubernetes(k RemediationWorkerKubernetes, kubernetes bool) error {
+	if k == (RemediationWorkerKubernetes{}) {
+		return nil
+	}
+	if !kubernetes {
+		return fmt.Errorf("config: remediation.worker.kubernetes requires kubernetes.enabled")
+	}
+	if k.Namespace == "" {
+		return fmt.Errorf("config: remediation.worker.kubernetes.namespace must be set when the other settings of remediation.worker.kubernetes are")
+	}
+	if !namespacePattern.MatchString(k.Namespace) {
+		return fmt.Errorf("config: remediation.worker.kubernetes.namespace %q must be a namespace name", k.Namespace)
+	}
+	if !inventory.ValidDNS1123Subdomain(k.ServiceAccount) || !inventory.ValidDNS1123Subdomain(k.PriorityClass) {
+		return fmt.Errorf("config: remediation.worker.kubernetes.service_account and priority_class must be object names")
+	}
+	if k.RuntimeClass != "" && !inventory.ValidDNS1123Subdomain(k.RuntimeClass) {
+		return fmt.Errorf("config: remediation.worker.kubernetes.runtime_class %q must be an object name", k.RuntimeClass)
+	}
+	if k.ReceiverImage != "" && !workImageRE.MatchString(k.ReceiverImage) {
+		return fmt.Errorf("config: remediation.worker.kubernetes.receiver_image must be a repository pinned by digest (repository@sha256:...)")
+	}
+	if k.MaxConcurrentPods < 1 || k.MaxConcurrentPods > maxMaxConcurrentPods {
+		return fmt.Errorf("config: remediation.worker.kubernetes.max_concurrent_pods must be between 1 and %d, got %d", maxMaxConcurrentPods, k.MaxConcurrentPods)
+	}
+	return nil
+}
+
+func nonEmptyOr(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }

@@ -39,6 +39,9 @@ type SelfCheckConfig struct {
 	MaxTime    time.Duration
 	// FS is how the filesystem is read; nil means the real one.
 	FS SelfCheckFS
+	// Kubernetes, when set, replaces the rules about mounts with the ones of a
+	// work Pod and adds the active checks of KubernetesCheck.
+	Kubernetes *KubernetesCheck
 }
 
 // SelfCheckFS is the part of the filesystem the check reads.
@@ -226,12 +229,22 @@ func (c *SelfCheckConfig) selfCheck() error {
 	if err != nil {
 		return err
 	}
-	skip, err := c.checkMounts(mounts)
+	check := c.checkMounts
+	if c.Kubernetes != nil {
+		check = c.checkKubernetesMounts
+	}
+	skip, err := check(mounts)
 	if err != nil {
 		return err
 	}
 	w := &walker{c: c, fs: fsys, skip: skip, deadline: time.Now().Add(c.MaxTime)}
-	return w.walk(c.Root)
+	if err := w.walk(c.Root); err != nil {
+		return err
+	}
+	if c.Kubernetes != nil {
+		return c.Kubernetes.activeChecks(fsys)
+	}
+	return nil
 }
 
 type walker struct {

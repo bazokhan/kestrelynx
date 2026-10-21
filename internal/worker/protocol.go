@@ -42,6 +42,13 @@ const (
 	// can read it and cannot write it.
 	UID = 10001
 	GID = 10001
+	// ReceiverUID is the user of the init container that unpacks the input in a
+	// work Pod; the input and the tool archive belong to it, not to the job
+	// user.
+	ReceiverUID = 10002
+	// TerminationDir is the directory, unreachable to both users, in which the
+	// kubelet is told to keep the termination message files of a work Pod.
+	TerminationDir = "/root/.kestrelynx-termination"
 )
 
 // Manager is the package manager a job is for.

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // Step ids of the update jobs. The id of a failed step says which part of the
@@ -87,37 +87,46 @@ func (u *LangUpdater) execute(ctx context.Context, job worker.Job, env *jobEnvir
 	if fail != nil {
 		return nil, fail
 	}
-	spec := docker.JobSpec{
+	spec := workexec.JobSpec{
 		JobID:   jobID,
 		Runtime: job.Runtime.ID,
-		Inputs: []docker.InputFile{
+		Inputs: []workexec.InputFile{
 			{Path: "job.json", Content: jobJSON},
-			{Path: worker.ProgramInputPath, Content: program, Kind: docker.KindProgram, Executable: true},
+			{Path: worker.ProgramInputPath, Content: program, Kind: workexec.KindProgram, Executable: true},
 		},
 		Timeout:   timeout,
 		Resources: u.cfg.Resources,
 	}
 	if job.Tool != nil {
-		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: job.Tool.Path, Content: env.archive, Kind: docker.KindTool})
+		spec.Inputs = append(spec.Inputs, workexec.InputFile{Path: job.Tool.Path, Content: env.archive, Kind: workexec.KindTool})
 	}
 	for _, in := range job.Inputs {
-		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.SrcDirName + "/" + in.Path, Content: inputs[in.Path]})
+		spec.Inputs = append(spec.Inputs, workexec.InputFile{Path: worker.SrcDirName + "/" + in.Path, Content: inputs[in.Path]})
 	}
 	for _, in := range job.Replacements {
-		spec.Inputs = append(spec.Inputs, docker.InputFile{Path: worker.ReplaceDirName + "/" + in.Path, Content: replacements[in.Path]})
+		spec.Inputs = append(spec.Inputs, workexec.InputFile{Path: worker.ReplaceDirName + "/" + in.Path, Content: replacements[in.Path]})
 	}
 	upd.Runtime, upd.Tool = env.rtRec, env.toolRec
 
 	res, err := u.cfg.Work.RunJob(ctx, spec)
 	if err != nil {
+		var un *workexec.Unavailable
 		switch {
-		case errors.Is(err, docker.ErrImageUnavailable):
+		case errors.As(err, &un):
+			category := CategoryDeferred
+			if un.Manual {
+				category = CategoryManual
+			}
+			return nil, &updateFailure{category: category, reason: Reason(un.Reason), detail: clip(un.Detail, 300)}
+		case errors.Is(err, workexec.ErrResultInvalid):
+			return nil, failedFailure(ReasonUpdateResultInvalid, "%v", clip(err.Error(), 300))
+		case errors.Is(err, workexec.ErrImageUnavailable):
 			return nil, &updateFailure{category: CategoryDeferred, reason: ReasonWorkImageUnavailable, detail: clip(err.Error(), 300)}
-		case errors.Is(err, docker.ErrCleanup) && res.Stdout != nil:
+		case errors.Is(err, workexec.ErrCleanup) && res.Stdout != nil:
 			upd.Notes = append(upd.Notes, "the work container could not be deleted after the job: "+clip(err.Error(), 200))
 		case ctx.Err() != nil:
 			return nil, &updateFailure{category: CategoryDeferred, reason: ReasonCycleDeadline, detail: ctx.Err().Error()}
-		case errors.Is(err, docker.ErrJobTimeout):
+		case errors.Is(err, workexec.ErrJobTimeout):
 			return nil, failedFailure(ReasonUpdateJobTimedOut, "the job did not finish within %s", timeout)
 		default:
 			return nil, failedFailure(ReasonUpdateJobFailed, "run the job: %v", clip(err.Error(), 300))

@@ -32,6 +32,8 @@ var (
 	workEnvKeys    = []string{"PATH", "HOME"}
 )
 
+var _ remediation.WorkRunner = (*docker.WorkSet)(nil)
+
 // maxProgramBytes bounds the work program file this process reads and places
 // into a container.
 const maxProgramBytes = 16 << 20
@@ -232,22 +234,30 @@ func buildLanguageConfig(cfg config.Config, log *slog.Logger) *runner.LanguageUp
 		"dependency_jobs_per_cycle", l.DependencyJobsPerCycle, "job_timeout", l.JobTimeout)
 	return &runner.LanguageUpdateConfig{
 		NewUpdater: func(ctx context.Context, in runner.LanguageUpdateInput) (runner.LanguageUpdater, error) {
-			if tools.NewCycle != nil {
-				tools.NewCycle()
-			}
-			return remediation.NewLangUpdater(remediation.LangUpdateConfig{
-				Work:     set,
-				Scanner:  scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true},
-				PyPI:     &remediation.PyPIClient{},
-				Npm:      &remediation.NpmClient{},
-				GitHub:   in.GitHub,
-				Prepared: in.Prepared,
-				Images:   in.Images,
-				Intel:    in.Intel,
-				MaxJobs:  l.DependencyJobsPerCycle, JobTimeout: l.JobTimeout,
-				Tools: tools.Provider, DefaultToolVersion: tools.DefaultVersion,
-				Platform: platform, Program: program,
-			})
+			return newLanguageUpdater(cfg, tools, set, platform, program, in)
 		},
 	}
+}
+
+// newLanguageUpdater builds the update stage of one cycle on top of an executor
+// of jobs, Docker's or Kubernetes'.
+func newLanguageUpdater(cfg config.Config, tools toolSupply, work remediation.WorkRunner, platform string,
+	program func() ([]byte, error), in runner.LanguageUpdateInput) (runner.LanguageUpdater, error) {
+	if tools.NewCycle != nil {
+		tools.NewCycle()
+	}
+	l := cfg.Remediation.Limits
+	return remediation.NewLangUpdater(remediation.LangUpdateConfig{
+		Work:     work,
+		Scanner:  scanner.Trivy{Severity: cfg.Scan.Severity, SkipDBUpdate: true},
+		PyPI:     &remediation.PyPIClient{},
+		Npm:      &remediation.NpmClient{},
+		GitHub:   in.GitHub,
+		Prepared: in.Prepared,
+		Images:   in.Images,
+		Intel:    in.Intel,
+		MaxJobs:  l.DependencyJobsPerCycle, JobTimeout: l.JobTimeout,
+		Tools: tools.Provider, DefaultToolVersion: tools.DefaultVersion,
+		Platform: platform, Program: program,
+	})
 }

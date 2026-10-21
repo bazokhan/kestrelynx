@@ -66,6 +66,27 @@ func DefaultEnvironment() *EnvironmentConfig {
 	}
 }
 
+// KubernetesEnvironment is the layout inside a work Pod's work container: the
+// scratch directories are memory volumes, and the tool archive belongs to the
+// receiving container's user.
+func KubernetesEnvironment() *EnvironmentConfig {
+	return &EnvironmentConfig{
+		SelfCheck: SelfCheckConfig{
+			Root: "/", MountInfo: "/proc/self/mountinfo", UID: worker.UID,
+			Tmpfs: []TmpfsMount{
+				{Path: worker.TmpDir},
+				{Path: worker.HomeDir},
+				{Path: worker.ToolsRoot, Exec: true},
+			},
+			MaxEntries: selfCheckMaxEntries, MaxTime: selfCheckMaxTime,
+			Kubernetes: DefaultKubernetesCheck(),
+		},
+		ToolsRoot:      worker.ToolsRoot,
+		ArchiveUID:     worker.ReceiverUID,
+		VersionTimeout: 30 * time.Second,
+	}
+}
+
 func (e *EnvironmentConfig) selfCheck() error {
 	if e.SkipSelfCheck {
 		return nil

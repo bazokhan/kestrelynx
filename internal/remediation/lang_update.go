@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kitsunetrail/kestrelynx/internal/docker"
 	"github.com/kitsunetrail/kestrelynx/internal/github"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 	"github.com/kitsunetrail/kestrelynx/internal/worker"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 )
 
 // LangUpdateConfig holds what the dependency update stage needs.
@@ -48,7 +48,7 @@ type LangUpdateConfig struct {
 	JobTimeout time.Duration
 	// Resources are the limits of a container; a zero value means
 	// DefaultUpdateResources.
-	Resources docker.Resources
+	Resources workexec.Resources
 	// JobIDPrefix starts the job ids (letters, digits, '.', '_' and '-');
 	// empty means "lang".
 	JobIDPrefix string
@@ -72,8 +72,8 @@ type LangUpdateConfig struct {
 const DefaultUpdateJobTimeout = 6 * time.Minute
 
 // DefaultUpdateResources are the container limits an update job runs under.
-func DefaultUpdateResources() docker.Resources {
-	return docker.Resources{
+func DefaultUpdateResources() workexec.Resources {
+	return workexec.Resources{
 		MemoryBytes: 2 << 30, NanoCPUs: 2_000_000_000, PidsLimit: 512, NofileLimit: 4096,
 		ShmSizeBytes: 64 << 20, TmpSizeBytes: 512 << 20, HomeSizeBytes: 512 << 20, ToolsSizeBytes: 256 << 20,
 	}
@@ -119,7 +119,7 @@ func NewLangUpdater(cfg LangUpdateConfig) (*LangUpdater, error) {
 	if d := jobDeadlineSeconds(cfg.JobTimeout); d > worker.MaxDeadlineSeconds {
 		return nil, fmt.Errorf("remediation: the update job timeout %s gives the work program a deadline of %d seconds, over its limit of %d", cfg.JobTimeout, d, worker.MaxDeadlineSeconds)
 	}
-	if cfg.Resources == (docker.Resources{}) {
+	if cfg.Resources == (workexec.Resources{}) {
 		cfg.Resources = DefaultUpdateResources()
 	}
 	if cfg.JobIDPrefix == "" {

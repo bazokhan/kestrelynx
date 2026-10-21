@@ -10,6 +10,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/hpke"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +48,16 @@ type Config struct {
 	FileSizeLimit uint64
 	// Stdout receives the result block and nothing else.
 	Stdout io.Writer
+	// Seal, when set, makes the program print the result sealed to the attempt's
+	// key (see worker.SealFrame) instead of the plain block, and nothing else
+	// but status lines.
+	Seal *SealConfig
+}
+
+// SealConfig is the key and binding a sealed result is made with.
+type SealConfig struct {
+	Public  hpke.PublicKey
+	Binding worker.SealBinding
 }
 
 // DefaultConfig is the layout inside the work image.
@@ -78,7 +89,7 @@ func Run(cfg Config, jobPath string) error {
 		if res.Steps == nil {
 			res.Steps = []worker.StepResult{}
 		}
-		return emit(cfg.Stdout, res, files)
+		return emit(cfg.Stdout, res, files, cfg.Seal)
 	}
 	reject := func(format string, args ...any) error {
 		return finish(&worker.Result{Status: worker.StatusInputRejected, Error: sanitize(fmt.Sprintf(format, args...))})
@@ -330,7 +341,7 @@ func execute(cfg Config, job *worker.Job, base string, files map[string][]byte, 
 
 // emit adds result.json to files, packs them and prints the block. Nothing
 // else is ever written to out.
-func emit(out io.Writer, res *worker.Result, files map[string][]byte) error {
+func emit(out io.Writer, res *worker.Result, files map[string][]byte, seal *SealConfig) error {
 	data, err := json.MarshalIndent(res, "", "  ")
 	if err != nil {
 		return err
@@ -339,6 +350,18 @@ func emit(out io.Writer, res *worker.Result, files map[string][]byte) error {
 		return fmt.Errorf("result is %d bytes, over %d", len(data), worker.MaxResultBytes)
 	}
 	files[worker.ResultName] = append(data, '\n')
+	if seal != nil {
+		tarBytes, err := worker.EncodeResultTar(files)
+		if err != nil {
+			return err
+		}
+		frame, err := worker.SealFrame(seal.Public, seal.Binding, tarBytes, [2]string{"job", string(res.Status)})
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(frame)
+		return err
+	}
 	block, err := worker.EncodeResult(files)
 	if err != nil {
 		return err

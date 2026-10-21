@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kitsunetrail/kestrelynx/internal/workexec"
 	"sort"
 	"sync"
 )
@@ -11,7 +12,7 @@ import (
 // ErrImageUnavailable reports that the image a job needs could not be made
 // ready: it could not be pulled, or the daemon's copy is not the pinned image
 // for the platform. Nothing was run.
-var ErrImageUnavailable = errors.New("work image unavailable")
+var ErrImageUnavailable = workexec.ErrImageUnavailable
 
 // WorkSet is the work clients of the runtimes in use, one per official image,
 // sharing one installation (instance id). A job names its runtime and runs on

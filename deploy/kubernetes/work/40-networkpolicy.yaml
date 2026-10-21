@@ -1,0 +1,37 @@
+# An example NetworkPolicy for the work namespace: nothing may connect to a work
+# Pod, and a work Pod may reach DNS and, on port 443, addresses outside the
+# cluster's private ranges (the npm registry and PyPI are among them; so is every
+# other public HTTPS server). It takes a CNI that enforces NetworkPolicy. A
+# standard NetworkPolicy always lets a Pod and its node talk, and the ranges
+# below must be adjusted to the cluster's Pod, Service and node networks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kestrelynx-work
+  namespace: kestrelynx-work
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - {protocol: TCP, port: 443}

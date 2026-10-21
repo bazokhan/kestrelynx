@@ -49,6 +49,12 @@ func main() {
 		return
 	}
 
+	// `kestrelynx receive` is the init container of a work Pod (see receive.go);
+	// like sensor it is dispatched before the flag set parses os.Args.
+	if len(os.Args) > 1 && os.Args[1] == "receive" {
+		os.Exit(runReceiveCommand())
+	}
+
 	configPath := flag.String("config", "/etc/kestrelynx/config.yml", "path to config file")
 	flag.Parse()
 
@@ -130,7 +136,7 @@ func main() {
 		r.Plan = buildPlanConfig(cfg)
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
 			if cfg.Kubernetes.Enabled {
-				r.Plan.Language = kubernetesLanguageConfig()
+				r.Plan.Language = kubernetesLanguageConfig(cfg, log)
 			} else {
 				r.Plan.Language = buildLanguageConfig(cfg, log)
 			}
@@ -247,16 +253,6 @@ func dockerfileMappings(ms []config.RemediationMapping) []remediation.Dockerfile
 		})
 	}
 	return out
-}
-
-// kubernetesLanguageConfig is the language update stage on Kubernetes: language
-// updates would run in work Pods, which are not available, so no Docker work
-// container is set up and the update candidates are reported as manual.
-func kubernetesLanguageConfig() *runner.LanguageUpdateConfig {
-	return &runner.LanguageUpdateConfig{Unavailable: &runner.LanguageUnavailable{
-		Reason: remediation.ReasonWorkNamespaceNotConfigured, Manual: true,
-		Detail: "language package updates on Kubernetes run in work Pods, which are not available yet",
-	}}
 }
 
 // kubernetesMappings picks the mappings that edit a Kubernetes manifest.
