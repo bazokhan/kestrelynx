@@ -59,7 +59,7 @@ The running image reference determines which candidate to compare.
 
 | Tag type | Candidate selection | Treatment after adoption |
 | --- | --- | --- |
-| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the tag in Compose or a Kubernetes manifest if source-editing requirements are also met. |
+| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the tag in Compose, a Kubernetes manifest, or Kustomize if source-editing requirements are also met. |
 | Floating tag | Selects the content the same tag currently points to in the registry. | Produces re-pull guidance if an improvement is confirmed, without a PR because the reference does not change. |
 
 - A candidate with the same image content as the running image is not an update candidate
@@ -67,7 +67,7 @@ The running image reference determines which candidate to compare.
 - The candidate tag is checked again before PR creation, and processing is deferred if it points to different content than during the comparison
 
 Candidate adoption follows [Scan comparison conditions](#comparison-conditions) and [Verification scope by target](#verification-scope).
-See [Compose formats](remediation-reference.md#compose-formats) and [Manifest formats](remediation-reference.md#manifest-formats) for editable references and unsupported forms.
+See [Compose formats](remediation-reference.md#compose-formats), [Manifest formats](remediation-reference.md#manifest-formats), and [Kustomize formats](remediation-reference.md#kustomize-formats) for editable references and unsupported forms.
 
 ### Kubernetes manifest PRs {#kubernetes-manifest-prs}
 
@@ -88,6 +88,28 @@ For example, mappings from workloads in different namespaces to a document that 
 
 Other containers in the same Pod template using the same image remain unchanged unless they are update targets, and the PR body lists them as unchanged.
 See [Source mappings](configuration.md#remediation-mappings) for configuration and [Manifest formats](remediation-reference.md#manifest-formats) for file restrictions.
+
+### Kustomize PRs {#kustomize-prs}
+
+In the [configuration example](remediation-setup.md#kustomize-pull-requests), KestreLynx checks `web/app`, `worker/app`, and `web/prepare`, and updates `images[nginx].newTag` when all can adopt the same fixed version.
+The checked set combines the mapped `workload` and `affects`.
+
+- Each listed container can be verified in the observed Pods, and its declared image reference matches its running reference
+- The entire set shares one current image reference, and every target can adopt the fixed version with the same tag and digest
+- The reference formed from the file's `name` or existing `newName` and `newTag` matches the declared and running references
+- For an ordinary init container, the Pod status confirms that it used the same image content under the same reference as a running container in the set in the same Pod
+
+Verification of an ordinary init container uses the scan of the running container in the same Pod.
+If its status, image content, reference, or an available scan cannot be verified, no PR is created, with reasons such as `init_container_unverified`.
+
+KestreLynx does not render Kustomize and treats the listed set as the complete affected set confirmed by the user.
+As a safety check, it stops with `undeclared_affected_workload` in the following cases.
+
+- An unlisted running container declares the same image reference and shares a namespace, Helm release, or Flux Kustomization with a listed workload
+- A listed workload's Pod spec contains an unlisted container using the same image reference, including waiting containers, native sidecars, and ordinary init containers
+
+If running-state checks fail for a mapping to the same file, or an update's set fails candidate or unlisted-container checks, all PRs for that file are withheld.
+See [Kustomize formats](remediation-reference.md#kustomize-formats) for editing restrictions.
 ### Tag discovery {#tag-discovery}
 
 The latest patch for a pinned tag is selected only after the end of its series has been checked.
@@ -695,6 +717,9 @@ It recovers records from identification markers in PR-body HTML comments for `ke
 
 Kubernetes manifest tag-update PRs use branch names starting with `kestrelynx/kubernetes/`.
 Downgrading to an older KestreLynx version prevents it from recognizing existing Kubernetes manifest PRs.
+
+Kustomize tag-update PRs use branch names starting with `kestrelynx/kustomize/` and identification markers with kind `kustomize`.
+Older versions without support for this kind cannot recognize existing Kustomize PRs.
 
 - Recalculates marker identifiers and verifies the repository and branch relationship
 - Makes no GitHub writes during recovery from missing records until all target repositories have been checked

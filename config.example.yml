@@ -163,6 +163,7 @@ runtime:
 # remediation:
 #   enabled: true
 #   # Create PRs for checked changes: Compose or plain Kubernetes manifest image tags,
+#   # Kustomize images[].newTag,
 #   # Dockerfile FROM tags, or language dependency files. Image tag updates
 #   # stay in the same major/minor series; language updates can cross major
 #   # versions. Requires remediation.enabled, source mappings and
@@ -213,14 +214,14 @@ runtime:
 #   # startup. Each entry sets exactly one of compose (the Compose file and
 #   # service that deploy it), dependencies (the directory holding its lockfiles),
 #   # dockerfile (the Dockerfile that builds its image), or manifest (the Kubernetes
-#   # manifest file). Paths are
+#   # manifest file), or kustomize (an images entry in a kustomization file). Paths are
 #   # repository-relative and normalized; "." is the repository root. Example
 #   # names only.
 #   #
 #   # Docker workload keys use compose/<project>/<service>. Kubernetes keys use
 #   # <kind>/<namespace>/<name>/<container>, where kind is deployment,
 #   # statefulset, daemonset, job, cronjob or pod.
-#   # Kubernetes accepts manifest, dockerfile and dependencies mappings; compose
+#   # Kubernetes accepts manifest, kustomize, dockerfile and dependencies mappings; compose
 #   # mappings are configuration errors. With planning enabled, mappings outside
 #   # kubernetes.namespaces produce a startup warning and have no effect.
 #   # manifest mappings require Kubernetes mode. manifest.path is required;
@@ -244,7 +245,49 @@ runtime:
 #   #     path: docker/Dockerfile
 #   #     target: runtime
 #   #
-#   # Kubernetes manifest and Dockerfile PRs use the read-only scan RBAC.
+#   # Kustomize example: apps/kustomization.yaml contains:
+#   #   images:
+#   #     - name: nginx
+#   #       newTag: "1.27.2" # Tag to use
+#   #
+#   # If this entry affects web/app, worker/app and the ordinary init container
+#   # web/prepare, use this mapping instead of the manifest mapping for web/app:
+#   # - workload: deployment/example/web/app
+#   #   repository: example/deployment
+#   #   base_branch: main
+#   #   kustomize:
+#   #     path: apps/kustomization.yaml
+#   #     image: nginx
+#   #     affects:
+#   #       - deployment/example/worker/app
+#   #       - deployment/example/web/prepare
+#   #
+#   # kustomize requires Kubernetes mode. path and image are required.
+#   # The filename must be kustomization.yaml, kustomization.yml or Kustomization.
+#   # image is images[].name without a tag or digest.
+#   # affects lists every other affected workload key, including ordinary init
+#   # containers; do not repeat keys or include the mapped workload itself.
+#   # KestreLynx does not render Kustomize. Omitting affects means the user has
+#   # confirmed that this entry affects only the mapped container.
+#   # Every mapping to one entry must declare the same workload-plus-affects set.
+#   # Each container can belong to only one tag edit location, including manifest
+#   # locations. A workload cannot have both manifest and kustomize mappings.
+#   # Every mapping to the same file in the same repository needs one base_branch.
+#   #
+#   # All listed containers must agree on the declared/running reference and adopt
+#   # the same candidate tag and digest. An ordinary init container is verified
+#   # only through a scanned running member of the set in the same Pod, using the
+#   # same image content under the same reference.
+#   # An unlisted container declaring the same reference stops the update if it
+#   # shares a namespace, Helm release or Flux Kustomization with the listed set,
+#   # or appears in a listed workload's Pod spec.
+#   # Only an existing string newTag in one YAML document is edited; quotes,
+#   # comments and line endings are preserved. Existing newName values stay unchanged.
+#   # See docs/documentation/remediation-reference.md#kustomize-formats for
+#   # unsupported inputs and docs/documentation/remediation-logic.md#kustomize-prs
+#   # for the full creation requirements.
+#   #
+#   # Kubernetes manifest, Kustomize and Dockerfile PRs use the read-only scan RBAC.
 #   # Language-package PRs additionally need the user-applied work namespace
 #   # and permissions in deploy/kubernetes/work/. Merging may trigger
 #   # deployment through external automatic synchronization or CI.

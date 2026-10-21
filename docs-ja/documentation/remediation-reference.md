@@ -10,19 +10,19 @@
 | 項目 | 対応範囲 |
 | --- | --- |
 | コンテナ環境 | Docker・Kubernetesモードで修正計画とPR作成に対応 |
-| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Dockerfile・依存ディレクトリを指定 |
+| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Kustomizeの`images`の項目・Dockerfile・依存ディレクトリを指定 |
 | ソースホスト | GitHub |
 | 作業用コンテナ | Linuxの`amd64`・`arm64` |
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
 | Kubernetesの計画 | 配布イメージ・Dockerfileのベースイメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
-| KubernetesのPR | プレーンなマニフェストのイメージタグとDockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
+| KubernetesのPR | プレーンなマニフェストのイメージタグ、Kustomizeの`images[].newTag`、Dockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
 
 ### 更新対象 {#supported-targets}
 
 | 対象 | 取得元 | ソースの対応付け |
 | --- | --- | --- |
-| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、ComposeまたはKubernetesマニフェストを変更するPRには必要 |
+| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、Compose・Kubernetesマニフェスト・Kustomizeを変更するPRには必要 |
 | Dockerfileのベースイメージ | 公開レジストリ、認証を設定した非公開レジストリ | 計画の作成からDockerfileまたはComposeの対応付けが必要 |
 | npm・pnpmの依存パッケージ | 公開npmレジストリ | 計画の作成から依存ディレクトリの対応付けが必要 |
 | pip・uvの依存パッケージ | 公開PyPI | 計画の作成から依存ディレクトリの対応付けが必要 |
@@ -68,6 +68,36 @@
 
 対象の名前空間をファイルで省略していても、同じ文書への対応付けが重なる場合はPRを作成しません。
 作成条件は[KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)を参照してください。
+
+### Kustomizeの形式 {#kustomize-formats}
+
+`kustomization.yaml`の`images`と`affects`の[設定例](remediation-setup.md#kustomize-pull-requests)を基に、名前で指定した項目の`newTag`だけを編集します。
+
+| 入力 | 対応範囲 |
+| --- | --- |
+| ファイル | `kustomization.yaml`・`kustomization.yml`・`Kustomization`で、1つのYAML文書だけを含むファイル |
+| 対象の選択 | `kustomize.image`と`images[].name`が一致する項目を一意に選択 |
+| 編集する文字列 | 既存の文字列の`newTag`だけを書き換え、引用符・コメント・改行を保持 |
+| `newName` | 既存の値を維持し、得られるイメージ参照を宣言・稼働中の参照と照合するが、`newName`自体の変更は手動対応 |
+| `newTag`の未設定・空文字列 | `kustomize_tag_not_set`で手動対応 |
+| 数値・文字列以外・明示的なYAMLタグ付きの値 | `kustomize_not_string`で手動対応し、数値として解釈されるタグは引用符で囲む |
+| ブロックスカラー・`$`を含む値 | `kustomize_block_scalar`・`kustomize_variable`で手動対応 |
+| digest | 対象項目に`digest`がある場合や、イメージ名にdigestを含む場合は`kustomize_digest`で手動対応 |
+| YAMLのアンカー・エイリアス・マージキー | 文書のルート、`images`、その項目や読み取る値に関わる場合は手動対応 |
+| `{{` | ファイル内のどこかに含まれる場合は`kustomize_template`で手動対応 |
+| フィールド名の綴り・重複 | `Newtag`など既知のフィールド名と大小文字が異なる綴りや、大小文字だけが異なる重複キーは`kustomize_invalid`で手動対応 |
+| `imageTags`・`patches`・`replacements`・`components`・`helmCharts`・`helmGlobals` | 使用するファイルは`kustomize_unsupported_feature`で手動対応 |
+| `generators`・`transformers`・`vars`・`patchesStrategicMerge`・`patchesJson6902` | 使用するファイルは`kustomize_unsupported_feature`で手動対応 |
+| リモートの`resources`・`bases` | `kustomize_unsupported_feature`で手動対応 |
+| 別の`images`の項目による影響 | Kustomizeが`name`を正規表現として照合することを踏まえ、別の項目が対象の名前や変更前後の参照に作用する場合などは`kustomize_image_chained`で手動対応 |
+| 正規表現として不正な`name` | 対象以外も含む`images`の項目を検査し、`kustomize_invalid`で手動対応 |
+| Fluxの`$imagepolicy` | `newTag`の行に印がある場合は`kustomize_image_automation`で手動対応 |
+| `.argocd-source-*.yaml` | 同じディレクトリにArgo CD Image Updaterの書き戻しファイルがある場合は`image_updater_file`で手動対応 |
+
+ファイルが見つからない場合は`manifest_file_not_found`、編集できる種類のファイルでない場合は`manifest_file_unusable`を使います。
+ファイルから得る参照が宣言または稼働中の参照と異なる場合は`source_mismatch`になります。
+
+集合全体の確認条件と通常のinit containerの扱いは[KustomizeのPR](remediation-logic.md#kustomize-prs)を参照してください。
 ### Dockerfileの形式 {#dockerfile-formats}
 
 | 入力 | 対応範囲 |
@@ -496,6 +526,22 @@ PR記録の`state`には、次の値があります。
 | `source_container_missing` | オブジェクトに、その名前の編集できるコンテナがない | [マニフェストの形式](#manifest-formats) |
 | `source_mismatch` | ファイルの`image`が宣言または稼働中のイメージと異なる | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
 | `mapping_conflict` | ファイルの2つ以上の対応付けが、同じ文書の同じコンテナを指している | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
+| `kustomize_invalid` | kustomizationが1つの正しいYAML文書でない、キーが重複している、または編集後の検査に通らない | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_image_missing` | kustomizationに対応付けた名前の`images`の項目がない | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_image_ambiguous` | 対応付けた名前の`images`の項目が複数ある | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_tag_not_set` | `images`の項目に`newTag`がない、または空である | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_unsupported_feature` | kustomizationが、`images`の項目の作用先を変えうる機能を使っている | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_image_chained` | 別の`images`の項目が、この項目の名前または結果に作用する | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_digest` | `images`の項目がdigestを固定している | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_anchor_or_alias` | `images`の項目に関わるアンカーまたはエイリアスがある | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_merge_key` | `images`の項目に関わるマージキーがある | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_not_string` | `images`の項目の値が単純な文字列ではない | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_block_scalar` | `images`の項目の値がブロックスカラーである | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_variable` | `images`の項目の値に変数がある | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_template` | kustomizationにテンプレートの式がある | [Kustomizeの形式](#kustomize-formats) |
+| `kustomize_image_automation` | `newTag`の行にFlux image automationの印がある | [Kustomizeの形式](#kustomize-formats) |
+| `undeclared_affected_workload` | 列挙されていないコンテナが`images`の項目の値を宣言しており、編集の影響を受けうる | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
+| `init_container_unverified` | 列挙したinit containerが、稼働コンテナと同じイメージを動かしたことを確認できない | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
 | `dependency_files_not_found` | 依存ファイルが見つからない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | 依存ファイルの組み合わせが複数あり、一意に決められない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `dependency_file_unusable` | 依存ファイルを利用できない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |

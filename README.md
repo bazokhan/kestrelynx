@@ -102,7 +102,7 @@ Long notifications continue in additional messages with repeated section and ima
 ## Remediation plans and pull requests (experimental)
 
 - Propose image and dependency updates for Docker, Compose, and Kubernetes
-- Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](docs/documentation/remediation-setup.md#kubernetes-language-updates)
+- Kubernetes PRs support image tag updates in plain manifests, [Kustomize `images[].newTag` updates](docs/documentation/remediation-setup.md#kustomize-pull-requests), and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](docs/documentation/remediation-setup.md#kubernetes-language-updates)
 - Remediation plans and optional GitHub PR creation are both disabled by default
 - Users check changes, merge, deploy, and verify after deployment
 

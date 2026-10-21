@@ -59,7 +59,7 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 
 | タグの種類 | 候補の選び方 | 採用後の扱い |
 | --- | --- | --- |
-| 完全な版を指定する固定タグ | major・minor・接頭辞・接尾辞が同じ系列から、現在より新しい最新パッチを選びます。 | ソース編集の条件も満たせば、ComposeまたはKubernetesマニフェストのタグを変更するPRの候補にします。 |
+| 完全な版を指定する固定タグ | major・minor・接頭辞・接尾辞が同じ系列から、現在より新しい最新パッチを選びます。 | ソース編集の条件も満たせば、Compose・Kubernetesマニフェスト・Kustomizeのタグを変更するPRの候補にします。 |
 | 浮動タグ | 同じタグが現在レジストリで指す内容を候補にします。 | 改善を確認できれば再取得の案内にし、参照が変わらないためPRは作りません。 |
 
 - 候補の実体が稼働中のイメージと同じ場合は、更新候補にしない
@@ -67,7 +67,7 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 - PR作成前に候補タグを再確認し、比較時とは異なる内容を指していれば保留する
 
 候補の採用には、[スキャンの比較条件](#comparison-conditions)と[対象別の検証範囲](#verification-scope)の条件を適用します。
-編集できる参照と対象外の形式は[Composeの形式](remediation-reference.md#compose-formats)と[マニフェストの形式](remediation-reference.md#manifest-formats)を参照してください。
+編集できる参照と対象外の形式は[Composeの形式](remediation-reference.md#compose-formats)、[マニフェストの形式](remediation-reference.md#manifest-formats)、[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
 
 ### KubernetesのマニフェストPR {#kubernetes-manifest-prs}
 
@@ -88,6 +88,28 @@ PR作成には、同じリポジトリ・ベースブランチ・マニフェス
 
 同じPodテンプレートで同じイメージを使うコンテナでも、更新対象でなければ変更せず、PR本文に変更なしとして載せます。
 対応付けの設定は[ソースの対応付け](configuration.md#remediation-mappings)、ファイルの制約は[マニフェストの形式](remediation-reference.md#manifest-formats)を参照してください。
+
+### KustomizeのPR {#kustomize-prs}
+
+[設定例](remediation-setup.md#kustomize-pull-requests)では、`web/app`・`worker/app`・`web/prepare`のすべてを確認し、同じ修正版を採用できる場合に`images[nginx].newTag`を更新します。
+対応付けた`workload`と`affects`を合わせた集合が確認対象です。
+
+- 列挙した各コンテナを観測したPodで確認でき、宣言したイメージ参照と稼働中の参照が一致する
+- 集合全体で現在のイメージ参照が1つにそろい、すべての対象で同じタグとdigestの修正版を採用できる
+- ファイルの`name`または既存の`newName`と`newTag`から得る参照が、宣言と稼働中の参照に一致する
+- 通常のinit containerは、Podのstatusから、同じPod内の集合に含まれる稼働コンテナと同じイメージの中身を同じ参照で使ったことを確認できる
+
+通常のinit containerの確認には、同じPodの稼働コンテナのスキャン結果を使います。
+status、イメージの中身、参照、または利用できるスキャン結果を確認できない場合は、`init_container_unverified`などの理由でPRを作成しません。
+
+KestreLynxはKustomizeを展開せず、列挙した集合が作用先のすべてであることを利用者が確認した前提で扱います。
+安全網として、次の場合は`undeclared_affected_workload`で停止します。
+
+- 集合にない稼働コンテナが同じイメージ参照を宣言し、列挙したワークロードとnamespace、Helmリリース、Flux Kustomizationのいずれかを共有する
+- 列挙したワークロードのPodの定義に、同じイメージ参照を使う未列挙のコンテナがあり、待機中のコンテナ・ネイティブsidecar・通常のinit containerも確認対象になる
+
+同じファイルの対応付けで稼働状態の確認に失敗するか、更新対象の集合が候補や列挙漏れの確認に通らない場合、そのファイルを対象とするPRをすべて見送ります。
+編集形式の制約は[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
 ### タグ一覧の探索 {#tag-discovery}
 
 固定タグの最新パッチは、対象系列の終端まで確認できた場合に選びます。
@@ -695,6 +717,9 @@ PRの記録がない場合は、書き込み前に、設定されたリポジト
 
 Kubernetesマニフェストのタグ更新PRには`kestrelynx/kubernetes/`で始まるブランチ名を使います。
 古い版のKestreLynxに戻すと、既存のKubernetesマニフェストのPRを認識できません。
+
+Kustomizeのタグ更新PRには`kestrelynx/kustomize/`で始まるブランチ名と、種別が`kustomize`の識別マーカーを使います。
+この種別に対応していない古い版では、既存のKustomizeのPRを認識できません。
 
 - マーカーの識別情報を再計算し、リポジトリとブランチの対応も確認する
 - 記録がない状態からの復旧では、すべての対象リポジトリを確認できるまでGitHubへ書き込まない

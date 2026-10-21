@@ -136,8 +136,8 @@ See [Credential destinations](outbound-communication.md#credential-destinations)
 
 Each entry sets `workload`, `repository`, and `base_branch`, plus exactly one source type.
 
-Kubernetes mode accepts `manifest`, `dockerfile`, and `dependencies` mappings.
-`compose` is available only in Docker mode, and `manifest` only in Kubernetes mode.
+Kubernetes mode accepts `manifest`, `kustomize`, `dockerfile`, and `dependencies` mappings.
+`compose` is available only in Docker mode, and `manifest` and `kustomize` only in Kubernetes mode.
 When remediation plans are enabled and a mapping's namespace is outside `kubernetes.namespaces`, startup logs a warning and the mapping has no effect on the plan.
 
 | Field within a mapping | Requirements and format |
@@ -149,18 +149,27 @@ When remediation plans are enabled and a mapping's namespace is outside `kuberne
 | `manifest.path` | Required for manifest mappings; repository-relative file path. |
 | `manifest.object.kind` | Optional; defaults to the workload kind and, when specified, must be the matching `Deployment`, `StatefulSet`, `DaemonSet`, `Job`, `CronJob`, or `Pod`. |
 | `manifest.object.name` | Optional; defaults to the workload name, or names the object in the file when specified. |
+| `kustomize.path` | Required for Kustomize mappings; repository-relative path whose filename is `kustomization.yaml`, `kustomization.yml`, or `Kustomization`. |
+| `kustomize.image` | Required; the target `images[].name`, without a tag or digest. |
+| `kustomize.affects` | Optional; workload keys of every other container affected by this entry, including ordinary init containers; duplicates and the mapped `workload` itself are not allowed. Omitting it means the user has confirmed that the entry affects only the mapped container. |
 | `dockerfile.path` | Required for Dockerfile mappings; repository-relative Dockerfile. |
 | `dockerfile.target` | Optional build stage; omitting it selects the last stage; at most 128 bytes of letters, digits, `_`, `.`, or `-`, starting with a letter. |
 | `dependencies.directory` | Required for dependency-file mappings; dependency directory, with `.` representing the repository root. |
 
 - Paths must be normalized within the repository, without a leading `/`, `./`, `..`, or backslashes
-- A workload can have one mapping of each source type in separate entries
+- A workload can have one mapping of each source type in separate entries, but cannot combine `manifest` and `kustomize`
 - Shared dependency directories or Dockerfiles must use the same base branch
 - A service in the same Compose file in the same repository must not be mapped to multiple workloads
 - A container of an object with the same kind, namespace, and name in the same manifest and repository must not be mapped to multiple workloads
+- Every mapping to the same Kustomize entry must declare the same combined set of `workload` and `affects`
+- Each container, including those listed in `affects`, must have only one location determining its image tag, including `manifest` locations
+- Every mapping to the same Kustomize file in the same repository must specify the same `base_branch`
 - Repository names are case-insensitive when checking for duplicates
 
 See [Base image identification](remediation-logic.md#base-image-selection) for discovery from Compose `build` and matching against an explicit Dockerfile, and [Supported input formats](remediation-reference.md#supported-inputs) for supported inputs.
+
+See [Kustomize PR configuration](remediation-setup.md#kustomize-pull-requests) for an example and how to declare affected containers.
+Violating the mapping constraints above causes a startup error.
 
 ### Processing limits {#remediation-limits}
 
@@ -238,7 +247,7 @@ The following combinations cause startup errors.
 
 - Enabling PRs without `remediation.enabled`
 - Enabling PRs without `remediation.github.token`
-- Specifying a `manifest` mapping in Docker mode
+- Specifying a `manifest` or `kustomize` mapping in Docker mode
 - Specifying a `compose` mapping in Kubernetes mode
 
 Token format, storage, mappings, processing limits, registry credentials, and work container settings are validated even when the feature is disabled.

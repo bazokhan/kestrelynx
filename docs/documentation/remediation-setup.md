@@ -157,6 +157,47 @@ Language-package updates additionally require the work Pod configuration below.
 
 See [Manifest formats](remediation-reference.md#manifest-formats) for editable inputs and [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) for creation requirements.
 
+### Kustomize PR configuration {#kustomize-pull-requests}
+
+Example `apps/kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - web.yaml
+  - worker.yaml
+images:
+  - name: nginx
+    newTag: "1.27.2" # Tag to use
+```
+
+If this `images` entry affects the `app` containers in `web` and `worker`, plus the ordinary init container `prepare` in `web`, add the following mapping to the existing `remediation.mappings`.
+
+```yaml
+remediation:
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      kustomize:
+        path: apps/kustomization.yaml
+        image: nginx
+        affects:
+          - deployment/example/worker/app
+          - deployment/example/web/prepare
+```
+
+Set `image` to `images[].name`, and list every other workload key affected by this entry in `affects`.
+Include ordinary init containers using the same key format.
+
+KestreLynx does not render Kustomize and treats this list as the complete affected set confirmed by the user.
+Omitting `affects` means the user has confirmed that the entry affects only the mapped container.
+
+Keep the existing GitHub token and PR enablement settings, apply the configuration, and restart the KestreLynx Pod.
+This update uses only the read-only scanning RBAC.
+
+See [Kustomize PRs](remediation-logic.md#kustomize-prs) for checks across all containers, [Source mappings](configuration.md#remediation-mappings) for configuration constraints, and [Kustomize formats](remediation-reference.md#kustomize-formats) for editable inputs.
 ### Kubernetes language-package updates {#kubernetes-language-updates}
 
 npm, pnpm, pip, and uv updates run in disposable Pods that KestreLynx creates in a user-provided work namespace.

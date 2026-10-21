@@ -10,19 +10,19 @@ See [Setup steps](remediation-setup.md) to enable them.
 | Item | Support |
 | --- | --- |
 | Container environment | Remediation plans and PR creation are supported in Docker and Kubernetes modes |
-| Source mappings | Specify source edit locations for Compose workloads or manifests, Dockerfiles, and dependency directories for Kubernetes workloads |
+| Source mappings | Specify source edit locations for Compose workloads or manifests, Kustomize `images` entries, Dockerfiles, and dependency directories for Kubernetes workloads |
 | Source host | GitHub |
 | Work containers | Linux `amd64` and `arm64` |
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
 | Kubernetes plans | Published-image and Dockerfile base-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
-| Kubernetes PRs | Image tag updates in plain manifests and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
+| Kubernetes PRs | Image tag updates in plain manifests, Kustomize `images[].newTag` updates, and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
 
 ### Supported targets {#supported-targets}
 
 | Target | Source | Source mapping |
 | --- | --- | --- |
-| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose or Kubernetes manifests |
+| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose, Kubernetes manifests, or Kustomize |
 | Dockerfile base image | Public registries and private registries with authentication configured | A Dockerfile or Compose mapping is required from the planning stage |
 | npm and pnpm dependencies | Public npm registry | A dependency-directory mapping is required from the planning stage |
 | pip and uv dependencies | Public PyPI | A dependency-directory mapping is required from the planning stage |
@@ -68,6 +68,36 @@ See [Distributed image tags](remediation-logic.md#published-image-tags) for tag 
 
 Even when the file omits the target namespace, overlapping mappings to the same document prevent PR creation.
 See [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) for creation requirements.
+
+### Kustomize formats {#kustomize-formats}
+
+Following the [example of `images` in `kustomization.yaml` and `affects`](remediation-setup.md#kustomize-pull-requests), KestreLynx edits only `newTag` in the entry selected by name.
+
+| Input | Support |
+| --- | --- |
+| File | `kustomization.yaml`, `kustomization.yml`, or `Kustomization`, containing exactly one YAML document |
+| Target selection | Selects exactly one entry whose `images[].name` matches `kustomize.image` |
+| Edited text | Changes only the existing string `newTag`, preserving quotes, comments, and line endings |
+| `newName` | Preserves the existing value and checks the resulting image reference against declared and running references; changing `newName` itself requires manual action |
+| Missing or empty `newTag` | Requires manual action with `kustomize_tag_not_set` |
+| Numbers, non-string values, and values with explicit YAML tags | Require manual action with `kustomize_not_string`; quote tags that would otherwise be parsed as numbers |
+| Block scalars and values containing `$` | Require manual action with `kustomize_block_scalar` or `kustomize_variable` |
+| Digests | A `digest` field in the target entry or a digest in its image name requires manual action with `kustomize_digest` |
+| YAML anchors, aliases, and merge keys | Require manual action when involved in the document root, `images`, its entries, or values being read |
+| `{{` | Requires manual action with `kustomize_template` when present anywhere in the file |
+| Field spelling and duplicate keys | Spellings that differ from known field names in case, such as `Newtag`, and duplicate keys differing only in case require manual action with `kustomize_invalid` |
+| `imageTags`, `patches`, `replacements`, `components`, `helmCharts`, and `helmGlobals` | Files using these fields require manual action with `kustomize_unsupported_feature` |
+| `generators`, `transformers`, `vars`, `patchesStrategicMerge`, and `patchesJson6902` | Files using these fields require manual action with `kustomize_unsupported_feature` |
+| Remote `resources` and `bases` | Require manual action with `kustomize_unsupported_feature` |
+| Interference from another `images` entry | Accounts for Kustomize matching `name` as a regular expression; cases such as another entry affecting the target's name or references before or after the edit require manual action with `kustomize_image_chained` |
+| A `name` that is not a valid regular expression | Checks all `images` entries, including non-target entries, and requires manual action with `kustomize_invalid` |
+| Flux `$imagepolicy` | A marker on the `newTag` line requires manual action with `kustomize_image_automation` |
+| `.argocd-source-*.yaml` | An Argo CD Image Updater write-back file in the same directory requires manual action with `image_updater_file` |
+
+A missing file uses `manifest_file_not_found`, and a file of a type that cannot be edited uses `manifest_file_unusable`.
+If the reference derived from the file differs from the declared or running reference, the reason is `source_mismatch`.
+
+See [Kustomize PRs](remediation-logic.md#kustomize-prs) for checks across the whole set and handling of ordinary init containers.
 ### Dockerfile formats {#dockerfile-formats}
 
 | Input | Support |
@@ -496,6 +526,22 @@ The following tables give each code's meaning and related decision rules or chec
 | `source_container_missing` | The object has no editable container with that name | [Manifest formats](#manifest-formats) |
 | `source_mismatch` | The file's `image` differs from the declared or running image | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
 | `mapping_conflict` | Two or more mappings to the file resolve to the same container in the same document | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
+| `kustomize_invalid` | The kustomization is not one well-formed YAML document, repeats a key, or fails the check after the edit | [Kustomize formats](#kustomize-formats) |
+| `kustomize_image_missing` | The kustomization has no `images` entry of the mapped name | [Kustomize formats](#kustomize-formats) |
+| `kustomize_image_ambiguous` | More than one `images` entry has the mapped name | [Kustomize formats](#kustomize-formats) |
+| `kustomize_tag_not_set` | The `images` entry has no `newTag`, or it is empty | [Kustomize formats](#kustomize-formats) |
+| `kustomize_unsupported_feature` | The kustomization uses a feature that can change what an `images` entry acts on | [Kustomize formats](#kustomize-formats) |
+| `kustomize_image_chained` | Another `images` entry acts on the name of this entry or on its result | [Kustomize formats](#kustomize-formats) |
+| `kustomize_digest` | The `images` entry pins a digest | [Kustomize formats](#kustomize-formats) |
+| `kustomize_anchor_or_alias` | An anchor or alias is involved in the `images` entry | [Kustomize formats](#kustomize-formats) |
+| `kustomize_merge_key` | A merge key is involved in the `images` entry | [Kustomize formats](#kustomize-formats) |
+| `kustomize_not_string` | A value of the `images` entry is not a simple string | [Kustomize formats](#kustomize-formats) |
+| `kustomize_block_scalar` | A value of the `images` entry is a block scalar | [Kustomize formats](#kustomize-formats) |
+| `kustomize_variable` | A value of the `images` entry contains a variable | [Kustomize formats](#kustomize-formats) |
+| `kustomize_template` | The kustomization contains a template expression | [Kustomize formats](#kustomize-formats) |
+| `kustomize_image_automation` | The `newTag` line carries a Flux image automation marker | [Kustomize formats](#kustomize-formats) |
+| `undeclared_affected_workload` | An unlisted container declares the image of the `images` entry and may be affected by the edit | [Kustomize PRs](remediation-logic.md#kustomize-prs) |
+| `init_container_unverified` | A listed init container could not be shown to have run the same image as the running containers | [Kustomize PRs](remediation-logic.md#kustomize-prs) |
 | `dependency_files_not_found` | No dependency files were found | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | More than one set of dependency files matches, so no unique set can be selected | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `dependency_file_unusable` | A dependency file cannot be used | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |

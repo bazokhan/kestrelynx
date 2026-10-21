@@ -102,7 +102,7 @@
 ## 修正計画と修正PR（実験的）
 
 - Docker・Compose・Kubernetes向けに、イメージと依存パッケージの更新を提案する
-- KubernetesのPRは、プレーンなマニフェストのイメージタグとDockerfileのベースイメージに加え、[作業用Podを設定](docs-ja/documentation/remediation-setup.md#kubernetes-language-updates)するとnpm・pnpm・pip・uvの更新にも対応する
+- KubernetesのPRは、プレーンなマニフェストのイメージタグ、[Kustomizeの`images[].newTag`](docs-ja/documentation/remediation-setup.md#kustomize-pull-requests)、Dockerfileのベースイメージに加え、[作業用Podを設定](docs-ja/documentation/remediation-setup.md#kubernetes-language-updates)するとnpm・pnpm・pip・uvの更新にも対応する
 - 修正計画と任意のGitHub PR作成は、どちらも既定で無効
 - 利用者が変更を確認し、マージ、配置、配置後の確認を行う
 

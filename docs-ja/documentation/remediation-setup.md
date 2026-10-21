@@ -157,6 +157,47 @@ remediation:
 
 編集できる形式は[マニフェストの形式](remediation-reference.md#manifest-formats)、作成条件は[KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)を参照してください。
 
+### KustomizeのPR設定 {#kustomize-pull-requests}
+
+`apps/kustomization.yaml`の例です。
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - web.yaml
+  - worker.yaml
+images:
+  - name: nginx
+    newTag: "1.27.2" # 使用するタグ
+```
+
+この`images`の項目が`web`と`worker`の`app`、および`web`の通常のinit containerである`prepare`に効く場合、既存の`remediation.mappings`へ次の対応付けを追加します。
+
+```yaml
+remediation:
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      kustomize:
+        path: apps/kustomization.yaml
+        image: nginx
+        affects:
+          - deployment/example/worker/app
+          - deployment/example/web/prepare
+```
+
+`image`には`images[].name`を指定し、`affects`にはこの項目が効く、対応付けたコンテナ以外のワークロードキーをすべて列挙します。
+通常のinit containerも、同じ形式のキーで列挙します。
+
+KestreLynxはKustomizeを展開せず、この一覧が作用先のすべてであることを利用者が確認した前提で扱います。
+`affects`を省略すると、対応付けたコンテナだけに効くことを確認した扱いになります。
+
+既存のGitHub tokenとPRの有効化設定を保持し、設定を反映してKestreLynxのPodを再起動します。
+この更新にはスキャン用の読み取り専用RBACだけを使います。
+
+全コンテナの確認条件は[KustomizeのPR](remediation-logic.md#kustomize-prs)、設定の制約は[ソースの対応付け](configuration.md#remediation-mappings)、編集できる形式は[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
 ### Kubernetesの言語パッケージ更新 {#kubernetes-language-updates}
 
 npm・pnpm・pip・uvの更新は、利用者が用意した作業用namespaceにKestreLynxが作る使い捨てのPodで実行します。

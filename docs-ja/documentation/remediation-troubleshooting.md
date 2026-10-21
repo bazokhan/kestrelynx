@@ -51,6 +51,9 @@
 | 症状 | 確認すること | 参照先 |
 | --- | --- | --- |
 | 候補はあるがPRがない | PR作成の有効化、ソースの対応付け、対象の編集可能な形式を確認する | [有効化設定](configuration.md#remediation-enablement)・[ソースの対応付け](configuration.md#remediation-mappings)・[対応する入力形式](remediation-reference.md#supported-inputs) |
+| Kustomizeの更新が`undeclared_affected_workload`になる | 詳細に示されたコンテナへの作用を確認し、作用先なら`affects`へ追加して同じ項目を指すすべての対応付けの集合をそろえるか、Kustomizeの作用範囲を変更する | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
+| Kustomizeの更新が`init_container_unverified`になる | 列挙した通常のinit containerのPod statusと、同じPodの集合内の稼働コンテナについて、イメージの中身・参照・スキャン結果を確認する | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
+| Kustomizeの更新が`kustomize_*`の理由で手動対応になる | 対象の`images[].name`、文字列の`newTag`、未対応の構文や機能、ほかの`images`の項目による影響、自動更新の印を確認する | [Kustomizeの形式](remediation-reference.md#kustomize-formats) |
 | GitHubへの書き込みを拒否される | tokenの対象リポジトリと権限、リポジトリの規則を確認する | [GitHubアクセス](configuration.md#remediation-github)・[PR処理の理由](remediation-reference.md#pr-reasons) |
 | 新規PR数やオープン中のPR数の上限に達する | 現在のPRと設定した上限を確認する | [処理の上限](configuration.md#remediation-limits) |
 | 既存PRに対応付けられる、新しいPRが作られない | 通知された既存PRと、同じ更新を未マージで閉じた履歴を確認する | [既存PRとの照合](remediation-logic.md#existing-pr-matching)・[閉じたPRの扱い](remediation-logic.md#closed-prs) |
