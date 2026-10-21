@@ -367,12 +367,12 @@ File contents are excluded.
 | `pull_request_summary` | object | Counts with status values as keys and integer counts as values; omitted when there are no processing units. |
 | `pull_requests` | array of objects | PR processing units; omitted when none apply. |
 | `pull_requests[].key` | string | Processing-unit identifier. |
-| `pull_requests[].kind` | string | `kubernetes` for Kubernetes manifest tag updates, `kustomize` for Kustomize `newTag` updates, `dockerfile` for base-image updates, or `language` for language-package updates; omitted for Compose tag updates. |
+| `pull_requests[].kind` | string | `kubernetes` for Kubernetes manifest tag updates, `kustomize` for Kustomize `newTag` updates, `helm_values` for Helm values tag updates, `dockerfile` for base-image updates, or `language` for language-package updates; omitted for Compose tag updates. |
 | `pull_requests[].repo` / `pull_requests[].base_branch` / `pull_requests[].path` | string | Target repository, base branch, and file path. |
-| `pull_requests[].services` | array of strings | For `kind: kubernetes` and `kind: kustomize`, workload keys in `<kind>/<namespace>/<name>/<container>` form; `[]` when none apply. |
+| `pull_requests[].services` | array of strings | For `kind: kubernetes`, `kind: kustomize`, and `kind: helm_values`, workload keys in `<kind>/<namespace>/<name>/<container>` form; `[]` when none apply. |
 | `pull_requests[].workloads` | array of strings | Target workload keys; omitted when empty. |
-| `pull_requests[].also_running[].workload` | string | Key of a Kubernetes workload running the same image without a manifest mapping, or outside the set listed as affected by a Kustomize entry. |
-| `pull_requests[].fix_targets[].location` | string | For `kind: kubernetes`, the edit location in `<Kind>/<namespace>/<name>/<container>` form; `Kind` and `name` identify the mapped object in the file, and `namespace` is the workload namespace; for `kind: kustomize`, `images[<name>].newTag`. |
+| `pull_requests[].also_running[].workload` | string | Key of a Kubernetes workload running the same image without a manifest mapping, or outside the set listed as affected by a Kustomize entry or Helm values key. |
+| `pull_requests[].fix_targets[].location` | string | For `kind: kubernetes`, the edit location in `<Kind>/<namespace>/<name>/<container>` form; `Kind` and `name` identify the mapped object in the file, and `namespace` is the workload namespace; for `kind: kustomize`, `images[<name>].newTag`; for `kind: helm_values`, the configured `helm_values.key`. |
 | `pull_requests[].status` | string | PR processing status. |
 | `pull_requests[].reason` / `pull_requests[].detail` | string | Reason and additional details; omitted when empty. |
 | `pull_requests[].number` | integer | PR number; omitted when `0`. |
@@ -402,6 +402,9 @@ File contents are excluded.
 
 The `locations` field in Kubernetes manifest PR records also uses `<Kind>/<namespace>/<name>/<container>` form.
 The `locations` field in Kustomize PR records uses `images[<name>].newTag` form.
+
+The `locations` field in Helm values PR records uses the configured `helm_values.key` for both mapping and string forms.
+For example, `key: image` produces `image`, which differs from the mapping-form change location `image.tag` shown in the PR body.
 Webhook `pull_requests[]` entries do not include a `locations` array; fix target locations appear in `fix_targets[].location`.
 When a cycle matches an existing PR, package exclusion information is supplemented from the PR's `language.remaining`.
 `packages[]` may include `left_out`, `action`, and `reason` even when update and check execution flags are `false` for that cycle.

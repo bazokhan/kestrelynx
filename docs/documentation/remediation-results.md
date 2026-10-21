@@ -81,17 +81,23 @@ Slack may shorten long package lists and similar content with “and … more.�
 
 ### Kubernetes PR display {#kubernetes-pr-results}
 
-Slack displays manifest and Kustomize tag updates with the target file and a link to the PR.
-When management markers are present, manifest, Kustomize, and Dockerfile PR entries also show the management chain.
+Slack displays manifest, Kustomize, and Helm values tag updates with the target file and a link to the PR.
+When management markers are present, manifest, Kustomize, Helm values, and Dockerfile PR entries also show the management chain.
 
 PR bodies for Kubernetes include the following information.
 
 - A notice that external automatic synchronization or CI may apply changes after merging, whether or not a management tool is detected
 - Management tools such as Argo CD, Flux, and Helm as claims from object markers, without treating the actual management relationship as verified
-- A notice in manifest and Kustomize PRs involving CronJobs or Jobs that existing Jobs are not affected
+- A notice in manifest, Kustomize, and Helm values PRs involving CronJobs or Jobs that existing Jobs are not affected
 - Workloads running the same image without a manifest mapping, and unchanged containers in the same Pod template, in manifest PRs
-- The list of containers declared as affected, plus a separate list of those verified as ordinary init containers, in Kustomize PRs
+- The list of containers declared as affected, plus a separate list of those verified as ordinary init containers, in Kustomize and Helm values PRs
 - The premise that the user has confirmed the listed set as complete, and the scope checked without rendering Kustomize, in Kustomize PRs
+- The premise that the user has confirmed the selected key as the final value and the listed set as complete, and the scope checked without rendering Helm, in Helm values PRs
+- A notice in Helm values PRs that overrides from other values files, CI `--set`, and Argo CD `parameters`, `valuesObject`, and `valuesFrom`, and ownership of the tag by other tools, are not verified
+- The workloads with detected Flux HelmRelease markers, with a notice that HelmRelease `spec.values` is not read and may take precedence over the values file
+- A notice that it is unknown whether this values file deploys the workloads when neither a Helm release nor a Flux HelmRelease is detected
+- The reason for adding double quotes to a new tag when needed to keep it a string in Helm
+
 ## Interpreting update results {#interpreting-updates}
 
 ### Update targets and adopted versions {#target-and-adopted-version}
@@ -167,7 +173,7 @@ Other fields are described in [Re-resolution results](webhook-remediation-refere
 ### Re-pull guidance {#repull-guidance}
 
 “Re-pull” means that a comparison with the content currently referenced by the same tag confirmed an improvement.
-Because the tag string does not change, this guidance alone does not create a PR to update a Compose, Kubernetes manifest, or Kustomize tag.
+Because the tag string does not change, this guidance alone does not create a PR to update a Compose, Kubernetes manifest, Kustomize, or Helm values tag.
 
 `resolves 3 of 4 findings` means that three of the four findings being compared were no longer detected in the candidate.
 It does not mean that running containers have been replaced with that content.
@@ -199,12 +205,12 @@ The comparison targets depend on the type of update.
 | Dockerfile base image | The current base image and the candidate base image. |
 | Language package | Dependency files before and after the update. |
 
-For Compose, Kubernetes manifest, and Kustomize image tag updates and Dockerfile base image updates, PR bodies separate targeted findings from other findings.
+For Compose, Kubernetes manifest, Kustomize, and Helm values image tag updates and Dockerfile base image updates, PR bodies separate targeted findings from other findings.
 
 - Targeted findings have a reported fixed version; for Dockerfile updates, they are limited to findings in the base image’s layers; `Resolved` and Remaining counts for these targets are also the counts used in remediation plans in Slack and webhooks
 - Other findings that remain in the candidate are shown separately, along with Introduced findings
 - Other findings include those with no reported fixed version and any others outside the update's targets
-- Compose, Kubernetes manifest, and Kustomize PRs also show counts for other findings that the candidate no longer reports, with a list only when such findings exist
+- Compose, Kubernetes manifest, Kustomize, and Helm values PRs also show counts for other findings that the candidate no longer reports, with a list only when such findings exist
 
 !!! note "Resolution and running state"
 

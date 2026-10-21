@@ -10,19 +10,19 @@
 | 項目 | 対応範囲 |
 | --- | --- |
 | コンテナ環境 | Docker・Kubernetesモードで修正計画とPR作成に対応 |
-| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Kustomizeの`images`の項目・Dockerfile・依存ディレクトリを指定 |
+| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Kustomizeの`images`の項目・Helmのvaluesのキー・Dockerfile・依存ディレクトリを指定 |
 | ソースホスト | GitHub |
 | 作業用コンテナ | Linuxの`amd64`・`arm64` |
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
 | Kubernetesの計画 | 配布イメージ・Dockerfileのベースイメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
-| KubernetesのPR | プレーンなマニフェストのイメージタグ、Kustomizeの`images[].newTag`、Dockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
+| KubernetesのPR | プレーンなマニフェストのイメージタグ、Kustomizeの`images[].newTag`、Helmのvaluesのイメージタグ、Dockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
 
 ### 更新対象 {#supported-targets}
 
 | 対象 | 取得元 | ソースの対応付け |
 | --- | --- | --- |
-| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、Compose・Kubernetesマニフェスト・Kustomizeを変更するPRには必要 |
+| 配布イメージ | 公開レジストリ、認証を設定した非公開レジストリ | 比較結果の表示には不要で、Compose・Kubernetesマニフェスト・Kustomize・Helmのvaluesを変更するPRには必要 |
 | Dockerfileのベースイメージ | 公開レジストリ、認証を設定した非公開レジストリ | 計画の作成からDockerfileまたはComposeの対応付けが必要 |
 | npm・pnpmの依存パッケージ | 公開npmレジストリ | 計画の作成から依存ディレクトリの対応付けが必要 |
 | pip・uvの依存パッケージ | 公開PyPI | 計画の作成から依存ディレクトリの対応付けが必要 |
@@ -98,6 +98,39 @@
 ファイルから得る参照が宣言または稼働中の参照と異なる場合は`source_mismatch`になります。
 
 集合全体の確認条件と通常のinit containerの扱いは[KustomizeのPR](remediation-logic.md#kustomize-prs)を参照してください。
+
+### Helmのvaluesの形式 {#helm-values-formats}
+
+[設定例](remediation-setup.md#helm-values-pull-requests)の`helm_values.key`で指定したイメージのタグ部分だけを編集します。
+registryを含むリポジトリとタグが、宣言したイメージと稼働中のイメージの両方に一致することが必要です。
+
+| 入力 | 対応範囲 |
+| --- | --- |
+| ファイル | `.yaml`・`.yml`のvaluesファイルで、重複キーのない1つのYAML文書に対応 |
+| mapping形式 | `repository`と文字列の`tag`を持つmappingに対応し、`registry`は任意 |
+| 文字列形式 | `"repo:tag"`形式のイメージ参照に対応 |
+| 対象の選択 | `helm_values.key`の経路で選び、値がない場合は`helm_key_missing`で手動対応 |
+| 編集内容 | タグ部分だけを書き換え、既存の引用符とコメントを保つ |
+| 新しいタグの引用符 | mapping形式の元のタグが引用符なしで、新しいタグが`1.10`・`on`などHelmで文字列にならない値の場合は、二重引用符で囲み、PR本文に記載 |
+| タグの未設定・空文字列 | チャートの既定値を使うため、`helm_tag_from_chart`で手動対応 |
+| 数値・真偽値・null・明示的なYAMLタグ付きの値 | `helm_not_string`で手動対応し、引用符なしの既存タグがHelmで文字列にならない場合も対象 |
+| ブロックスカラー・`$`を含む値 | 読み取る値に含まれる場合は`helm_block_scalar`・`helm_variable`で手動対応 |
+| digest | mappingの非空の`digest`や文字列形式のdigestは`helm_digest`で手動対応 |
+| `repository`の形式 | タグやdigestを含む場合は`helm_values_shape`で手動対応 |
+| `repository`と同じmapping内の`name`・`image` | 存在する場合は`helm_values_shape`で手動対応 |
+| YAMLのアンカー・エイリアス | 対象キーまでの経路や読み取る値に関わる場合は`helm_anchor_or_alias`で手動対応 |
+| キー側のアンカー・エイリアス | 経路上のmappingや対象のmappingのキーにアンカーがある場合は`helm_invalid`、ファイル内のどこかのキーがエイリアスの場合は`helm_anchor_or_alias`で手動対応 |
+| マージキー | 文書のルート、対象キーまでの経路、対象のmappingにある場合は`helm_merge_key`で手動対応 |
+| Helmで文字列にならない引用符なしのキー・同じキーに解釈される組 | 経路上のmappingや対象のmappingにある場合は`helm_invalid`で手動対応し、`"true"`と`on`の組なども対象 |
+| 複数文書・重複キー・不正なYAML | `helm_invalid`で手動対応し、重複キーはファイル全体を検査 |
+| `{{` | ファイル内のどこかに含まれる場合は`helm_template`で手動対応 |
+| Fluxの`$imagepolicy` | `repository`・`registry`・`tag`または文字列形式のイメージの行に印がある場合は`helm_image_automation`で手動対応 |
+| `.argocd-source-*.yaml` | 同じディレクトリにArgo CD Image Updaterの書き戻しファイルがある場合は`image_updater_file`で手動対応 |
+
+ファイルが見つからない場合は`manifest_file_not_found`、編集できる種類のファイルでない場合は`manifest_file_unusable`を使います。
+ファイルから得る参照が宣言または稼働中の参照と異なる場合は`source_mismatch`になります。
+
+集合全体の確認条件、通常のinit containerの扱い、最終的な値についての前提は[HelmのvaluesのPR](remediation-logic.md#helm-values-prs)を参照してください。
 ### Dockerfileの形式 {#dockerfile-formats}
 
 | 入力 | 対応範囲 |
@@ -524,7 +557,7 @@ PR記録の`state`には、次の値があります。
 | `source_object_missing` | マニフェストにワークロードのオブジェクトの文書がない | [マニフェストの形式](#manifest-formats) |
 | `source_object_ambiguous` | マニフェストにワークロードのオブジェクトの文書が複数ある | [マニフェストの形式](#manifest-formats) |
 | `source_container_missing` | オブジェクトに、その名前の編集できるコンテナがない | [マニフェストの形式](#manifest-formats) |
-| `source_mismatch` | ファイルの`image`が宣言または稼働中のイメージと異なる | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
+| `source_mismatch` | ファイルから得るイメージ参照が宣言または稼働中のイメージと異なる | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)・[HelmのvaluesのPR](remediation-logic.md#helm-values-prs) |
 | `mapping_conflict` | ファイルの2つ以上の対応付けが、同じ文書の同じコンテナを指している | [KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs) |
 | `kustomize_invalid` | kustomizationが1つの正しいYAML文書でない、キーが重複している、または編集後の検査に通らない | [Kustomizeの形式](#kustomize-formats) |
 | `kustomize_image_missing` | kustomizationに対応付けた名前の`images`の項目がない | [Kustomizeの形式](#kustomize-formats) |
@@ -540,7 +573,19 @@ PR記録の`state`には、次の値があります。
 | `kustomize_variable` | `images`の項目の値に変数がある | [Kustomizeの形式](#kustomize-formats) |
 | `kustomize_template` | kustomizationにテンプレートの式がある | [Kustomizeの形式](#kustomize-formats) |
 | `kustomize_image_automation` | `newTag`の行にFlux image automationの印がある | [Kustomizeの形式](#kustomize-formats) |
-| `undeclared_affected_workload` | 列挙されていないコンテナが`images`の項目の値を宣言しており、編集の影響を受けうる | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
+| `helm_invalid` | valuesファイルが1つの正しいYAML文書でない、キーが重複している、または編集後の検査に通らない | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_key_missing` | valuesファイルに対応付けたキーの値がない | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_tag_from_chart` | キーにタグがなく、チャート自身の既定値が使われる | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_digest` | キーのイメージがdigestで固定されている | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_values_shape` | キーが`repository`と`tag`の組でも`repository:tag`の文字列でもない | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_not_string` | キーの値が文字列でない（数値など） | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_block_scalar` | キーの値がブロックスカラー | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_variable` | キーの値に変数がある | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_template` | valuesファイルにテンプレートの式がある | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_anchor_or_alias` | キーまでの経路のノードにアンカーまたはエイリアスがある | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_merge_key` | キーまでの経路のマッピングにマージキーがある | [Helmのvaluesの形式](#helm-values-formats) |
+| `helm_image_automation` | イメージの行にFlux image automationの目印がある | [Helmのvaluesの形式](#helm-values-formats) |
+| `undeclared_affected_workload` | 列挙されていないコンテナがKustomizeの`images`の項目またはHelmのvaluesのキーと同じイメージ参照を宣言しており、編集の影響を受けうる | [KustomizeのPR](remediation-logic.md#kustomize-prs)・[HelmのvaluesのPR](remediation-logic.md#helm-values-prs) |
 | `init_container_unverified` | 列挙したinit containerが、稼働コンテナと同じイメージを動かしたことを確認できない | [KustomizeのPR](remediation-logic.md#kustomize-prs) |
 | `dependency_files_not_found` | 依存ファイルが見つからない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | 依存ファイルの組み合わせが複数あり、一意に決められない | [計画が出ない場合](remediation-troubleshooting.md#check-missing-plan) |

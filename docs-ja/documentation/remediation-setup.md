@@ -198,6 +198,52 @@ KestreLynxはKustomizeを展開せず、この一覧が作用先のすべてで�
 この更新にはスキャン用の読み取り専用RBACだけを使います。
 
 全コンテナの確認条件は[KustomizeのPR](remediation-logic.md#kustomize-prs)、設定の制約は[ソースの対応付け](configuration.md#remediation-mappings)、編集できる形式は[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
+
+### HelmのvaluesのPR設定 {#helm-values-pull-requests}
+
+`apps/values.yaml`の例です。
+
+```yaml
+image:
+  registry: docker.io
+  repository: library/nginx
+  tag: "1.27.2" # 使用するタグ
+```
+
+この`image`キーが`web`と`worker`の`app`、および`web`の通常のinit containerである`prepare`に効く場合、次の対応付けを使います。
+同じワークロードに`manifest`または`kustomize`の対応付けがある場合は置き換えます。
+
+```yaml
+remediation:
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      helm_values:
+        path: apps/values.yaml
+        key: image
+        affects:
+          - deployment/example/worker/app
+          - deployment/example/web/prepare
+```
+
+`key`には`tag`自体ではなく、`repository`と`tag`を持つmappingの経路を指定し、`registry`は省略できます。
+`image: "nginx:1.27.2"`のような文字列形式にも、同じ`key: image`を指定できます。
+
+`affects`には、このキーが効く、対応付けたコンテナ以外のワークロードキーを通常のinit containerも含めてすべて列挙します。
+省略すると、対応付けたコンテナだけに効くことを利用者が確認した扱いになります。
+
+KestreLynxはHelmを描画しないため、このキーがイメージの最終的な値であり、列挙した集合が作用先のすべてであることを利用者が確認します。
+次の設定で上書きされていないことも確認します。
+
+- Flux HelmReleaseの`spec.values`で上書きされていないことを確認する
+- Argo CDの`parameters`・`valuesObject`・`valuesFrom`で上書きされていないことを確認する
+- CIの`--set`やほかのvaluesファイルで上書きされていないことを確認する
+
+既存のGitHub tokenとPRの有効化設定を保持し、設定を反映してKestreLynxのPodを再起動します。
+この更新にはスキャン用の読み取り専用RBACだけを使います。
+
+全コンテナの確認条件は[HelmのvaluesのPR](remediation-logic.md#helm-values-prs)、設定の制約は[ソースの対応付け](configuration.md#remediation-mappings)、編集できる形式は[Helmのvaluesの形式](remediation-reference.md#helm-values-formats)を参照してください。
 ### Kubernetesの言語パッケージ更新 {#kubernetes-language-updates}
 
 npm・pnpm・pip・uvの更新は、利用者が用意した作業用namespaceにKestreLynxが作る使い捨てのPodで実行します。

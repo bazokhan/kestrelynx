@@ -198,6 +198,52 @@ Keep the existing GitHub token and PR enablement settings, apply the configurati
 This update uses only the read-only scanning RBAC.
 
 See [Kustomize PRs](remediation-logic.md#kustomize-prs) for checks across all containers, [Source mappings](configuration.md#remediation-mappings) for configuration constraints, and [Kustomize formats](remediation-reference.md#kustomize-formats) for editable inputs.
+
+### Helm values PR configuration {#helm-values-pull-requests}
+
+Example `apps/values.yaml`:
+
+```yaml
+image:
+  registry: docker.io
+  repository: library/nginx
+  tag: "1.27.2" # Tag to use
+```
+
+If this `image` key affects the `app` containers in `web` and `worker`, plus the ordinary init container `prepare` in `web`, use the following mapping.
+Replace any existing `manifest` or `kustomize` mapping for the same workload.
+
+```yaml
+remediation:
+  mappings:
+    - workload: deployment/example/web/app
+      repository: example/deployment
+      base_branch: main
+      helm_values:
+        path: apps/values.yaml
+        key: image
+        affects:
+          - deployment/example/worker/app
+          - deployment/example/web/prepare
+```
+
+Set `key` to the path of the mapping containing `repository` and `tag`, rather than to `tag` itself; `registry` is optional.
+The string form `image: "nginx:1.27.2"` also uses `key: image`.
+
+List every other workload key affected by this key in `affects`, including ordinary init containers.
+Omitting it means the user has confirmed that the key affects only the mapped container.
+
+KestreLynx does not render Helm, so the user confirms that this key holds the final image value and that the listed set is the complete affected set.
+Also confirm that the following settings do not override it.
+
+- Confirm that Flux HelmRelease `spec.values` does not override the value
+- Confirm that Argo CD `parameters`, `valuesObject`, and `valuesFrom` do not override the value
+- Confirm that CI `--set` and other values files do not override the value
+
+Keep the existing GitHub token and PR enablement settings, apply the configuration, and restart the KestreLynx Pod.
+This update uses only the read-only scanning RBAC.
+
+See [Helm values PRs](remediation-logic.md#helm-values-prs) for checks across all containers, [Source mappings](configuration.md#remediation-mappings) for configuration constraints, and [Helm values formats](remediation-reference.md#helm-values-formats) for editable inputs.
 ### Kubernetes language-package updates {#kubernetes-language-updates}
 
 npm, pnpm, pip, and uv updates run in disposable Pods that KestreLynx creates in a user-provided work namespace.

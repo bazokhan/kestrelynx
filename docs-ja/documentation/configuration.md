@@ -136,8 +136,8 @@ tokenの送付先は[認証情報の送付範囲](outbound-communication.md#cred
 
 各項目に`workload`、`repository`、`base_branch`と、ちょうど1種類のソースを設定します。
 
-Kubernetesモードでは`manifest`・`kustomize`・`dockerfile`・`dependencies`を指定できます。
-`compose`はDockerモード専用で、`manifest`・`kustomize`はKubernetesモード専用です。
+Kubernetesモードでは`manifest`・`kustomize`・`helm_values`・`dockerfile`・`dependencies`を指定できます。
+`compose`はDockerモード専用で、`manifest`・`kustomize`・`helm_values`はKubernetesモード専用です。
 修正計画が有効で、対応付けの名前空間が`kubernetes.namespaces`の対象外の場合は、起動時に警告し、その対応付けは計画に使われません。
 
 | 対応付け内のフィールド | 必須条件・形式 |
@@ -152,23 +152,26 @@ Kubernetesモードでは`manifest`・`kustomize`・`dockerfile`・`dependencies
 | `kustomize.path` | Kustomizeの対応付けで必須のリポジトリ相対パスで、ファイル名は`kustomization.yaml`・`kustomization.yml`・`Kustomization`のいずれかです。 |
 | `kustomize.image` | 必須で、対象の`images[].name`をタグ・digestなしで指定します。 |
 | `kustomize.affects` | 任意で、この項目が効く、対応付けたコンテナ以外のワークロードキーの一覧です。通常のinit containerも含め、重複や`workload`自身の指定はできません。省略時は、対応付けたコンテナだけに効くことを利用者が確認した扱いになります。 |
+| `helm_values.path` | Helmのvaluesの対応付けで必須のリポジトリ相対パスで、拡張子は`.yaml`または`.yml`です。 |
+| `helm_values.key` | 必須で、`[A-Za-z0-9_-]`からなる空でない名前をドットでつないだ255バイト以内の経路です。`image`・`app.image`など、イメージのmappingまたは文字列を指し、ドットを含むキーは指定できません。 |
+| `helm_values.affects` | 任意で、このキーが効く、対応付けたコンテナ以外のワークロードキーの一覧です。通常のinit containerも含め、重複や`workload`自身の指定はできません。省略時は、対応付けたコンテナだけに効くことを利用者が確認した扱いになります。 |
 | `dockerfile.path` | Dockerfileの対応付けで必須の、リポジトリ相対のDockerfileです。 |
 | `dockerfile.target` | 任意のビルド対象ステージで、省略すると最後のステージを使います。英字で始まる128バイト以内の英数字・`_`・`.`・`-`です。 |
 | `dependencies.directory` | 依存ファイルの対応付けで必須のディレクトリで、`.`はリポジトリのルートです。 |
 
 - パスはリポジトリ内の正規化したパスとし、先頭の`/`、`./`、`..`、バックスラッシュを使わない
-- 同じワークロードには、ソースの種類ごとに1件ずつ、別の項目で対応付けるが、`manifest`と`kustomize`は併用しない
+- 同じワークロードには、ソースの種類ごとに1件ずつ、別の項目で対応付けるが、`manifest`・`kustomize`・`helm_values`は併用しない
 - 共有する依存ディレクトリやDockerfileには同じbase branchを指定する
 - 同じリポジトリの同じComposeファイルのサービスを複数のワークロードに対応付けない
 - 同じリポジトリの同じマニフェスト内で、種類・名前空間・名前が同じオブジェクトの同じコンテナを複数のワークロードに対応付けない
-- 同じKustomizeの項目を指す対応付けでは、`workload`と`affects`を合わせた集合をすべて同じにする
+- 同じKustomizeの項目または同じHelmのvaluesのキーを指す対応付けでは、`workload`と`affects`を合わせた集合をすべて同じにする
 - `affects`に列挙するものを含め、1つのコンテナのイメージタグを決める箇所は、`manifest`を含めて1つだけにする
-- 同じリポジトリの同じKustomizeファイルには、すべての対応付けで同じ`base_branch`を指定する
+- 同じリポジトリの同じKustomizeファイルまたはHelmのvaluesファイルには、すべての対応付けで同じ`base_branch`を指定する
 - リポジトリ名の重複判定では大文字・小文字を区別しない
 
 Composeの`build`からの特定と明示したDockerfileとの照合は[ベースイメージの特定](remediation-logic.md#base-image-selection)、入力の対応範囲は[対応する入力形式](remediation-reference.md#supported-inputs)を参照してください。
 
-Kustomizeの設定例と作用先の指定方法は[KustomizeのPR設定](remediation-setup.md#kustomize-pull-requests)を参照してください。
+KustomizeとHelmのvaluesの設定例と作用先の指定方法は[KustomizeのPR設定](remediation-setup.md#kustomize-pull-requests)・[HelmのvaluesのPR設定](remediation-setup.md#helm-values-pull-requests)を参照してください。
 上記の対応付けの制約に違反する設定は、起動時にエラーになります。
 
 ### 処理の上限 {#remediation-limits}
@@ -247,7 +250,7 @@ Kubernetesモードの言語パッケージ更新に使います。
 
 - `remediation.enabled`を有効にせず、PRだけを有効にした場合
 - `remediation.github.token`なしでPRを有効にした場合
-- Dockerモードで`manifest`または`kustomize`の対応付けを指定した場合
+- Dockerモードで`manifest`・`kustomize`・`helm_values`の対応付けを指定した場合
 - Kubernetesモードで`compose`の対応付けを指定した場合
 
 機能が無効でも、tokenの形式、保存先、対応付け、処理上限、レジストリ認証、作業用コンテナの設定を検証します。

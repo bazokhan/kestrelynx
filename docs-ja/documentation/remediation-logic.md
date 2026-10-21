@@ -59,7 +59,7 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 
 | タグの種類 | 候補の選び方 | 採用後の扱い |
 | --- | --- | --- |
-| 完全な版を指定する固定タグ | major・minor・接頭辞・接尾辞が同じ系列から、現在より新しい最新パッチを選びます。 | ソース編集の条件も満たせば、Compose・Kubernetesマニフェスト・Kustomizeのタグを変更するPRの候補にします。 |
+| 完全な版を指定する固定タグ | major・minor・接頭辞・接尾辞が同じ系列から、現在より新しい最新パッチを選びます。 | ソース編集の条件も満たせば、Compose・Kubernetesマニフェスト・Kustomize・Helmのvaluesのタグを変更するPRの候補にします。 |
 | 浮動タグ | 同じタグが現在レジストリで指す内容を候補にします。 | 改善を確認できれば再取得の案内にし、参照が変わらないためPRは作りません。 |
 
 - 候補の実体が稼働中のイメージと同じ場合は、更新候補にしない
@@ -67,7 +67,7 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 - PR作成前に候補タグを再確認し、比較時とは異なる内容を指していれば保留する
 
 候補の採用には、[スキャンの比較条件](#comparison-conditions)と[対象別の検証範囲](#verification-scope)の条件を適用します。
-編集できる参照と対象外の形式は[Composeの形式](remediation-reference.md#compose-formats)、[マニフェストの形式](remediation-reference.md#manifest-formats)、[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
+編集できる参照と対象外の形式は[Composeの形式](remediation-reference.md#compose-formats)、[マニフェストの形式](remediation-reference.md#manifest-formats)、[Kustomizeの形式](remediation-reference.md#kustomize-formats)、[Helmのvaluesの形式](remediation-reference.md#helm-values-formats)を参照してください。
 
 ### KubernetesのマニフェストPR {#kubernetes-manifest-prs}
 
@@ -110,6 +110,28 @@ KestreLynxはKustomizeを展開せず、列挙した集合が作用先のすべ�
 
 同じファイルの対応付けで稼働状態の確認に失敗するか、更新対象の集合が候補や列挙漏れの確認に通らない場合、そのファイルを対象とするPRをすべて見送ります。
 編集形式の制約は[Kustomizeの形式](remediation-reference.md#kustomize-formats)を参照してください。
+
+### HelmのvaluesのPR {#helm-values-prs}
+
+[設定例](remediation-setup.md#helm-values-pull-requests)では、`workload`と`affects`を合わせた`web/app`・`worker/app`・`web/prepare`の集合を確認し、同じ修正版を採用できる場合に`image.tag`を更新します。
+`registry`と`repository`を合わせたリポジトリと`tag`、または文字列形式のイメージ参照が、宣言と稼働中の参照の両方に一致することを確認します。
+
+集合全体の確認と通常のinit containerの扱いは[KustomizeのPR](#kustomize-prs)と同じです。
+
+- 列挙したコンテナの宣言と稼働中の参照が一致し、集合全体で現在の参照が1つにそろうことを確認する
+- 集合全体で同じタグとdigestの修正版を採用できることを確認する
+- 通常のinit containerは、Podのstatusと、同じPod内の集合に含まれる稼働コンテナのスキャンを使い、同じイメージの中身を同じ参照で使ったことを確認する
+- 集合にない稼働コンテナが同じ参照を宣言し、namespace・Helmリリース・Flux Kustomizationのいずれかを共有する場合は`undeclared_affected_workload`で停止する
+- 列挙したワークロードのPodの定義に同じ参照を使う未列挙のコンテナがある場合も、待機中のコンテナ・ネイティブsidecar・通常のinit containerを含めて`undeclared_affected_workload`で停止する
+
+同じvaluesファイルの対応付けで稼働状態の確認に失敗するか、更新対象の集合が候補や列挙漏れの確認に通らない場合、そのファイルを対象とするPRをすべて見送ります。
+通常のinit containerを確認できない場合は、`init_container_unverified`などの理由でPRを作成しません。
+
+KestreLynxはHelmを描画せず、指定したキーが最終的な値であり、列挙した集合が作用先のすべてであることを利用者が確認した前提で扱います。
+Flux HelmReleaseの`spec.values`、Argo CDの`parameters`・`valuesObject`・`valuesFrom`、CIの`--set`、ほかのvaluesファイルによる上書きは確認しません。
+
+PR本文には、この前提、確認した範囲、ほかのツールがタグを管理していないことを確認していない旨を載せます。
+検出できるFluxの`$imagepolicy`の印とArgo CD Image Updaterの書き戻しファイルは、[編集形式の制約](remediation-reference.md#helm-values-formats)に従って確認します。
 ### タグ一覧の探索 {#tag-discovery}
 
 固定タグの最新パッチは、対象系列の終端まで確認できた場合に選びます。
@@ -720,6 +742,9 @@ Kubernetesマニフェストのタグ更新PRには`kestrelynx/kubernetes/`で�
 
 Kustomizeのタグ更新PRには`kestrelynx/kustomize/`で始まるブランチ名と、種別が`kustomize`の識別マーカーを使います。
 この種別に対応していない古い版では、既存のKustomizeのPRを認識できません。
+
+Helmのvaluesのタグ更新PRには`kestrelynx/helm/`で始まるブランチ名と、種別が`helm_values`の識別マーカーを使います。
+この種別に対応していない古い版では、既存のHelmのvaluesのPRを認識できません。
 
 - マーカーの識別情報を再計算し、リポジトリとブランチの対応も確認する
 - 記録がない状態からの復旧では、すべての対象リポジトリを確認できるまでGitHubへ書き込まない

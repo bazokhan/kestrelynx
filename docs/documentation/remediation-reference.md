@@ -10,19 +10,19 @@ See [Setup steps](remediation-setup.md) to enable them.
 | Item | Support |
 | --- | --- |
 | Container environment | Remediation plans and PR creation are supported in Docker and Kubernetes modes |
-| Source mappings | Specify source edit locations for Compose workloads or manifests, Kustomize `images` entries, Dockerfiles, and dependency directories for Kubernetes workloads |
+| Source mappings | Specify source edit locations for Compose workloads or manifests, Kustomize `images` entries, Helm values keys, Dockerfiles, and dependency directories for Kubernetes workloads |
 | Source host | GitHub |
 | Work containers | Linux `amd64` and `arm64` |
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
 | Kubernetes plans | Published-image and Dockerfile base-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
-| Kubernetes PRs | Image tag updates in plain manifests, Kustomize `images[].newTag` updates, and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
+| Kubernetes PRs | Image tag updates in plain manifests, Kustomize `images[].newTag` updates, image tag updates in Helm values, and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
 
 ### Supported targets {#supported-targets}
 
 | Target | Source | Source mapping |
 | --- | --- | --- |
-| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose, Kubernetes manifests, or Kustomize |
+| Distributed image | Public registries and private registries with authentication configured | Not required to display comparison results; required for PRs that change Compose, Kubernetes manifests, Kustomize, or Helm values |
 | Dockerfile base image | Public registries and private registries with authentication configured | A Dockerfile or Compose mapping is required from the planning stage |
 | npm and pnpm dependencies | Public npm registry | A dependency-directory mapping is required from the planning stage |
 | pip and uv dependencies | Public PyPI | A dependency-directory mapping is required from the planning stage |
@@ -98,6 +98,39 @@ A missing file uses `manifest_file_not_found`, and a file of a type that cannot 
 If the reference derived from the file differs from the declared or running reference, the reason is `source_mismatch`.
 
 See [Kustomize PRs](remediation-logic.md#kustomize-prs) for checks across the whole set and handling of ordinary init containers.
+
+### Helm values formats {#helm-values-formats}
+
+KestreLynx edits only the image tag selected by `helm_values.key` in the [configuration example](remediation-setup.md#helm-values-pull-requests).
+The repository, including its registry, and tag must match both the declared image and the running image.
+
+| Input | Support |
+| --- | --- |
+| File | A `.yaml` or `.yml` values file containing one YAML document without duplicate keys |
+| Mapping form | A mapping containing `repository` and a string `tag`, with optional `registry` |
+| String form | An image reference in `"repo:tag"` form |
+| Target selection | Selects the path in `helm_values.key`; a missing value requires manual action with `helm_key_missing` |
+| Edited text | Changes only the tag, preserving existing quotes and comments |
+| Quoting a new tag | If the mapping form's old tag is unquoted and the new tag would not be a string in Helm, such as `1.10` or `on`, writes it in double quotes and explains this in the PR body |
+| Missing or empty-string tag | Requires manual action with `helm_tag_from_chart` because the chart's default is used |
+| Numbers, booleans, null, and values with explicit YAML tags | Require manual action with `helm_not_string`, including an existing unquoted tag that Helm does not read as a string |
+| Block scalars and values containing `$` | Require manual action with `helm_block_scalar` or `helm_variable` when present in values being read |
+| Digests | A nonempty `digest` in the mapping or a digest in the string form requires manual action with `helm_digest` |
+| `repository` format | A repository containing a tag or digest requires manual action with `helm_values_shape` |
+| `name` or `image` in the same mapping as `repository` | Requires manual action with `helm_values_shape` when present |
+| YAML anchors and aliases | Require manual action with `helm_anchor_or_alias` when involved in the path to the target key or values being read |
+| Anchors and aliases on keys | An anchored key in a mapping on the path or in the target mapping requires manual action with `helm_invalid`; an aliased key anywhere in the file requires manual action with `helm_anchor_or_alias` |
+| Merge keys | Require manual action with `helm_merge_key` at the document root, on the path to the target key, or in the target mapping |
+| Unquoted keys that Helm does not read as strings, or pairs that resolve to the same key | Require manual action with `helm_invalid` in mappings on the path or in the target mapping, including pairs such as `"true"` and `on` |
+| Multiple documents, duplicate keys, and invalid YAML | Require manual action with `helm_invalid`; duplicate keys are checked throughout the file |
+| `{{` | Requires manual action with `helm_template` when present anywhere in the file |
+| Flux `$imagepolicy` | A marker on the `repository`, `registry`, or `tag` line, or on the string-form image line, requires manual action with `helm_image_automation` |
+| `.argocd-source-*.yaml` | Requires manual action with `image_updater_file` when an Argo CD Image Updater write-back file exists in the same directory |
+
+A missing file uses `manifest_file_not_found`, and a file whose type cannot be edited uses `manifest_file_unusable`.
+A reference derived from the file that differs from the declared or running reference uses `source_mismatch`.
+
+See [Helm values PRs](remediation-logic.md#helm-values-prs) for checks across the whole set, handling of ordinary init containers, and the premise about the final value.
 ### Dockerfile formats {#dockerfile-formats}
 
 | Input | Support |
@@ -524,7 +557,7 @@ The following tables give each code's meaning and related decision rules or chec
 | `source_object_missing` | No document in the manifest matches the workload's object | [Manifest formats](#manifest-formats) |
 | `source_object_ambiguous` | More than one document in the manifest matches the workload's object | [Manifest formats](#manifest-formats) |
 | `source_container_missing` | The object has no editable container with that name | [Manifest formats](#manifest-formats) |
-| `source_mismatch` | The file's `image` differs from the declared or running image | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
+| `source_mismatch` | The image reference derived from the file differs from the declared or running image | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs), [Helm values PRs](remediation-logic.md#helm-values-prs) |
 | `mapping_conflict` | Two or more mappings to the file resolve to the same container in the same document | [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) |
 | `kustomize_invalid` | The kustomization is not one well-formed YAML document, repeats a key, or fails the check after the edit | [Kustomize formats](#kustomize-formats) |
 | `kustomize_image_missing` | The kustomization has no `images` entry of the mapped name | [Kustomize formats](#kustomize-formats) |
@@ -540,7 +573,19 @@ The following tables give each code's meaning and related decision rules or chec
 | `kustomize_variable` | A value of the `images` entry contains a variable | [Kustomize formats](#kustomize-formats) |
 | `kustomize_template` | The kustomization contains a template expression | [Kustomize formats](#kustomize-formats) |
 | `kustomize_image_automation` | The `newTag` line carries a Flux image automation marker | [Kustomize formats](#kustomize-formats) |
-| `undeclared_affected_workload` | An unlisted container declares the image of the `images` entry and may be affected by the edit | [Kustomize PRs](remediation-logic.md#kustomize-prs) |
+| `helm_invalid` | The values file is not one well-formed YAML document, repeats a key, or fails the check after the edit | [Helm values formats](#helm-values-formats) |
+| `helm_key_missing` | The values file has no value at the mapped key | [Helm values formats](#helm-values-formats) |
+| `helm_tag_from_chart` | The key has no tag, so the chart's own default is used | [Helm values formats](#helm-values-formats) |
+| `helm_digest` | The image at the key is pinned by a digest | [Helm values formats](#helm-values-formats) |
+| `helm_values_shape` | The key holds neither `repository` and `tag` nor a `repository:tag` string | [Helm values formats](#helm-values-formats) |
+| `helm_not_string` | A value at the key is not a plain string, a number for one | [Helm values formats](#helm-values-formats) |
+| `helm_block_scalar` | A value at the key is a block scalar | [Helm values formats](#helm-values-formats) |
+| `helm_variable` | A value at the key contains a variable | [Helm values formats](#helm-values-formats) |
+| `helm_template` | The values file holds a template expression | [Helm values formats](#helm-values-formats) |
+| `helm_anchor_or_alias` | A node on the path to the key has an anchor or is an alias | [Helm values formats](#helm-values-formats) |
+| `helm_merge_key` | A mapping on the path to the key has a merge key | [Helm values formats](#helm-values-formats) |
+| `helm_image_automation` | A line of the image carries a Flux image automation marker | [Helm values formats](#helm-values-formats) |
+| `undeclared_affected_workload` | An unlisted container declares the same image reference as the Kustomize `images` entry or Helm values key and may be affected by the edit | [Kustomize PRs](remediation-logic.md#kustomize-prs), [Helm values PRs](remediation-logic.md#helm-values-prs) |
 | `init_container_unverified` | A listed init container could not be shown to have run the same image as the running containers | [Kustomize PRs](remediation-logic.md#kustomize-prs) |
 | `dependency_files_not_found` | No dependency files were found | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |
 | `ambiguous_dependency_files` | More than one set of dependency files matches, so no unique set can be selected | [Checking missing plans](remediation-troubleshooting.md#check-missing-plan) |

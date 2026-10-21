@@ -103,7 +103,7 @@ available and annotate upgrade risk, without guaranteeing compatibility.
 ## Remediation plans and pull requests (experimental)
 
 Kubernetes remediation plans show published-image update candidates, guidance for pulling floating tags again, and language-package update candidates.
-Kubernetes PRs support image tag updates in plain manifests, [Kustomize `images[].newTag` updates](documentation/remediation-setup.md#kustomize-pull-requests), and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](documentation/remediation-setup.md#kubernetes-language-updates).
+Kubernetes PRs support image tag updates in plain manifests, [Kustomize `images[].newTag` updates](documentation/remediation-setup.md#kustomize-pull-requests), [image tag updates in Helm values](documentation/remediation-setup.md#helm-values-pull-requests), and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](documentation/remediation-setup.md#kubernetes-language-updates).
 For npm, pnpm, and uv, this also includes re-resolution through dependent packages under the supported conditions.
 For Docker and Compose, KestreLynx can propose changes to three kinds of source:
 

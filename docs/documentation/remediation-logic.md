@@ -59,7 +59,7 @@ The running image reference determines which candidate to compare.
 
 | Tag type | Candidate selection | Treatment after adoption |
 | --- | --- | --- |
-| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the tag in Compose, a Kubernetes manifest, or Kustomize if source-editing requirements are also met. |
+| Pinned tag specifying a full version | Selects the newest patch above the current version in the same major, minor, prefix, and suffix series. | Becomes a candidate for a PR that changes the tag in Compose, a Kubernetes manifest, Kustomize, or Helm values if source-editing requirements are also met. |
 | Floating tag | Selects the content the same tag currently points to in the registry. | Produces re-pull guidance if an improvement is confirmed, without a PR because the reference does not change. |
 
 - A candidate with the same image content as the running image is not an update candidate
@@ -67,7 +67,7 @@ The running image reference determines which candidate to compare.
 - The candidate tag is checked again before PR creation, and processing is deferred if it points to different content than during the comparison
 
 Candidate adoption follows [Scan comparison conditions](#comparison-conditions) and [Verification scope by target](#verification-scope).
-See [Compose formats](remediation-reference.md#compose-formats), [Manifest formats](remediation-reference.md#manifest-formats), and [Kustomize formats](remediation-reference.md#kustomize-formats) for editable references and unsupported forms.
+See [Compose formats](remediation-reference.md#compose-formats), [Manifest formats](remediation-reference.md#manifest-formats), [Kustomize formats](remediation-reference.md#kustomize-formats), and [Helm values formats](remediation-reference.md#helm-values-formats) for editable references and unsupported forms.
 
 ### Kubernetes manifest PRs {#kubernetes-manifest-prs}
 
@@ -110,6 +110,28 @@ As a safety check, it stops with `undeclared_affected_workload` in the following
 
 If running-state checks fail for a mapping to the same file, or an update's set fails candidate or unlisted-container checks, all PRs for that file are withheld.
 See [Kustomize formats](remediation-reference.md#kustomize-formats) for editing restrictions.
+
+### Helm values PRs {#helm-values-prs}
+
+In the [configuration example](remediation-setup.md#helm-values-pull-requests), KestreLynx checks the combined `workload` and `affects` set of `web/app`, `worker/app`, and `web/prepare`, and updates `image.tag` when all can adopt the same fixed version.
+It checks that the repository formed from `registry` and `repository` with `tag`, or the string-form image reference, matches both the declared and running references.
+
+Checks across the whole set and handling of ordinary init containers follow [Kustomize PRs](#kustomize-prs).
+
+- Check that declared and running references match for the listed containers and that the whole set uses one current reference
+- Check that the whole set can adopt the same candidate tag and digest
+- Verify ordinary init containers through Pod status and the scan of a running container in the set in the same Pod, confirming the same image content under the same reference
+- Stop with `undeclared_affected_workload` if an unlisted running container declares the same reference and shares a namespace, Helm release, or Flux Kustomization
+- Also stop with `undeclared_affected_workload` if a listed workload's Pod spec has an unlisted container using the same reference, including waiting containers, native sidecars, and ordinary init containers
+
+If a mapping in the same values file fails running-state checks, or an update's set fails candidate or undeclared-container checks, KestreLynx skips all PRs for that file.
+An ordinary init container that cannot be verified prevents PR creation with a reason such as `init_container_unverified`.
+
+KestreLynx does not render Helm and assumes the user has confirmed that the selected key holds the final value and that the listed set is the complete affected set.
+It does not check overrides from Flux HelmRelease `spec.values`, Argo CD `parameters`, `valuesObject`, or `valuesFrom`, CI `--set`, or other values files.
+
+The PR body states this premise, the scope checked, and that ownership of the tag by other tools is not verified.
+Detectable Flux `$imagepolicy` markers and Argo CD Image Updater write-back files are checked according to the [editing restrictions](remediation-reference.md#helm-values-formats).
 ### Tag discovery {#tag-discovery}
 
 The latest patch for a pinned tag is selected only after the end of its series has been checked.
@@ -720,6 +742,9 @@ Downgrading to an older KestreLynx version prevents it from recognizing existing
 
 Kustomize tag-update PRs use branch names starting with `kestrelynx/kustomize/` and identification markers with kind `kustomize`.
 Older versions without support for this kind cannot recognize existing Kustomize PRs.
+
+Helm values tag-update PRs use branch names starting with `kestrelynx/helm/` and identification markers with kind `helm_values`.
+Older versions without support for this kind cannot recognize existing Helm values PRs.
 
 - Recalculates marker identifiers and verifies the repository and branch relationship
 - Makes no GitHub writes during recovery from missing records until all target repositories have been checked

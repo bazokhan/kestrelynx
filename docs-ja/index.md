@@ -90,7 +90,7 @@ Trivyでスキャンし、既定では修正版のないものも含めてHIGH�
 ## 修正計画と修正PR（実験的）
 
 Kubernetesの修正計画は、配布イメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補を提示します。
-KubernetesのPRは、プレーンなマニフェストのイメージタグ、[Kustomizeの`images[].newTag`](documentation/remediation-setup.md#kustomize-pull-requests)、Dockerfileのベースイメージに加え、[作業用Podを設定](documentation/remediation-setup.md#kubernetes-language-updates)するとnpm・pnpm・pip・uvの更新にも対応します。
+KubernetesのPRは、プレーンなマニフェストのイメージタグ、[Kustomizeの`images[].newTag`](documentation/remediation-setup.md#kustomize-pull-requests)、[Helmのvaluesのイメージタグ](documentation/remediation-setup.md#helm-values-pull-requests)、Dockerfileのベースイメージに加え、[作業用Podを設定](documentation/remediation-setup.md#kubernetes-language-updates)するとnpm・pnpm・pip・uvの更新にも対応します。
 npm・pnpm・uvでは、対応する条件の下で依存元からの再解決も行います。
 Docker・Compose向けに、次の3種類のソースの変更を提案できます。
 

@@ -81,17 +81,23 @@ Slackでは、長いパッケージ一覧などを「ほか…件」として省
 
 ### KubernetesのPR表示 {#kubernetes-pr-results}
 
-Slackでは、マニフェストとKustomizeのタグ更新を変更先ファイルとPRへのリンク付きで表示します。
-管理元の印がある場合は、マニフェスト・Kustomize・DockerfileのPRにも管理元のつながりを表示します。
+Slackでは、マニフェスト・Kustomize・Helmのvaluesのタグ更新を変更先ファイルとPRへのリンク付きで表示します。
+管理元の印がある場合は、マニフェスト・Kustomize・Helmのvalues・DockerfileのPRにも管理元のつながりを表示します。
 
 Kubernetes向けのPR本文には、次の情報を載せます。
 
 - マージ後に外部の自動同期やCIで変更が反映されうる注意を、管理元の検出有無にかかわらず載せる
 - Argo CD・Flux・Helmなどの管理元は、オブジェクトの印が示す主張として載せ、実際の管理関係を確認済みとは扱わない
-- CronJob・Jobを含むマニフェスト・KustomizeのPRには、既存のJobには反映されない注意を載せる
+- CronJob・Jobを含むマニフェスト・Kustomize・HelmのvaluesのPRには、既存のJobには反映されない注意を載せる
 - マニフェストPRには、同じイメージで稼働していてマニフェストの対応付けがないワークロードと、同じPodテンプレート内で変更しないコンテナを載せる
-- KustomizeのPRには、作用先として列挙したコンテナの一覧と、そのうち通常のinit containerとして確認したものの一覧を載せる
+- KustomizeとHelmのvaluesのPRには、作用先として列挙したコンテナの一覧と、そのうち通常のinit containerとして確認したものの一覧を載せる
 - KustomizeのPRには、列挙した集合が作用先のすべてであることを利用者が確認した前提と、Kustomizeを展開せずに確認した範囲を載せる
+- HelmのvaluesのPRには、指定したキーが最終的な値であり、列挙した集合が作用先のすべてであることを利用者が確認した前提と、Helmを描画せずに確認した範囲を載せる
+- HelmのvaluesのPRには、ほかのvaluesファイル・CIの`--set`・Argo CDの`parameters`・`valuesObject`・`valuesFrom`による上書きと、ほかのツールによるタグの管理を確認していない旨を載せる
+- Flux HelmReleaseの印を検出したワークロードを列挙し、HelmReleaseの`spec.values`を読み取っておらず、valuesファイルより優先される可能性を載せる
+- HelmリリースもFlux HelmReleaseも検出できない場合は、このvaluesファイルが配備に使われるか分からない旨を載せる
+- Helmで文字列として読まれるよう新しいタグに二重引用符を追加する場合は、その理由を載せる
+
 ## 更新結果の解釈 {#interpreting-updates}
 
 ### 更新目標と採用版 {#target-and-adopted-version}
@@ -167,7 +173,7 @@ npm・pnpm・uvでの処理の流れは[依存元からの再解決](remediation
 ### 再取得の案内 {#repull-guidance}
 
 「再pull」は、同じタグが現在指す内容との比較で改善を確認した結果です。
-タグの文字列を変更しないため、この案内だけでCompose・Kubernetesマニフェスト・Kustomizeのタグ更新PRは作りません。
+タグの文字列を変更しないため、この案内だけでCompose・Kubernetesマニフェスト・Kustomize・Helmのvaluesのタグ更新PRは作りません。
 
 `所見4件中3件が解消`なら、比較対象の4件のうち3件が候補では検出されなくなったことを示します。
 稼働中のコンテナがその内容へ置き換わったことは示しません。
@@ -199,12 +205,12 @@ npm・pnpm・uvでの処理の流れは[依存元からの再解決](remediation
 | Dockerfileのベースイメージ | 現在のベースイメージと候補のベースイメージ |
 | 言語パッケージ | 更新前後の依存ファイル |
 
-Compose・Kubernetesマニフェスト・Kustomizeのイメージタグ更新とDockerfileのベースイメージ更新では、PR本文で対象の所見とその他の所見を分けて表示します。
+Compose・Kubernetesマニフェスト・Kustomize・Helmのvaluesのイメージタグ更新とDockerfileのベースイメージ更新では、PR本文で対象の所見とその他の所見を分けて表示します。
 
 - 対象は修正版が報告されている所見で、Dockerfile更新ではベースイメージのレイヤーにあるものに限り、Slack・Webhookの修正計画でもこの対象の解消・残存だけを数える
 - 候補に残るその他の所見と、新規の所見は、対象の解消・残存とは分けて表示する
 - その他の所見は、修正版の報告がない所見など、更新の対象に含まれない所見
-- Compose・Kubernetesマニフェスト・KustomizeのPRでは、その他の所見のうち候補で検出されなくなった件数も表示し、該当する所見がある場合だけ一覧を載せる
+- Compose・Kubernetesマニフェスト・Kustomize・HelmのvaluesのPRでは、その他の所見のうち候補で検出されなくなった件数も表示し、該当する所見がある場合だけ一覧を載せる
 
 !!! note "解消の表示と稼働状態"
 
