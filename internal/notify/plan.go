@@ -368,7 +368,8 @@ const maxWebhookFixTargets = 100
 
 type prUnitPayload struct {
 	// Kind is "dockerfile" for a base image update, "language" for a
-	// lockfile update and "kubernetes" for a manifest tag update (Services,
+	// lockfile update, "kubernetes" for a manifest tag update and "kustomize"
+	// for a Kustomize images entry update (Services,
 	// Workloads and Locations are then all workload keys); absent for a
 	// Compose tag update. For a Dockerfile,
 	// Path is the Dockerfile, Services the services of its workloads and

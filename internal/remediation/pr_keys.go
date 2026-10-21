@@ -37,6 +37,7 @@ const (
 	dockerfileBranchPrefix = branchPrefix + "dockerfile/"
 	languageBranchPrefix   = branchPrefix + "language/"
 	kubernetesBranchPrefix = branchPrefix + "kubernetes/"
+	kustomizeBranchPrefix  = branchPrefix + "kustomize/"
 )
 
 // The kinds of update the stage opens pull requests for. The empty kind of an
@@ -49,7 +50,17 @@ const (
 	// prKindKubernetes is a tag update of the containers of a Kubernetes
 	// manifest. Its keys and marker also hold the set of workloads it changes.
 	prKindKubernetes = "kubernetes"
+	// prKindKustomize is a newTag update of a Kustomize images entry, which
+	// acts on every container the file declares for it. Its keys and marker
+	// hold the set of workloads like a Kubernetes update's.
+	prKindKustomize = "kustomize"
 )
+
+// kindHasAffected says whether the keys and marker of an update of the kind
+// carry the set of workloads it changes.
+func kindHasAffected(kind string) bool {
+	return kind == prKindKubernetes || kind == prKindKustomize
+}
 
 // kindOf normalizes the kind recorded in an attempt or a marker.
 func kindOf(recorded string) string {
@@ -76,6 +87,8 @@ func branchPrefixOf(kind string) string {
 		return languageBranchPrefix
 	case prKindKubernetes:
 		return kubernetesBranchPrefix
+	case prKindKustomize:
+		return kustomizeBranchPrefix
 	}
 	return composeBranchPrefix
 }
@@ -150,6 +163,12 @@ func KubernetesUpdateKey(targetKey, currentRef, candidateTag, candidateDigest st
 // display part built as BranchName builds it, from the names of the objects.
 func KubernetesBranchName(names []string, tag, attemptKey string) (string, error) {
 	return branchNameFor(kubernetesBranchPrefix, names, tag, attemptKey)
+}
+
+// KustomizeBranchName is the branch of a Kustomize attempt:
+// kestrelynx/kustomize/<display>-<tag>-<12 hex of the attempt key>.
+func KustomizeBranchName(names []string, tag, attemptKey string) (string, error) {
+	return branchNameFor(kustomizeBranchPrefix, names, tag, attemptKey)
 }
 
 // AttemptKey identifies the content of one attempt of an update: the commit

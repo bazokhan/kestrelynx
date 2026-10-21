@@ -1,0 +1,28 @@
+{
+  "metadata": {"namespace": "shop", "name": "api-1"},
+  "spec": {
+    "nodeName": "node-amd64-1",
+    "initContainers": [
+      {"name": "migrate", "image": "docker.io/library/api:1.0", "imagePullPolicy": "IfNotPresent"},
+      {"name": "proxy", "image": "docker.io/library/envoy:1.0", "restartPolicy": "Always"},
+      {"name": "dup", "image": "docker.io/library/api:1.0"},
+      {"name": "dup", "image": "docker.io/library/api:2.0"},
+      {"name": "nospecstatus", "image": "docker.io/library/api:1.0"}
+    ],
+    "containers": [{"name": "app", "image": "docker.io/library/api:1.0"}]
+  },
+  "status": {
+    "initContainerStatuses": [
+      {"name": "migrate", "image": "docker.io/library/api:1.0", "imageID": "docker.io/library/api@sha256:0000000000000000000000000000000000000000000000000000000000000003", "state": {"terminated": {"exitCode": 0}}},
+      {"name": "proxy", "image": "docker.io/library/envoy:1.0", "imageID": "docker.io/library/envoy@sha256:0000000000000000000000000000000000000000000000000000000000000004", "state": {"running": {}}},
+      {"name": "dup", "image": "docker.io/library/api:1.0", "imageID": "docker.io/library/api@sha256:0000000000000000000000000000000000000000000000000000000000000003", "state": {"terminated": {"exitCode": 0}}},
+      {"name": "dup", "image": "docker.io/library/api:2.0", "imageID": "docker.io/library/api@sha256:0000000000000000000000000000000000000000000000000000000000000005", "state": {"terminated": {"exitCode": 0}}},
+      {"name": "badid", "image": "docker.io/library/api:1.0", "imageID": "not-a-digest", "state": {"terminated": {"exitCode": 0}}},
+      {"name": "noid", "image": "docker.io/library/api:1.0", "state": {"terminated": {"exitCode": 0}}},
+      {"name": "stranger", "image": "docker.io/library/api:1.0", "imageID": "docker.io/library/api@sha256:0000000000000000000000000000000000000000000000000000000000000003", "state": {"terminated": {"exitCode": 0}}}
+    ],
+    "containerStatuses": [
+      {"name": "app", "image": "docker.io/library/api:1.0", "imageID": "docker.io/library/api@sha256:0000000000000000000000000000000000000000000000000000000000000003", "state": {"running": {"startedAt": "2026-01-01T00:00:00Z"}}}
+    ]
+  }
+}

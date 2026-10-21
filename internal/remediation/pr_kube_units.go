@@ -49,6 +49,8 @@ type kubeUnitData struct {
 	// management are the management chains of the unit's workloads, as the
 	// plan shows them.
 	management []WorkloadChains
+	// kustomize is set for a unit that edits a Kustomize images entry.
+	kustomize *kustomizeUnitData
 }
 
 // Location is where the target's image is, as <Kind>/<namespace>/<name>/<container>
@@ -83,6 +85,8 @@ type kubeInstance struct {
 	declared string
 	running  string
 	itemKey  string
+	// pod is the namespace/pod the instance runs in.
+	pod string
 }
 
 // kubeMember is one mapped container with what its running instances say.

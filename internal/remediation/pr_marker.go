@@ -153,7 +153,7 @@ func parsePRMarker(body string) (PRMarker, error) {
 			has = true
 		}
 	}
-	if has != (m.Kind == prKindKubernetes) {
+	if has != kindHasAffected(m.Kind) {
 		return PRMarker{}, errors.New("the marker is malformed: the set of affected workloads belongs to a Kubernetes update only, which needs one")
 	}
 	if err := m.wellFormed(); err != nil {
@@ -164,9 +164,9 @@ func parsePRMarker(body string) (PRMarker, error) {
 
 func (m PRMarker) wellFormed() error {
 	switch {
-	case m.Kind != "" && m.Kind != prKindDockerfile && m.Kind != prKindLanguage && m.Kind != prKindKubernetes:
+	case m.Kind != "" && m.Kind != prKindDockerfile && m.Kind != prKindLanguage && !kindHasAffected(m.Kind):
 		return fmt.Errorf("unknown kind %q", m.Kind)
-	case (m.Kind == prKindKubernetes) != (len(m.Affected) > 0):
+	case kindHasAffected(m.Kind) != (len(m.Affected) > 0):
 		return errors.New("the set of affected workloads belongs to a Kubernetes update only, which needs one")
 	case (m.Kind == prKindLanguage) != (m.Lang != nil):
 		return errors.New("the language record belongs to a language update only")
@@ -252,7 +252,7 @@ func (m PRMarker) verify(repoID int64) error {
 	var uk string
 	if m.Lang != nil {
 		uk = LangUpdateKey(tk, m.Lang.Packages, m.Lang.ManifestEdits, m.Lang.Chain...)
-	} else if m.Kind == prKindKubernetes {
+	} else if kindHasAffected(m.Kind) {
 		uk = KubernetesUpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest, m.Affected)
 	} else {
 		uk = UpdateKey(tk, m.CurrentRef, m.CandidateTag, m.CandidateDigest)

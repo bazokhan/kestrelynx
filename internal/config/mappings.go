@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/github"
@@ -64,7 +66,6 @@ func ParseKubernetesWorkloadKey(key string) (KubernetesWorkload, error) {
 //
 // Repository names are compared case-insensitively, as GitHub does.
 func validateMappings(ms []RemediationMapping, kubernetes bool) error {
-	type routeKey struct{ workload, route string }
 	type composeKey struct{ repo, path, service string }
 	type manifestKey struct{ repo, path, kind, namespace, name, container string }
 	type depKey struct{ repo, dir string }
@@ -76,6 +77,9 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 	depBranch := map[depKey]string{}
 	dockerfiles := map[dockerfileKey]int{}
 	dockerfileBranch := map[dockerfileKey]string{}
+	tagRoutes := map[string]int{}
+	editPoints := editPointIndex{set: map[editPoint][]string{}, of: map[string]editPoint{}, at: map[string]string{}}
+	kustBranch := map[string]kustBranchEntry{}
 
 	for i, m := range ms {
 		at := fmt.Sprintf("remediation.mappings[%d]", i)
@@ -95,6 +99,9 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 		if !kubernetes && m.Manifest != nil {
 			return fmt.Errorf("config: %s sets a manifest mapping, which requires kubernetes.enabled", at)
 		}
+		if !kubernetes && m.Kustomize != nil {
+			return fmt.Errorf("config: %s sets a kustomize mapping, which requires kubernetes.enabled", at)
+		}
 		repo, err := github.ParseRepo(m.Repository)
 		if err != nil {
 			return fmt.Errorf("config: %s.repository %q must be a GitHub owner/name", at, m.Repository)
@@ -103,13 +110,13 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 			return fmt.Errorf("config: %s.base_branch %q is not a valid branch name", at, m.BaseBranch)
 		}
 		set := 0
-		for _, present := range []bool{m.Compose != nil, m.Manifest != nil, m.Dependencies != nil, m.Dockerfile != nil} {
+		for _, present := range []bool{m.Compose != nil, m.Manifest != nil, m.Kustomize != nil, m.Dependencies != nil, m.Dockerfile != nil} {
 			if present {
 				set++
 			}
 		}
 		if set != 1 {
-			return fmt.Errorf("config: %s must set exactly one of compose, manifest, dependencies and dockerfile", at)
+			return fmt.Errorf("config: %s must set exactly one of compose, manifest, kustomize, dependencies and dockerfile", at)
 		}
 		repoKey := strings.ToLower(repo.String())
 		switch {
@@ -155,6 +162,17 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 				return fmt.Errorf("config: %s maps container %q of %s %q of namespace %s in %s of %s, already mapped by remediation.mappings[%d] for another workload", at, kw.Container, wantKind, objName, kw.Namespace, m.Manifest.Path, m.Repository, j)
 			}
 			manifests[mk] = i
+			if j, dup := tagRoutes[m.Workload]; dup {
+				return fmt.Errorf("config: %s sets a manifest mapping for workload %q, whose image tag remediation.mappings[%d] already sets", at, m.Workload, j)
+			}
+			tagRoutes[m.Workload] = i
+			if err := editPoints.add(at, m.Workload, nil, editPoint{kind: "manifest", repo: repoKey, path: m.Manifest.Path, item: wantKind + "/" + kw.Namespace + "/" + objName + "/" + kw.Container}); err != nil {
+				return err
+			}
+		case m.Kustomize != nil:
+			if err := validateKustomize(at, m, repoKey, kw, routes, i, tagRoutes, editPoints, kustBranch); err != nil {
+				return err
+			}
 		case m.Dockerfile != nil:
 			if !github.ValidPath(m.Dockerfile.Path, false) {
 				return fmt.Errorf("config: %s.dockerfile.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, m.Dockerfile.Path)
@@ -195,6 +213,119 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 		}
 	}
 	return nil
+}
+
+// routeKey identifies one source route of a workload.
+type routeKey struct{ workload, route string }
+
+// editPoint is a place in the repository that decides the image of the
+// containers it acts on. For a manifest it is the container's own image field;
+// for a Kustomize images entry it is the entry, which acts on every container
+// that is rendered with its image name.
+type editPoint struct {
+	kind string
+	repo string
+	path string
+	item string
+}
+
+// editPointIndex checks that an edit point is declared with one set of
+// containers by every mapping that names it, and that a container belongs to
+// one edit point only: two places deciding one container's tag would produce
+// conflicting pull requests.
+type editPointIndex struct {
+	set map[editPoint][]string // the sorted set each edit point was first declared with
+	of  map[string]editPoint   // the edit point of each container
+	at  map[string]string      // where the container was first declared
+}
+
+// add records that the mapping at (the workload plus affects) is an edit of
+// point.
+func (x *editPointIndex) add(at, workload string, affects []string, point editPoint) error {
+	members := append([]string{workload}, affects...)
+	sort.Strings(members)
+	if first, seen := x.set[point]; seen {
+		if strings.Join(first, "\x00") != strings.Join(members, "\x00") {
+			return fmt.Errorf("config: %s declares the containers %s for %s of %s, but another mapping of it declares %s: every mapping of one edit point must declare the same set (the mapped workload and its affects)",
+				at, strings.Join(members, ", "), point.item, point.path, strings.Join(first, ", "))
+		}
+	} else {
+		x.set[point] = members
+	}
+	for _, w := range members {
+		if prev, ok := x.of[w]; ok && prev != point {
+			return fmt.Errorf("config: %s puts %s under %s of %s, but %s (%s) already puts it under %s of %s: the container's tag would be decided in two places",
+				at, w, point.item, point.path, x.at[w], w, prev.item, prev.path)
+		}
+		x.of[w] = point
+		if _, ok := x.at[w]; !ok {
+			x.at[w] = at
+		}
+	}
+	return nil
+}
+
+type kustBranchEntry struct {
+	at     string
+	branch string
+}
+
+// kustomizationFileNames are the names a kustomization file can have.
+var kustomizationFileNames = map[string]bool{"kustomization.yaml": true, "kustomization.yml": true, "Kustomization": true}
+
+// validateKustomize checks one kustomize mapping.
+func validateKustomize(at string, m RemediationMapping, repoKey string, kw KubernetesWorkload, routes map[routeKey]int, i int,
+	tagRoutes map[string]int, idx editPointIndex, branches map[string]kustBranchEntry) error {
+	k := m.Kustomize
+	if !github.ValidPath(k.Path, false) {
+		return fmt.Errorf("config: %s.kustomize.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, k.Path)
+	}
+	if !kustomizationFileNames[path.Base(k.Path)] {
+		return fmt.Errorf("config: %s.kustomize.path %q must be a kustomization.yaml, kustomization.yml or Kustomization file", at, k.Path)
+	}
+	if !validKustomizeImageName(k.Image) {
+		return fmt.Errorf("config: %s.kustomize.image %q must be the name of an images entry: an image name without a tag or a digest", at, k.Image)
+	}
+	rk := routeKey{m.Workload, "kustomize"}
+	if j, dup := routes[rk]; dup {
+		return fmt.Errorf("config: %s repeats the kustomize mapping of workload %q already set by remediation.mappings[%d]", at, m.Workload, j)
+	}
+	routes[rk] = i
+	if j, dup := tagRoutes[m.Workload]; dup {
+		return fmt.Errorf("config: %s sets a kustomize mapping for workload %q, whose image tag remediation.mappings[%d] already sets", at, m.Workload, j)
+	}
+	tagRoutes[m.Workload] = i
+	seen := map[string]bool{m.Workload: true}
+	for _, a := range k.Affects {
+		if _, err := ParseKubernetesWorkloadKey(a); err != nil {
+			return fmt.Errorf("config: %s.kustomize.affects %q %v", at, a, err)
+		}
+		if seen[a] {
+			return fmt.Errorf("config: %s.kustomize.affects lists %q more than once or lists the mapped workload itself", at, a)
+		}
+		seen[a] = true
+	}
+	// A file is always read from one branch.
+	fk := repoKey + "\x00" + k.Path
+	if b, ok := branches[fk]; ok && b.branch != m.BaseBranch {
+		return fmt.Errorf("config: %s maps %s of %s to base_branch %q, but %s maps it to %q", at, k.Path, m.Repository, m.BaseBranch, b.at, b.branch)
+	}
+	if _, ok := branches[fk]; !ok {
+		branches[fk] = kustBranchEntry{at, m.BaseBranch}
+	}
+	return idx.add(at, m.Workload, k.Affects, editPoint{kind: "kustomize", repo: repoKey, path: k.Path, item: "images[" + k.Image + "]"})
+}
+
+// validKustomizeImageName reports whether s can be the name of an images
+// entry: an image reference without a tag or a digest.
+func validKustomizeImageName(s string) bool {
+	if s == "" || len(s) > 255 || strings.ContainsAny(s, " \t\r\n$@{}") {
+		return false
+	}
+	if _, ok := inventory.RepositoryOf(s); !ok {
+		return false
+	}
+	return inventory.TagOf(s) == "" && inventory.DigestOf(s) == ""
 }
 
 // ValidStageName reports whether s can name a Dockerfile build stage: a

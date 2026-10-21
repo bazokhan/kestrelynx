@@ -271,6 +271,21 @@ func kubernetesMappings(ms []config.RemediationMapping) []remediation.Kubernetes
 	return out
 }
 
+// kustomizeMappings picks the mappings that edit a Kustomize images entry.
+func kustomizeMappings(ms []config.RemediationMapping) []remediation.KustomizeMapping {
+	var out []remediation.KustomizeMapping
+	for _, m := range ms {
+		if m.Kustomize == nil {
+			continue
+		}
+		out = append(out, remediation.KustomizeMapping{
+			Workload: m.Workload, Repository: m.Repository, BaseBranch: m.BaseBranch,
+			Path: m.Kustomize.Path, Image: m.Kustomize.Image, Affects: append([]string(nil), m.Kustomize.Affects...),
+		})
+	}
+	return out
+}
+
 // dockerfileRepositories lists the repositories of the Dockerfile mappings,
 // each once.
 func dockerfileRepositories(ms []remediation.DockerfileMapping) []string {
@@ -307,6 +322,9 @@ func pullRequestRepositories(ms []config.RemediationMapping) []string {
 	for _, m := range kubernetesMappings(ms) {
 		add(m.Repository)
 	}
+	for _, m := range kustomizeMappings(ms) {
+		add(m.Repository)
+	}
 	return out
 }
 
@@ -335,6 +353,7 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 		},
 		Mappings:     composeMappings(rc.Mappings),
 		Kubernetes:   kubernetesMappings(rc.Mappings),
+		Kustomize:    kustomizeMappings(rc.Mappings),
 		Repositories: pullRequestRepositories(rc.Mappings),
 		Store:        store,
 	}

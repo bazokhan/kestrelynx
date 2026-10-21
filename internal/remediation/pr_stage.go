@@ -87,6 +87,12 @@ type PRStageInput struct {
 	// Kubernetes are the Kubernetes manifest mappings; their repositories are
 	// examined and written to like those of the Compose mappings.
 	Kubernetes []KubernetesMapping
+	// Kustomize are the Kustomize images entry mappings; their repositories are
+	// examined and written to as well.
+	Kustomize []KustomizeMapping
+	// Management are the management chains of every workload the cycle
+	// observed, including those with no plan item.
+	Management []WorkloadChains
 	// Repositories are further repositories to examine and, for their units,
 	// to write to: those the Dockerfile mappings name, which a Compose mapping
 	// need not share. A repository of a unit is always examined.
@@ -419,6 +425,7 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 	r := &prRun{s: s, ctx: ctx, byKey: map[string]*repoState{}}
 	units := buildComposeUnits(in.Plan, in.Containers, in.Mappings)
 	units = append(units, buildKubernetesUnits(in.Plan, in.Containers, in.Kubernetes)...)
+	units = append(units, buildKustomizeUnits(in.Plan, in.Containers, in.Kustomize, in.Management)...)
 	units = append(units, buildDockerfileUnits(in.Plan)...)
 	units = append(units, buildLanguageUnits(in.Plan)...)
 	addRepo := func(name string) {
@@ -433,6 +440,9 @@ func (s *PRStage) Run(ctx context.Context, in PRStageInput) PRStageResult {
 		addRepo(m.Repository)
 	}
 	for _, m := range in.Kubernetes {
+		addRepo(m.Repository)
+	}
+	for _, m := range in.Kustomize {
 		addRepo(m.Repository)
 	}
 	for _, name := range in.Repositories {
@@ -559,7 +569,7 @@ func unitView(u *composeUnit) PRUnit {
 		v.Kind = prKindDockerfile
 	}
 	if u.kube != nil {
-		v.Kind = prKindKubernetes
+		v.Kind = u.kind()
 	}
 	if u.lang != nil {
 		v.Kind, v.ItemKey, v.Language = prKindLanguage, u.lang.item.Key, u.lang.view
@@ -875,6 +885,8 @@ func (r *prRun) createPull(c *unitCtx, imageRepo string) {
 		branch, err = LanguageBranchName(u.services, string(u.lang.manager), attemptKey)
 	case u.df != nil:
 		branch, err = DockerfileBranchName(u.services, u.candidate.Tag, attemptKey)
+	case u.kube != nil && u.kube.kustomize != nil:
+		branch, err = KustomizeBranchName(u.kubeBranchNames(), u.candidate.Tag, attemptKey)
 	case u.kube != nil:
 		branch, err = KubernetesBranchName(u.kubeBranchNames(), u.candidate.Tag, attemptKey)
 	default:
@@ -1030,12 +1042,23 @@ type prChange struct {
 	manifest   []ManifestImageChange
 	unchanged  []string
 	dockerfile DockerfileChange
+	kustomize  KustomizeChange
 }
 
 // editSource edits the file the unit proposes a change to. ok is false after
 // the unit's status was set.
 func (r *prRun) editSource(c *unitCtx, content []byte) ([]byte, prChange, bool) {
 	u := c.u
+	if u.kube != nil && u.kube.kustomize != nil {
+		edit, prob := EditKustomizeNewTag(KustomizeEditRequest{
+			Content: content, Image: u.kube.kustomize.image, Current: u.current, Declared: u.kube.declared, NewTag: u.candidate.Tag,
+		})
+		if prob != nil {
+			c.set(PRStatusManual, prob.Reason, prob.Error())
+			return nil, prChange{}, false
+		}
+		return edit.Content, prChange{kustomize: edit.Change}, true
+	}
 	if u.kube != nil {
 		// The gate is here, on the bytes that are about to be edited: the same
 		// read, the same commit, the same content.
@@ -1338,6 +1361,15 @@ func (r *prRun) openPull(c *unitCtx, a *AttemptRecord, imageRepo string, change 
 			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
 		})
 		title = c.u.lang.title
+	} else if c.u.kube != nil && c.u.kube.kustomize != nil {
+		body, err = buildKustomizePRBody(kustomizeBodyInput{
+			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Image: c.u.kube.kustomize.image,
+			Current: a.CurrentRef, Declared: c.u.kube.declared, Workloads: c.u.workloads, ViaInit: c.u.kube.kustomize.viaInit,
+			AlsoRunning: c.u.also, Management: c.u.kube.management, Change: change.kustomize, CronJob: anyJobWorkload(c.u.workloads),
+			CandidateTag: a.CandidateTag, Evidence: a.Evidence,
+			UpdateKey: a.UpdateKey, AttemptKey: a.AttemptKey, Marker: encodeMarker(marker), Language: r.s.cfg.Language,
+		})
+		title = composeUnitTitle(imageRepo, a.CandidateTag, a.Path)
 	} else if c.u.kube != nil {
 		body, err = buildKubernetesPRBody(kubernetesBodyInput{
 			Repo: rs.name, BaseBranch: a.BaseBranch, BaseSHA: a.BaseSHA, Path: a.Path, Current: a.CurrentRef, Declared: c.u.kube.declared,

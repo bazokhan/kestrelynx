@@ -77,6 +77,61 @@ type Container struct {
 	// separately from the definition. nil means the adapter has no such
 	// notion (Docker).
 	Declared *Declared
+	// PodInit are the ordinary (run-to-completion) init containers of the
+	// Pod this container runs in, as its spec and status show them. They are
+	// never running containers of their own (nothing scans or lists them);
+	// they are carried here so a planned edit that acts on an init container
+	// of the Pod can be checked against what the Pod ran. Kubernetes only;
+	// every container of a Pod carries the same list.
+	PodInit *PodInit
+}
+
+// PodInit describes the Pod a running container belongs to beyond the running
+// containers: its ordinary init containers, and every container its spec
+// declares whether or not it runs. It is shared, by pointer, by the containers
+// of the Pod, so a Container stays comparable.
+type PodInit struct {
+	// Containers are the ordinary init containers: every entry of the spec's
+	// initContainers that is not a native sidecar, and any status entry of an
+	// init container the spec does not have.
+	Containers []InitObservation
+	// Spec lists every container entry of the Pod spec as written (main
+	// containers, ordinary init containers and native sidecars), independent
+	// of the Pod's status.
+	Spec []SpecContainer
+}
+
+// SpecKind says which list of the Pod spec a container entry is in.
+type SpecKind string
+
+const (
+	SpecMain    SpecKind = "container"
+	SpecInit    SpecKind = "init"
+	SpecSidecar SpecKind = "sidecar"
+)
+
+// SpecContainer is one container entry of a Pod spec: its name, its image
+// reference as written and the list it is in.
+type SpecContainer struct {
+	Name string
+	Ref  string
+	Kind SpecKind
+}
+
+// InitObservation is one ordinary init container of a Pod: what its spec
+// declares and what its status says it ran.
+type InitObservation struct {
+	Name string
+	// HasStatus says the Pod's status has exactly one entry of that name; when
+	// it does not (the init container has not started, or the entry is
+	// repeated), Image is empty.
+	HasStatus bool
+	// Declared is the spec's image reference and pull policy; Ref is ""
+	// when the spec has no single entry of that name.
+	Declared Declared
+	// Image is the image its status reports, with the registry digest the
+	// status's imageID names and the platform of the node the Pod runs on.
+	Image RunningImage
 }
 
 // Declared is the definition-side view of a running container: the image

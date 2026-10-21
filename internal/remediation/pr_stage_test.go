@@ -86,6 +86,8 @@ type prHarness struct {
 	containers []inventory.Container
 	mappings   []ComposeMapping
 	kube       []KubernetesMapping
+	kust       []KustomizeMapping
+	management []WorkloadChains
 	clock      time.Time
 }
 
@@ -108,7 +110,7 @@ func (h *prHarness) run(plan Plan) PRStageResult {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	res := stage.Run(context.Background(), PRStageInput{Plan: plan, Containers: h.containers, Mappings: h.mappings, Kubernetes: h.kube})
+	res := stage.Run(context.Background(), PRStageInput{Plan: plan, Containers: h.containers, Mappings: h.mappings, Kubernetes: h.kube, Kustomize: h.kust, Management: h.management})
 	h.gh.checkInvariants(h.t)
 	return res
 }

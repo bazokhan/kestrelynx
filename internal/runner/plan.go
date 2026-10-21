@@ -104,6 +104,8 @@ type PullRequestConfig struct {
 	// Kubernetes manifest mappings.
 	Mappings   []remediation.ComposeMapping
 	Kubernetes []remediation.KubernetesMapping
+	// Kustomize are the Kustomize images entry mappings.
+	Kustomize []remediation.KustomizeMapping
 	// Repositories are the repositories the Dockerfile mappings name, which
 	// the stage examines and writes to besides those of Mappings.
 	Repositories []string
@@ -360,7 +362,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 	}
 
 	if pc.PullRequests != nil {
-		r.runPullRequests(ctx, pc.PullRequests, reg, &plan, containers, !info.NotSaved)
+		r.runPullRequests(ctx, pc.PullRequests, reg, &plan, containers, bindings, !info.NotSaved)
 	}
 
 	out := r.finishPlan(info, remediation.Fingerprint(plan))
@@ -461,7 +463,7 @@ func clipText(s string, n int) string {
 // runPullRequests runs the pull request stage on the saved plan and attaches
 // its result to it, within the deadline of ctx. A plan that could not be
 // saved is not acted on: nothing is written and the problem is reported.
-func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, resolver remediation.CandidateResolver, plan *remediation.Plan, containers []inventory.Container, saved bool) {
+func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, resolver remediation.CandidateResolver, plan *remediation.Plan, containers []inventory.Container, bindings []remediation.DeployBinding, saved bool) {
 	log := r.log()
 	if !saved {
 		plan.PRProblems = []remediation.PRStageProblem{{
@@ -479,7 +481,7 @@ func (r Runner) runPullRequests(ctx context.Context, cfg *PullRequestConfig, res
 		}}
 		return
 	}
-	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Kubernetes: cfg.Kubernetes, Repositories: cfg.Repositories})
+	res := stage.Run(ctx, remediation.PRStageInput{Plan: *plan, Containers: containers, Mappings: cfg.Mappings, Kubernetes: cfg.Kubernetes, Kustomize: cfg.Kustomize, Management: observedManagement(containers, bindings), Repositories: cfg.Repositories})
 	res.Attach(plan)
 	created := 0
 	for _, u := range res.Units {
@@ -724,4 +726,30 @@ func planInputsWith(report analyze.Report, containers []inventory.Container, bin
 		})
 	}
 	return inputs
+}
+
+// observedManagement returns the management chains of every Kubernetes
+// container of the cycle's observation, by workload key, whether or not the
+// plan has an item for it.
+func observedManagement(containers []inventory.Container, bindings []remediation.DeployBinding) []remediation.WorkloadChains {
+	chainsOf := map[string][]remediation.OwnerChain{}
+	for _, b := range bindings {
+		chainsOf[b.Container] = b.Chains
+	}
+	var out []remediation.WorkloadChains
+	for _, c := range containers {
+		if c.Declared == nil {
+			continue
+		}
+		wk := state.WorkloadKey(c)
+		chains := chainsOf[c.Name]
+		if wk == "" || len(chains) == 0 {
+			continue
+		}
+		wc := remediation.NewWorkloadChains(wk, chains)
+		if !slices.ContainsFunc(out, func(have remediation.WorkloadChains) bool { return have.Key() == wc.Key() }) {
+			out = append(out, wc)
+		}
+	}
+	return out
 }

@@ -283,6 +283,9 @@ func (u *composeUnit) resolvedAll() []FixTarget {
 }
 
 func (u *composeUnit) perLocation(pairs func(*Item) map[verdictKey]bool) []FixTarget {
+	if u.kube != nil && u.kube.kustomize != nil {
+		return u.sharedLocation(pairs)
+	}
 	var out []FixTarget
 	for _, s := range u.services {
 		var acc map[verdictKey]bool
@@ -302,6 +305,37 @@ func (u *composeUnit) perLocation(pairs func(*Item) map[verdictKey]bool) []FixTa
 		for k := range acc {
 			out = append(out, FixTarget{Location: loc, VulnID: k.vuln, Package: k.coord})
 		}
+	}
+	sortFixTargets(out)
+	return out
+}
+
+// sharedLocation is perLocation for a unit whose members share one edit point:
+// the images entry changes the image of every member at once, so a fix is
+// claimed for the location only when it holds for the running entities of all
+// of them.
+func (u *composeUnit) sharedLocation(pairs func(*Item) map[verdictKey]bool) []FixTarget {
+	var acc map[verdictKey]bool
+	for _, s := range u.services {
+		for _, it := range u.svcItems[s] {
+			p := pairs(it)
+			if acc == nil {
+				acc = p
+				continue
+			}
+			for k := range acc {
+				if !p[k] {
+					delete(acc, k)
+				}
+			}
+		}
+	}
+	var out []FixTarget
+	if len(u.locations) == 0 {
+		return nil
+	}
+	for k := range acc {
+		out = append(out, FixTarget{Location: u.locations[0], VulnID: k.vuln, Package: k.coord})
 	}
 	sortFixTargets(out)
 	return out
@@ -348,7 +382,9 @@ func (u *composeUnit) evidence(plan Plan) *VerificationSummary {
 		}
 		for _, s := range u.services {
 			if containsItem(u.svcItems[s], it) {
-				ev.Locations = append(ev.Locations, u.locationOf(s))
+				if loc := u.locationOf(s); !containsString(ev.Locations, loc) {
+					ev.Locations = append(ev.Locations, loc)
+				}
 			}
 		}
 		intel := map[verdictKey]Target{}
@@ -423,6 +459,9 @@ func sortFixTargets(f []FixTarget) {
 // kind is the kind of update the unit proposes.
 func (u *composeUnit) kind() string {
 	if u.kube != nil {
+		if u.kube.kustomize != nil {
+			return prKindKustomize
+		}
 		return prKindKubernetes
 	}
 	if u.df != nil {

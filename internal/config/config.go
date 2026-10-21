@@ -325,6 +325,9 @@ type RemediationMapping struct {
 	// Manifest names the Kubernetes manifest file that defines the workload's
 	// container.
 	Manifest *RemediationManifestSource
+	// Kustomize names the kustomization file whose images entry sets the
+	// workload's container image.
+	Kustomize *RemediationKustomizeSource
 	// Dependencies names the directory whose lockfiles resolve the
 	// workload's language packages.
 	Dependencies *RemediationDependenciesSource
@@ -347,6 +350,19 @@ type RemediationManifestSource struct {
 	// example); empty means the workload's.
 	ObjectKind string
 	ObjectName string
+}
+
+// RemediationKustomizeSource locates the images entry of a kustomization file
+// that sets a workload's container image. The entry acts on every container
+// the kustomization renders with that image name, so the containers it acts on
+// besides the workload's own are listed in Affects.
+type RemediationKustomizeSource struct {
+	Path string // repository-relative, normalized
+	// Image is the name of the entry (the image name before it is changed),
+	// without a tag or a digest.
+	Image string
+	// Affects are the other containers the entry acts on, as workload keys.
+	Affects []string
 }
 
 // RemediationDependenciesSource locates a dependency root.
@@ -479,6 +495,11 @@ type rawConfig struct {
 					Name string `yaml:"name"`
 				} `yaml:"object"`
 			} `yaml:"manifest"`
+			Kustomize *struct {
+				Path    string   `yaml:"path"`
+				Image   string   `yaml:"image"`
+				Affects []string `yaml:"affects"`
+			} `yaml:"kustomize"`
 			Dependencies *struct {
 				Directory string `yaml:"directory"`
 			} `yaml:"dependencies"`
@@ -677,6 +698,9 @@ func Parse(data []byte) (Config, error) {
 			if m.Manifest.Object != nil {
 				rm.Manifest.ObjectKind, rm.Manifest.ObjectName = m.Manifest.Object.Kind, m.Manifest.Object.Name
 			}
+		}
+		if m.Kustomize != nil {
+			rm.Kustomize = &RemediationKustomizeSource{Path: m.Kustomize.Path, Image: m.Kustomize.Image, Affects: append([]string(nil), m.Kustomize.Affects...)}
 		}
 		if m.Dependencies != nil {
 			rm.Dependencies = &RemediationDependenciesSource{Directory: m.Dependencies.Directory}

@@ -103,6 +103,7 @@ func (c *Client) mapContainers(pods []podRaw, platformByNode map[string]inventor
 		mainSpec := indexSpecByName(pod.Spec.Containers)
 		initSpec := indexSpecByName(pod.Spec.InitContainers)
 
+		first := len(out)
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.State.Running == nil {
 				continue
@@ -122,6 +123,77 @@ func (c *Client) mapContainers(pods []podRaw, platformByNode map[string]inventor
 				continue
 			}
 			out = append(out, c.buildContainer(namespace, name, cs, platform, workload, declaredOf(initSpec, cs.Name)))
+		}
+		if first < len(out) {
+			desc := c.podDescription(pod, platform)
+			for i := first; i < len(out); i++ {
+				out[i].PodInit = desc
+			}
+		}
+	}
+	return out
+}
+
+// podDescription reads what the Pod spec and status say about the containers
+// that do not run: every container entry of the spec, and the ordinary init
+// containers with what their status entries say they ran. Spec and status are
+// matched by name. A name the spec repeats has no declared reference, and a
+// status entry that is repeated says nothing reliable.
+func (c *Client) podDescription(pod podRaw, platform inventory.Platform) *inventory.PodInit {
+	out := &inventory.PodInit{}
+	for _, sc := range pod.Spec.Containers {
+		out.Spec = append(out.Spec, inventory.SpecContainer{Name: sc.Name, Ref: sc.Image, Kind: inventory.SpecMain})
+	}
+	for _, sc := range pod.Spec.InitContainers {
+		kind := inventory.SpecInit
+		if sc.RestartPolicy == "Always" {
+			kind = inventory.SpecSidecar
+		}
+		out.Spec = append(out.Spec, inventory.SpecContainer{Name: sc.Name, Ref: sc.Image, Kind: kind})
+	}
+	specCount := map[string]int{}
+	for _, sc := range pod.Spec.InitContainers {
+		specCount[sc.Name]++
+	}
+	statusCount := map[string]int{}
+	statusOf := map[string]containerStatus{}
+	for _, cs := range pod.Status.InitContainerStatuses {
+		statusCount[cs.Name]++
+		statusOf[cs.Name] = cs
+	}
+	observe := func(name string, sc *specContainer) {
+		obs := inventory.InitObservation{Name: name}
+		if sc != nil && specCount[name] == 1 {
+			obs.Declared = inventory.Declared{Ref: sc.Image, PullPolicy: sc.ImagePullPolicy}
+		}
+		if statusCount[name] == 1 {
+			obs.HasStatus = true
+			cs := statusOf[name]
+			obs.Image = inventory.RunningImage{Ref: cs.Image, Platform: platform}
+			if cs.ImageID != "" {
+				if ref, ok := parseImageID(cs.ImageID); ok {
+					obs.Image.Registry = ref
+				}
+			}
+		} else if statusCount[name] > 1 {
+			obs.HasStatus = true
+		}
+		out.Containers = append(out.Containers, obs)
+	}
+	seen := map[string]bool{}
+	for i := range pod.Spec.InitContainers {
+		sc := pod.Spec.InitContainers[i]
+		if sc.RestartPolicy == "Always" || seen[sc.Name] {
+			continue
+		}
+		seen[sc.Name] = true
+		observe(sc.Name, &sc)
+	}
+	// A status entry the spec has no init container for.
+	for _, cs := range pod.Status.InitContainerStatuses {
+		if !seen[cs.Name] && specCount[cs.Name] == 0 {
+			seen[cs.Name] = true
+			observe(cs.Name, nil)
 		}
 	}
 	return out

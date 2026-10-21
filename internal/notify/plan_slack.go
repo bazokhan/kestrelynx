@@ -517,7 +517,7 @@ func (b *planBuilder) composeUnitOf(it remediation.Item) bool {
 		return false
 	}
 	for _, u := range b.plan.PullRequests {
-		if (u.Kind == "" || u.Kind == "kubernetes") && u.Current == it.Current.Ref && u.CandidateTag == it.Candidate.Tag {
+		if (u.Kind == "" || u.Kind == "kubernetes" || u.Kind == "kustomize") && u.Current == it.Current.Ref && u.CandidateTag == it.Candidate.Tag {
 			return true
 		}
 	}
@@ -529,7 +529,7 @@ func (b *planBuilder) composeUnit(u remediation.PRUnit) planEntry {
 	e.plain(kv(b.msg.PlanLblFile, b.fileValue(u.Repo, u.Path)))
 	image, old := splitImageRef(u.Current)
 	b.unitLines(&e, u, b.change(image, old, u.CandidateTag))
-	if u.Kind == "kubernetes" {
+	if u.Kind == "kubernetes" || u.Kind == "kustomize" {
 		if line := b.managedBy(remediation.ManagementOf(b.plan, u.Workloads)); line != "" {
 			e.plain(line)
 		}
