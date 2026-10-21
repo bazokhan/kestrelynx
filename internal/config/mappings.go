@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/github"
@@ -25,8 +26,60 @@ func ParseWorkloadKey(key string) (project, service string, err error) {
 	return parts[1], parts[2], nil
 }
 
+// KubernetesWorkload is a parsed <kind>/<namespace>/<name>/<container> key.
+type KubernetesWorkload struct {
+	Kind      inventory.WorkloadKind
+	Namespace string
+	Name      string
+	Container string
+}
+
+var (
+	dns1123Label     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+)
+
+// kubernetesWorkloadKinds are the kinds the Kubernetes adapter reports.
+var kubernetesWorkloadKinds = map[string]inventory.WorkloadKind{
+	"deployment":  inventory.WorkloadDeployment,
+	"statefulset": inventory.WorkloadStatefulSet,
+	"daemonset":   inventory.WorkloadDaemonSet,
+	"job":         inventory.WorkloadJob,
+	"cronjob":     inventory.WorkloadCronJob,
+	"pod":         inventory.WorkloadPod,
+}
+
+// ParseKubernetesWorkloadKey splits a <kind>/<namespace>/<name>/<container>
+// workload key, the form notifications and the webhook show for a Kubernetes
+// container. The container is part of the key: one Pod's containers can come
+// from different images and different sources. Names follow the Kubernetes
+// rules (a DNS-1123 label for namespace and container, a DNS-1123 subdomain
+// of at most 253 bytes for the workload name).
+func ParseKubernetesWorkloadKey(key string) (KubernetesWorkload, error) {
+	parts := strings.Split(key, "/")
+	if len(parts) != 4 {
+		return KubernetesWorkload{}, fmt.Errorf("must be <kind>/<namespace>/<name>/<container>")
+	}
+	kind, ok := kubernetesWorkloadKinds[parts[0]]
+	if !ok {
+		return KubernetesWorkload{}, fmt.Errorf("has an unknown kind %q (allowed: deployment, statefulset, daemonset, job, cronjob, pod)", parts[0])
+	}
+	if !dns1123Label.MatchString(parts[1]) {
+		return KubernetesWorkload{}, fmt.Errorf("has an invalid namespace")
+	}
+	if len(parts[2]) > 253 || !dns1123Subdomain.MatchString(parts[2]) {
+		return KubernetesWorkload{}, fmt.Errorf("has an invalid workload name")
+	}
+	if !dns1123Label.MatchString(parts[3]) {
+		return KubernetesWorkload{}, fmt.Errorf("has an invalid container name")
+	}
+	return KubernetesWorkload{Kind: kind, Namespace: parts[1], Name: parts[2], Container: parts[3]}, nil
+}
+
 // validateMappings checks every mapping on its own and then the mappings
-// against each other:
+// against each other. kubernetes says which adapter the keys are for: the
+// Compose form with Docker, the Kubernetes form otherwise. With Kubernetes
+// only dependency mappings are accepted. The checks are:
 //   - a workload has at most one Compose entry, at most one Dependencies
 //     entry and at most one Dockerfile entry;
 //   - a Compose service of a file is edited on behalf of one workload only;
@@ -36,7 +89,7 @@ func ParseWorkloadKey(key string) (project, service string, err error) {
 //     several workloads may name the same Dockerfile and stage.
 //
 // Repository names are compared case-insensitively, as GitHub does.
-func validateMappings(ms []RemediationMapping) error {
+func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 	type routeKey struct{ workload, route string }
 	type composeKey struct{ repo, path, service string }
 	type depKey struct{ repo, dir string }
@@ -50,8 +103,21 @@ func validateMappings(ms []RemediationMapping) error {
 
 	for i, m := range ms {
 		at := fmt.Sprintf("remediation.mappings[%d]", i)
-		if _, _, err := ParseWorkloadKey(m.Workload); err != nil {
-			return fmt.Errorf("config: %s.workload %q %v", at, m.Workload, err)
+		var keyErr error
+		if kubernetes {
+			_, keyErr = ParseKubernetesWorkloadKey(m.Workload)
+		} else {
+			_, _, keyErr = ParseWorkloadKey(m.Workload)
+		}
+		if keyErr != nil {
+			return fmt.Errorf("config: %s.workload %q %v", at, m.Workload, keyErr)
+		}
+		if kubernetes && (m.Compose != nil || m.Dockerfile != nil) {
+			kind := "compose"
+			if m.Compose == nil {
+				kind = "dockerfile"
+			}
+			return fmt.Errorf("config: %s sets a %s mapping, which is not supported with kubernetes.enabled; only dependencies mappings are", at, kind)
 		}
 		repo, err := github.ParseRepo(m.Repository)
 		if err != nil {
@@ -147,4 +213,28 @@ func ValidStageName(s string) bool {
 		}
 	}
 	return true
+}
+
+// MappingsOutsideScope lists the workload keys of the mappings whose namespace
+// is outside kubernetes.namespaces: the scan never sees those workloads, so
+// their mappings have no effect. It is empty unless Kubernetes is enabled with
+// a namespace list. A mapping like that is a likely mistake, not an invalid
+// configuration, so the caller warns instead of failing.
+func (c Config) MappingsOutsideScope() []string {
+	if !c.Kubernetes.Enabled || len(c.Kubernetes.Namespaces) == 0 {
+		return nil
+	}
+	scoped := map[string]bool{}
+	for _, ns := range c.Kubernetes.Namespaces {
+		scoped[ns] = true
+	}
+	var out []string
+	for _, m := range c.Remediation.Mappings {
+		w, err := ParseKubernetesWorkloadKey(m.Workload)
+		if err != nil || scoped[w.Namespace] {
+			continue
+		}
+		out = append(out, m.Workload)
+	}
+	return out
 }

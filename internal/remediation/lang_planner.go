@@ -69,13 +69,8 @@ func unitsOf(ms []DependencyMapping) []*depUnit {
 	return out
 }
 
-// workloadKey is the Compose workload key of a service reference.
-func workloadKey(s ServiceRef) string {
-	if s.Project == "" || s.Service == "" {
-		return ""
-	}
-	return "compose/" + s.Project + "/" + s.Service
-}
+// workloadKey is the workload key of a service reference.
+func workloadKey(s ServiceRef) string { return s.WorkloadKey() }
 
 // languagePart builds the plan items of the dependency units: it reads each
 // unit's dependency files at one commit and matches the findings of the

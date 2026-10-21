@@ -1,0 +1,196 @@
+{
+ "kind": "NodeList",
+ "apiVersion": "v1",
+ "metadata": {
+  "resourceVersion": "1358"
+ },
+ "items": [
+  {
+   "metadata": {
+    "name": "k3d-k1check-server-0",
+    "uid": "63e38f92-21fb-4f53-a980-0cb5d6432e01",
+    "resourceVersion": "1350",
+    "creationTimestamp": "2026-10-21T00:23:24Z",
+    "labels": {
+     "beta.kubernetes.io/arch": "amd64",
+     "beta.kubernetes.io/instance-type": "k3s",
+     "beta.kubernetes.io/os": "linux",
+     "kubernetes.io/arch": "amd64",
+     "kubernetes.io/hostname": "k3d-k1check-server-0",
+     "kubernetes.io/os": "linux",
+     "node-role.kubernetes.io/control-plane": "true",
+     "node-role.kubernetes.io/master": "true",
+     "node.kubernetes.io/instance-type": "k3s"
+    },
+    "annotations": {
+     "alpha.kubernetes.io/provided-node-ip": "172.20.0.2",
+     "flannel.alpha.coreos.com/backend-data": "{\"VNI\":1,\"VtepMAC\":\"ea:d9:7a:84:11:69\"}",
+     "flannel.alpha.coreos.com/backend-type": "vxlan",
+     "flannel.alpha.coreos.com/kube-subnet-manager": "true",
+     "flannel.alpha.coreos.com/public-ip": "172.20.0.2",
+     "k3s.io/hostname": "k3d-k1check-server-0",
+     "k3s.io/internal-ip": "172.20.0.2",
+     "k3s.io/node-args": "[\"server\",\"--tls-san\",\"0.0.0.0\"]",
+     "k3s.io/node-config-hash": "D7CBSUVNY5FSJVW3U5ZIAK74FHUOS5TZOOMQE6FTIWUTHA7QHGKQ====",
+     "node.alpha.kubernetes.io/ttl": "0",
+     "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+    },
+    "finalizers": [
+     "wrangler.cattle.io/node"
+    ]
+   },
+   "spec": {
+    "podCIDR": "10.42.0.0/24",
+    "podCIDRs": [
+     "10.42.0.0/24"
+    ],
+    "providerID": "k3s://k3d-k1check-server-0"
+   },
+   "status": {
+    "capacity": {
+     "cpu": "14",
+     "ephemeral-storage": "1055762868Ki",
+     "hugepages-1Gi": "0",
+     "hugepages-2Mi": "0",
+     "memory": "16114012Ki",
+     "pods": "110"
+    },
+    "allocatable": {
+     "cpu": "14",
+     "ephemeral-storage": "1027046117185",
+     "hugepages-1Gi": "0",
+     "hugepages-2Mi": "0",
+     "memory": "16114012Ki",
+     "pods": "110"
+    },
+    "conditions": [
+     {
+      "type": "MemoryPressure",
+      "status": "False",
+      "lastHeartbeatTime": "2026-10-21T00:35:58Z",
+      "lastTransitionTime": "2026-10-21T00:23:24Z",
+      "reason": "KubeletHasSufficientMemory",
+      "message": "kubelet has sufficient memory available"
+     },
+     {
+      "type": "DiskPressure",
+      "status": "False",
+      "lastHeartbeatTime": "2026-10-21T00:35:58Z",
+      "lastTransitionTime": "2026-10-21T00:23:24Z",
+      "reason": "KubeletHasNoDiskPressure",
+      "message": "kubelet has no disk pressure"
+     },
+     {
+      "type": "PIDPressure",
+      "status": "False",
+      "lastHeartbeatTime": "2026-10-21T00:35:58Z",
+      "lastTransitionTime": "2026-10-21T00:23:24Z",
+      "reason": "KubeletHasSufficientPID",
+      "message": "kubelet has sufficient PID available"
+     },
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": "2026-10-21T00:35:58Z",
+      "lastTransitionTime": "2026-10-21T00:23:24Z",
+      "reason": "KubeletReady",
+      "message": "kubelet is posting ready status"
+     }
+    ],
+    "addresses": [
+     {
+      "type": "InternalIP",
+      "address": "172.20.0.2"
+     },
+     {
+      "type": "Hostname",
+      "address": "k3d-k1check-server-0"
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 10250
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "3e245430-2d90-4efa-9ca4-0df7bb5fd196",
+     "kernelVersion": "6.18.54.1-microsoft-standard-WSL2",
+     "osImage": "K3s v1.31.5+k3s1",
+     "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+     "kubeletVersion": "v1.31.5+k3s1",
+     "kubeProxyVersion": "v1.31.5+k3s1",
+     "operatingSystem": "linux",
+     "architecture": "amd64"
+    },
+    "images": [
+     {
+      "names": [
+       "docker.io/library/nginx@sha256:9ff236ed47fe39cf1f0acf349d0e5137f8b8a6fd0b46e5117a401010e56222e1",
+       "docker.io/library/nginx:1.25.4",
+       "docker.io/library/nginx:mainline"
+      ],
+      "sizeBytes": 70542235
+     },
+     {
+      "names": [
+       "docker.io/library/nginx@sha256:c7a6ad68be85142c7fe1089e48faa1e7c7166a194caa9180ddea66345876b9d2",
+       "docker.io/library/nginx:1.26"
+      ],
+      "sizeBytes": 70521718
+     },
+     {
+      "names": [
+       "docker.io/rancher/klipper-helm@sha256:73ff7ef399717ba8339559054557bd427bdafb47db112165a8c0c358d1ca0283",
+       "docker.io/rancher/klipper-helm:v0.9.3-build20241008"
+      ],
+      "sizeBytes": 70496341
+     },
+     {
+      "names": [
+       "docker.io/rancher/mirrored-library-traefik@sha256:25df7bff0b414867f16a74c571c0dc84920404e45cc7780976cec77809230e09",
+       "docker.io/rancher/mirrored-library-traefik:2.11.18"
+      ],
+      "sizeBytes": 49449055
+     },
+     {
+      "names": [
+       "docker.io/rancher/mirrored-coredns-coredns@sha256:82979ddf442c593027a57239ad90616deb874e90c365d1a96ad508c2104bdea5",
+       "docker.io/rancher/mirrored-coredns-coredns:1.12.0"
+      ],
+      "sizeBytes": 20938299
+     },
+     {
+      "names": [
+       "docker.io/rancher/mirrored-metrics-server@sha256:dccf8474fb910fef261d31d9483d7e4c1df7b86cf4d638fb6a7d7c88bd51600a",
+       "docker.io/rancher/mirrored-metrics-server:v0.7.2"
+      ],
+      "sizeBytes": 19494186
+     },
+     {
+      "names": [
+       "docker.io/rancher/local-path-provisioner@sha256:9b914881170048f80ae9302f36e5b99b4a6b18af73a38adc1c66d12f65d360be",
+       "docker.io/rancher/local-path-provisioner:v0.0.30"
+      ],
+      "sizeBytes": 18584855
+     },
+     {
+      "names": [
+       "docker.io/rancher/klipper-lb@sha256:dd380f5d89a52f2a07853ff17a6048f805c1f8113b50578f3efc3efb9bcf670a",
+       "docker.io/rancher/klipper-lb:v0.4.9"
+      ],
+      "sizeBytes": 4990278
+     },
+     {
+      "names": [
+       "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+       "docker.io/rancher/mirrored-pause:3.6"
+      ],
+      "sizeBytes": 301463
+     }
+    ]
+   }
+  }
+ ]
+}

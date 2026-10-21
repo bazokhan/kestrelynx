@@ -94,7 +94,7 @@ type planBuilder struct {
 	plan      remediation.Plan
 	msg       messages
 	opts      planOpts
-	byService map[string][]string // project/service -> running image references
+	byService map[string][]string // workload key -> running image references
 	langItems map[string]remediation.LanguageItem
 	entries   []planEntry
 	detail    []string
@@ -116,10 +116,10 @@ func buildPlanView(p *PlanInfo, msg messages, o planOpts) planView {
 	b := &planBuilder{plan: *p.Plan, msg: msg, opts: o, byService: map[string][]string{}, langItems: map[string]remediation.LanguageItem{}}
 	for _, it := range b.plan.Items {
 		for _, s := range it.Services {
-			if s.Service == "" {
+			k := s.WorkloadKey()
+			if k == "" {
 				continue
 			}
-			k := s.Project + "/" + s.Service
 			b.byService[k] = appendOnce(b.byService[k], it.Current.Ref)
 		}
 	}
@@ -293,20 +293,20 @@ func (b *planBuilder) build() {
 
 func (b *planBuilder) add(e planEntry) { b.entries = append(b.entries, e) }
 
-// imagesOf resolves workloads (compose/<project>/<service>) to the running
-// images of their services; without any, the service names are returned.
+// imagesOf resolves workloads (compose/<project>/<service>, or the Kubernetes
+// key) to the running images of their services; without any, the service
+// names are returned: the Compose service, or the whole Kubernetes key.
 func (b *planBuilder) imagesOf(e *planEntry, workloads []string) {
 	var services []string
 	for _, w := range workloads {
-		rest := strings.TrimPrefix(w, "compose/")
-		project, service := "", rest
-		if i := strings.LastIndex(rest, "/"); i >= 0 {
-			project, service = rest[:i], rest[i+1:]
-		}
-		for _, ref := range b.byService[project+"/"+service] {
+		for _, ref := range b.byService[w] {
 			e.images = appendOnce(e.images, ref)
 		}
-		services = appendOnce(services, service)
+		name := w
+		if strings.HasPrefix(w, "compose/") {
+			name = workloadService(w)
+		}
+		services = appendOnce(services, name)
 	}
 	if len(e.images) == 0 {
 		sort.Strings(services)
@@ -557,6 +557,16 @@ func (b *planBuilder) wrap(parts ...string) string {
 }
 
 func (b *planBuilder) composeItem(it remediation.Item) planEntry {
+	e := b.composeItemLines(it)
+	if len(e.lines) > 0 {
+		if line := b.managedBy(it.Management); line != "" {
+			e.plain(line)
+		}
+	}
+	return e
+}
+
+func (b *planBuilder) composeItemLines(it remediation.Item) planEntry {
 	e := planEntry{images: []string{it.Current.Ref}}
 	switch it.Category {
 	case remediation.CategoryPullAgain:
@@ -566,6 +576,9 @@ func (b *planBuilder) composeItem(it remediation.Item) planEntry {
 			value += b.wrap(extra...)
 		}
 		e.line(tagRepull, kv(b.msg.PlanLblRepull, value))
+		for _, a := range it.Pull {
+			e.plain(kv(b.msg.PlanLblPullPolicy, b.pullAdvice(a)))
+		}
 	case remediation.CategoryPRCandidate:
 		if it.Candidate != nil {
 			image, old := splitImageRef(it.Current.Ref)
@@ -584,6 +597,82 @@ func (b *planBuilder) composeItem(it remediation.Item) planEntry {
 		}
 	}
 	return e
+}
+
+// pullAdvice is the value of a pull policy line: the policy, what it means for
+// taking the new content of the floating tag, and the workloads it covers.
+func (b *planBuilder) pullAdvice(a remediation.PullAdvice) string {
+	var guidance string
+	switch a.Guidance {
+	case remediation.GuidanceRestart:
+		guidance = b.msg.PlanPullRestart
+	case remediation.GuidanceChangeTag:
+		guidance = b.msg.PlanPullChangeTag
+	case remediation.GuidanceImportToNode:
+		guidance = b.msg.PlanPullImportToNode
+	default:
+		guidance = litMrkdwn(string(a.Guidance))
+	}
+	names := make([]string, len(a.Workloads))
+	for i, w := range a.Workloads {
+		names[i] = litMrkdwn(w)
+	}
+	return fmt.Sprintf(b.msg.PlanPullValue, litMrkdwn(a.Policy), guidance, b.joined(names))
+}
+
+// managedBy is the line that names the tools managing the workloads of an
+// item, from the chains that have a layer above the Kubernetes resource
+// itself; "" when none has. The chains are read from markers the tools leave
+// on the objects, which the label says.
+func (b *planBuilder) managedBy(ms []remediation.WorkloadChains) string {
+	type shown struct{ workload, chain string }
+	var all []shown
+	for _, m := range ms {
+		var chains []string
+		for _, c := range m.Chains {
+			if len(c) < 2 {
+				continue
+			}
+			var layers []string
+			for _, o := range c {
+				layers = append(layers, b.ownerText(o))
+			}
+			chains = append(chains, strings.Join(layers, " → "))
+		}
+		if len(chains) > 0 {
+			all = append(all, shown{m.Workload, strings.Join(chains, "; ")})
+		}
+	}
+	if len(all) == 0 {
+		return ""
+	}
+	values := make([]string, len(all))
+	for i, x := range all {
+		values[i] = x.chain
+		if len(ms) > 1 {
+			// Several workloads run the image: say which one each chain is of.
+			values[i] = fmt.Sprintf(b.msg.PlanManagedValue, litMrkdwn(x.workload), x.chain)
+		}
+	}
+	return kv(b.msg.PlanLblManagedBy, b.joined(values))
+}
+
+// ownerText names one layer of a management chain.
+func (b *planBuilder) ownerText(o remediation.ChainOwner) string {
+	name, scope := litMrkdwn(o.Name), litMrkdwn(o.Scope)
+	switch {
+	case o.Kind == remediation.OwnerHelm:
+		return fmt.Sprintf(b.msg.PlanOwnerHelm, name, scope)
+	case o.Kind == remediation.OwnerArgoCD:
+		return fmt.Sprintf(b.msg.PlanOwnerArgoCD, name)
+	case o.Kind == remediation.OwnerFlux && o.ResourceID == remediation.ResourceIDFluxHelmRelease:
+		return fmt.Sprintf(b.msg.PlanOwnerFluxHelm, name, scope)
+	case o.Kind == remediation.OwnerFlux:
+		return fmt.Sprintf(b.msg.PlanOwnerFluxKust, name, scope)
+	case o.Scope != "":
+		return litMrkdwn(string(o.Resource) + " " + o.Scope + "/" + o.Name)
+	}
+	return litMrkdwn(string(o.Resource) + " " + o.Name)
 }
 
 // --- Dockerfile base images ---

@@ -35,6 +35,7 @@ type fakeServer struct {
 	scripts  map[string][]scriptedResponse
 	handlers map[string]http.HandlerFunc
 	requests []string // r.URL.String() in request order, across every path
+	methods  []string // r.Method of each request, in the same order
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -58,6 +59,7 @@ func (f *fakeServer) onFunc(path string, h http.HandlerFunc) {
 func (f *fakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.URL.String())
+	f.methods = append(f.methods, r.Method)
 	h := f.handlers[r.URL.Path]
 	f.mu.Unlock()
 

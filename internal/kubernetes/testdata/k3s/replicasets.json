@@ -1,0 +1,336 @@
+{
+ "kind": "ReplicaSetList",
+ "apiVersion": "apps/v1",
+ "metadata": {
+  "resourceVersion": "1358"
+ },
+ "items": [
+  {
+   "metadata": {
+    "name": "aliased-dfd96f5c5",
+    "namespace": "shop",
+    "uid": "58329c73-830b-4c88-b495-3ec1ab97edbc",
+    "resourceVersion": "1338",
+    "generation": 1,
+    "creationTimestamp": "2026-10-21T00:35:44Z",
+    "labels": {
+     "app": "aliased",
+     "pod-template-hash": "dfd96f5c5"
+    },
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "aliased",
+      "uid": "08d6b9ef-c36c-420f-a9e8-09e6ae294fbc",
+      "controller": true,
+      "blockOwnerDeletion": true
+     }
+    ]
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "aliased",
+      "pod-template-hash": "dfd96f5c5"
+     }
+    },
+    "template": {
+     "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+       "app": "aliased",
+       "pod-template-hash": "dfd96f5c5"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:mainline",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "imagePullPolicy": "Never"
+       }
+      ],
+      "restartPolicy": "Always",
+      "terminationGracePeriodSeconds": 30,
+      "dnsPolicy": "ClusterFirst",
+      "securityContext": {},
+      "schedulerName": "default-scheduler"
+     }
+    }
+   },
+   "status": {
+    "replicas": 1,
+    "fullyLabeledReplicas": 1,
+    "readyReplicas": 1,
+    "availableReplicas": 1,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "metadata": {
+    "name": "pinned-54776c966b",
+    "namespace": "shop",
+    "uid": "24f7e5a2-3498-48f3-848a-961c8d0f8f6c",
+    "resourceVersion": "1330",
+    "generation": 1,
+    "creationTimestamp": "2026-10-21T00:35:44Z",
+    "labels": {
+     "app": "pinned",
+     "pod-template-hash": "54776c966b"
+    },
+    "annotations": {
+     "argocd.argoproj.io/tracking-id": "pinned-app:apps/Deployment:shop/pinned",
+     "deployment.kubernetes.io/desired-replicas": "2",
+     "deployment.kubernetes.io/max-replicas": "3",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "pinned",
+      "uid": "adb4271a-e7c5-439a-ac5a-a8b894aee427",
+      "controller": true,
+      "blockOwnerDeletion": true
+     }
+    ]
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": {
+     "matchLabels": {
+      "app": "pinned",
+      "pod-template-hash": "54776c966b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+       "app": "pinned",
+       "pod-template-hash": "54776c966b"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.25.4",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "imagePullPolicy": "IfNotPresent"
+       }
+      ],
+      "restartPolicy": "Always",
+      "terminationGracePeriodSeconds": 30,
+      "dnsPolicy": "ClusterFirst",
+      "securityContext": {},
+      "schedulerName": "default-scheduler"
+     }
+    }
+   },
+   "status": {
+    "replicas": 2,
+    "fullyLabeledReplicas": 2,
+    "readyReplicas": 2,
+    "availableReplicas": 2,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "metadata": {
+    "name": "stale-ifnotpresent-85d5c7b696",
+    "namespace": "shop",
+    "uid": "2feca11c-defc-408d-a090-9379e757d0d5",
+    "resourceVersion": "1328",
+    "generation": 1,
+    "creationTimestamp": "2026-10-21T00:35:44Z",
+    "labels": {
+     "app": "stale-inp",
+     "pod-template-hash": "85d5c7b696"
+    },
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "stale-ifnotpresent",
+      "uid": "e9aadf07-51f7-4c0e-a8cd-79e9252a66a4",
+      "controller": true,
+      "blockOwnerDeletion": true
+     }
+    ]
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "stale-inp",
+      "pod-template-hash": "85d5c7b696"
+     }
+    },
+    "template": {
+     "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+       "app": "stale-inp",
+       "pod-template-hash": "85d5c7b696"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.26",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "imagePullPolicy": "IfNotPresent"
+       }
+      ],
+      "restartPolicy": "Always",
+      "terminationGracePeriodSeconds": 30,
+      "dnsPolicy": "ClusterFirst",
+      "securityContext": {},
+      "schedulerName": "default-scheduler"
+     }
+    }
+   },
+   "status": {
+    "replicas": 1,
+    "fullyLabeledReplicas": 1,
+    "readyReplicas": 1,
+    "availableReplicas": 1,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "metadata": {
+    "name": "web-demo-547c7c9cf7",
+    "namespace": "shop",
+    "uid": "7b17d3c0-2ed0-4e6a-98b4-6589029df888",
+    "resourceVersion": "1345",
+    "generation": 1,
+    "creationTimestamp": "2026-10-21T00:35:44Z",
+    "labels": {
+     "app.kubernetes.io/instance": "web",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "demo",
+     "app.kubernetes.io/version": "1.16.0",
+     "helm.sh/chart": "demo-0.1.0",
+     "pod-template-hash": "547c7c9cf7"
+    },
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1",
+     "meta.helm.sh/release-name": "web",
+     "meta.helm.sh/release-namespace": "shop"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "web-demo",
+      "uid": "30ebe003-b5f5-442c-91c1-2c603e7df8c3",
+      "controller": true,
+      "blockOwnerDeletion": true
+     }
+    ]
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app.kubernetes.io/instance": "web",
+      "app.kubernetes.io/name": "demo",
+      "pod-template-hash": "547c7c9cf7"
+     }
+    },
+    "template": {
+     "metadata": {
+      "creationTimestamp": null,
+      "labels": {
+       "app.kubernetes.io/instance": "web",
+       "app.kubernetes.io/managed-by": "Helm",
+       "app.kubernetes.io/name": "demo",
+       "app.kubernetes.io/version": "1.16.0",
+       "helm.sh/chart": "demo-0.1.0",
+       "pod-template-hash": "547c7c9cf7"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "name": "demo",
+        "image": "nginx:1.25.4",
+        "ports": [
+         {
+          "name": "http",
+          "containerPort": 80,
+          "protocol": "TCP"
+         }
+        ],
+        "resources": {},
+        "livenessProbe": {
+         "httpGet": {
+          "path": "/",
+          "port": "http",
+          "scheme": "HTTP"
+         },
+         "timeoutSeconds": 1,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "failureThreshold": 3
+        },
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/",
+          "port": "http",
+          "scheme": "HTTP"
+         },
+         "timeoutSeconds": 1,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "failureThreshold": 3
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "imagePullPolicy": "IfNotPresent"
+       }
+      ],
+      "restartPolicy": "Always",
+      "terminationGracePeriodSeconds": 30,
+      "dnsPolicy": "ClusterFirst",
+      "serviceAccountName": "default",
+      "serviceAccount": "default",
+      "securityContext": {},
+      "schedulerName": "default-scheduler"
+     }
+    }
+   },
+   "status": {
+    "replicas": 1,
+    "fullyLabeledReplicas": 1,
+    "readyReplicas": 1,
+    "availableReplicas": 1,
+    "observedGeneration": 1
+   }
+  }
+ ]
+}

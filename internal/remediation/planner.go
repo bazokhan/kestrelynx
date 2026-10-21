@@ -47,6 +47,13 @@ type ImageInput struct {
 	// to be rescanned under the prepared conditions.
 	Target   scanner.ScanTarget
 	Services []ServiceRef
+	// Declared are what the definitions of the running containers declare
+	// for the image, one entry per workload, reference and pull policy; empty
+	// where the runtime has no such notion (Docker).
+	Declared []DeclaredInstance
+	// Management are the management chains of the workloads that run the
+	// image, where they are known.
+	Management []WorkloadChains
 }
 
 // Config holds what a Planner needs.
@@ -255,6 +262,9 @@ func baseItem(in ImageInput, ref string, targets []Target) Item {
 		Priority: maxTargetPriority(targets),
 		Targets:  targets,
 		Current:  ImageState{Ref: ref, Entity: entityString(s.Subject.Key)},
+
+		Declared:   in.Declared,
+		Management: in.Management,
 	}
 	if s.Subject.Key.Digest.Kind == inventory.DigestConfig {
 		it.Current.ConfigDigest = s.Subject.Key.Digest.String()
@@ -316,6 +326,12 @@ func (r *run) process(in ImageInput, it *Item) {
 	ref := ParseImageRef(it.Current.Ref)
 	it.Kind = ref.Kind
 	it.Current.Tag = ref.Tag
+	// A declaration that disagrees with the running reference or is missing
+	// comes first, whatever the reference is: no other outcome rests on it.
+	if reason, detail, ok := declaredCheck(in.Declared, it.Current.Ref); !ok {
+		set(it, CategoryNotComparable, reason, detail)
+		return
+	}
 	if ref.Kind == TagExcluded {
 		set(it, CategoryExcluded, Reason(ref.Exclude), "reference is not eligible for update lookup: "+string(ref.Exclude))
 		return
@@ -693,6 +709,7 @@ func (r *run) compare(in ImageInput, ref ImageRef, platform inventory.Platform, 
 			it.Category = CategoryPRCandidate
 		} else {
 			it.Category = CategoryPullAgain
+			it.Pull = pullAdvice(in.Declared, ref)
 		}
 		it.Reason = ReasonAdopted
 		if dec.Kind == DecisionAdopt {

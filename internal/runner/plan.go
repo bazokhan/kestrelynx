@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
+	"github.com/kitsunetrail/kestrelynx/internal/state"
 )
 
 // PlanScanner is the comparison-mode scanner of the fix plan (implemented by
@@ -272,7 +274,7 @@ func (r Runner) finishPlan(info *notify.PlanInfo, planFingerprint string) planOu
 // buildPlan runs the planner over this cycle's scans and stores the result.
 // Nothing here fails the cycle: a planner or store failure shows up in the
 // outcome only.
-func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Report, containers []inventory.Container, scans []scanner.ImageScan, targets []scanner.ScanTarget) planOutcome {
+func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Report, containers []inventory.Container, bindings []remediation.DeployBinding, scans []scanner.ImageScan, targets []scanner.ScanTarget) planOutcome {
 	log := r.log()
 	if !cyc.ok {
 		return r.planUnavailable(notify.PlanDatabasesNotPrepared)
@@ -316,7 +318,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		return r.planUnavailable(notify.PlanNotBuilt)
 	}
 
-	inputs := planInputs(report, containers, scans, targets, cyc.scanConds)
+	inputs := planInputsWith(report, containers, bindings, scans, targets, cyc.scanConds)
 	plan := planner.Plan(ctx, inputs)
 	log.Info("fix plan built",
 		"items", len(plan.Items),
@@ -587,7 +589,25 @@ type entityRef struct {
 // buckets with the runtime usage order they already carry, then the rest.
 // The planner keeps this order within one priority.
 func planInputs(report analyze.Report, containers []inventory.Container, scans []scanner.ImageScan, targets []scanner.ScanTarget, conds scanner.ScanConditions) []remediation.ImageInput {
+	return planInputsWith(report, containers, nil, scans, targets, conds)
+}
+
+// planInputsWith is planInputs with the management chains of the containers.
+// A Kubernetes container is named by its workload key, the same for all the
+// replicas of the workload, and carries what its Pod spec declares; Docker
+// containers are named as before.
+func planInputsWith(report analyze.Report, containers []inventory.Container, bindings []remediation.DeployBinding, scans []scanner.ImageScan, targets []scanner.ScanTarget, conds scanner.ScanConditions) []remediation.ImageInput {
+	chainsOf := map[string][]remediation.OwnerChain{}
+	for _, b := range bindings {
+		chainsOf[b.Container] = b.Chains
+	}
 	services := map[entityRef][]remediation.ServiceRef{}
+	declared := map[entityRef][]remediation.DeclaredInstance{}
+	// byRef collects the declarations of every container of a running
+	// reference, whatever entity it reports: a reference whose declaration
+	// disagrees or is missing in any one of them is not compared in any.
+	byRef := map[string][]remediation.DeclaredInstance{}
+	management := map[entityRef][]remediation.WorkloadChains{}
 	for _, c := range containers {
 		if c.Image.Ref == "" {
 			continue
@@ -595,8 +615,16 @@ func planInputs(report analyze.Report, containers []inventory.Container, scans [
 		key, _ := inventory.EntityKeyOf(c.Image)
 		k := entityRef{c.Image.Ref, key}
 		ref := remediation.ServiceRef{Container: c.Name}
-		if c.Workload.Kind == inventory.WorkloadCompose {
+		switch {
+		case c.Workload.Kind == inventory.WorkloadCompose:
 			ref.Project, ref.Service = c.Workload.Group, c.Workload.Name
+		case c.Declared != nil:
+			// A Kubernetes container. A Pod whose owner cannot be traced
+			// still gets a key (container/<namespace>/<pod>/<container>),
+			// which no mapping can name.
+			if wk := state.WorkloadKey(c); wk != "" {
+				ref = remediation.ServiceRef{Workload: wk}
+			}
 		}
 		dup := false
 		for _, have := range services[k] {
@@ -604,6 +632,30 @@ func planInputs(report analyze.Report, containers []inventory.Container, scans [
 		}
 		if !dup {
 			services[k] = append(services[k], ref)
+		}
+		if ref.Workload == "" {
+			continue
+		}
+		d := remediation.DeclaredInstance{Workload: ref.Workload, Ref: c.Declared.Ref, PullPolicy: c.Declared.PullPolicy}
+		if !slices.Contains(declared[k], d) {
+			declared[k] = append(declared[k], d)
+		}
+		if !slices.Contains(byRef[c.Image.Ref], d) {
+			byRef[c.Image.Ref] = append(byRef[c.Image.Ref], d)
+		}
+		if chains, ok := chainsOf[c.Name]; ok && len(chains) > 0 {
+			wc := remediation.NewWorkloadChains(ref.Workload, chains)
+			if !slices.ContainsFunc(management[k], func(have remediation.WorkloadChains) bool { return have.Key() == wc.Key() }) {
+				management[k] = append(management[k], wc)
+			}
+		}
+	}
+
+	for k := range declared {
+		for _, p := range remediation.DeclaredProblems(byRef[k.ref], k.ref) {
+			if !slices.Contains(declared[k], p) {
+				declared[k] = append(declared[k], p)
+			}
 		}
 	}
 
@@ -642,6 +694,8 @@ func planInputs(report analyze.Report, containers []inventory.Container, scans [
 			Conditions: conds,
 			Target:     targets[i],
 			Services:   services[entityRef{s.Subject.Ref, s.Subject.Key}],
+			Declared:   declared[entityRef{s.Subject.Ref, s.Subject.Key}],
+			Management: management[entityRef{s.Subject.Ref, s.Subject.Key}],
 		})
 	}
 	return inputs

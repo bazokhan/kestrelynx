@@ -8,8 +8,10 @@ import "github.com/kitsunetrail/kestrelynx/internal/inventory"
 // containers) is distinguished from an ordinary init container that runs
 // once and exits.
 type specContainer struct {
-	Name          string `json:"name"`
-	RestartPolicy string `json:"restartPolicy"`
+	Name            string `json:"name"`
+	Image           string `json:"image"`
+	ImagePullPolicy string `json:"imagePullPolicy"`
+	RestartPolicy   string `json:"restartPolicy"`
 }
 
 // containerState is the subset of a container status's state this package
@@ -37,6 +39,7 @@ type podRaw struct {
 	Metadata ownedMetadata `json:"metadata"`
 	Spec     struct {
 		NodeName       string          `json:"nodeName"`
+		Containers     []specContainer `json:"containers"`
 		InitContainers []specContainer `json:"initContainers"`
 	} `json:"spec"`
 	Status struct {
@@ -97,12 +100,14 @@ func (c *Client) mapContainers(pods []podRaw, platformByNode map[string]inventor
 		for _, sc := range pod.Spec.InitContainers {
 			initSpecByName[sc.Name] = sc
 		}
+		mainSpec := indexSpecByName(pod.Spec.Containers)
+		initSpec := indexSpecByName(pod.Spec.InitContainers)
 
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.State.Running == nil {
 				continue
 			}
-			out = append(out, c.buildContainer(namespace, name, cs, platform, workload))
+			out = append(out, c.buildContainer(namespace, name, cs, platform, workload, declaredOf(mainSpec, cs.Name)))
 		}
 		for _, cs := range pod.Status.InitContainerStatuses {
 			if cs.State.Running == nil {
@@ -116,16 +121,48 @@ func (c *Client) mapContainers(pods []podRaw, platformByNode map[string]inventor
 				// is excluded.
 				continue
 			}
-			out = append(out, c.buildContainer(namespace, name, cs, platform, workload))
+			out = append(out, c.buildContainer(namespace, name, cs, platform, workload, declaredOf(initSpec, cs.Name)))
 		}
 	}
 	return out
 }
 
+// indexSpecByName maps container names to their spec entries. A name that
+// appears more than once has no entry: the Pod spec is malformed, and which
+// of the entries describes the running container is not known.
+func indexSpecByName(list []specContainer) map[string]specContainer {
+	m := make(map[string]specContainer, len(list))
+	dup := map[string]bool{}
+	for _, sc := range list {
+		if _, seen := m[sc.Name]; seen {
+			dup[sc.Name] = true
+		}
+		m[sc.Name] = sc
+	}
+	for name := range dup {
+		delete(m, name)
+	}
+	return m
+}
+
+// declaredOf reads the declared reference and pull policy of the named
+// container from the spec entries of its Pod. Spec and status arrays are
+// matched by name, never by position. A container without a usable spec
+// entry gets an empty Ref, which later stages treat as "not available" and
+// never replace with the running reference.
+func declaredOf(specs map[string]specContainer, name string) *inventory.Declared {
+	sc, ok := specs[name]
+	if !ok {
+		return &inventory.Declared{}
+	}
+	return &inventory.Declared{Ref: sc.Image, PullPolicy: sc.ImagePullPolicy}
+}
+
 // buildContainer converts one running container status into the common
-// inventory vocabulary. cs.Image (spec intent) is never used as Ref — only
-// the status-reported image is an actual observation.
-func (c *Client) buildContainer(namespace, pod string, cs containerStatus, platform inventory.Platform, workload inventory.Workload) inventory.Container {
+// inventory vocabulary. The running reference is the status-reported image,
+// the only actual observation; the spec's image travels separately in
+// Declared and is never used as Ref.
+func (c *Client) buildContainer(namespace, pod string, cs containerStatus, platform inventory.Platform, workload inventory.Workload, declared *inventory.Declared) inventory.Container {
 	img := inventory.RunningImage{Ref: cs.Image, Platform: platform}
 	if cs.ImageID != "" {
 		if ref, ok := parseImageID(cs.ImageID); ok {
@@ -142,5 +179,6 @@ func (c *Client) buildContainer(namespace, pod string, cs containerStatus, platf
 		Name:     namespace + "/" + pod + "/" + cs.Name,
 		Workload: workload,
 		Image:    img,
+		Declared: declared,
 	}
 }

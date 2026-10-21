@@ -226,6 +226,14 @@ type remediationItemPayload struct {
 	Kind     string                   `json:"tag_kind,omitempty"`
 	Priority string                   `json:"priority,omitempty"`
 	Services []remediation.ServiceRef `json:"services,omitempty"`
+	// Declared, Pull and Management are present for Kubernetes workloads
+	// only. Declared are the images and pull policies the Pod specs name.
+	// Pull is the guidance for taking the new content of a floating tag, by
+	// effective pull policy. Management are the management chains read from
+	// markers on the workload objects (claims, not verified facts).
+	Declared   []remediation.DeclaredInstance `json:"declared,omitempty"`
+	Pull       []remediation.PullAdvice       `json:"pull,omitempty"`
+	Management []remediation.WorkloadChains   `json:"management,omitempty"`
 
 	Current   imageStatePayload  `json:"current"`
 	Candidate *imageStatePayload `json:"candidate,omitempty"`
@@ -686,6 +694,9 @@ func remediationItemPayloadOf(it remediation.Item, scans map[string]remediation.
 		Kind:       string(it.Kind),
 		Priority:   string(it.Priority),
 		Services:   it.Services,
+		Declared:   it.Declared,
+		Pull:       it.Pull,
+		Management: it.Management,
 		Current:    imageStatePayloadOf(it.Current, true),
 		Targets:    len(it.Targets),
 		KEVTargets: kevTargets(it),

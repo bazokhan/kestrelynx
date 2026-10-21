@@ -73,6 +73,23 @@ type ServiceRef struct {
 	Project   string `json:"project,omitempty"`
 	Service   string `json:"service,omitempty"`
 	Container string `json:"container,omitempty"`
+	// Workload is the workload key of a Kubernetes container,
+	// <kind>/<namespace>/<name>/<container>. Project and Service stay empty
+	// for it, and Container, which would name a single Pod, is left out so
+	// that the replicas of a workload are one reference.
+	Workload string `json:"workload,omitempty"`
+}
+
+// WorkloadKey is the key of the workload the reference names: the Kubernetes
+// key, or compose/<project>/<service>; "" when it names neither.
+func (s ServiceRef) WorkloadKey() string {
+	if s.Workload != "" {
+		return s.Workload
+	}
+	if s.Project == "" || s.Service == "" {
+		return ""
+	}
+	return "compose/" + s.Project + "/" + s.Service
 }
 
 // Limits caps the work of one planning pass. A value of zero allows none of
@@ -178,6 +195,17 @@ type Item struct {
 	Targets    []Target            `json:"targets,omitempty"`
 	Comparison *VerificationResult `json:"comparison,omitempty"`
 	Decision   *Decision           `json:"decision,omitempty"`
+
+	// Declared are the images and pull policies the specs of the running
+	// containers declare (Kubernetes only).
+	Declared []DeclaredInstance `json:"declared,omitempty"`
+	// Pull is what makes the workloads take the new content of a floating
+	// tag, set on pull_again items of Kubernetes workloads.
+	Pull []PullAdvice `json:"pull,omitempty"`
+	// Management are the management chains of the workloads running the
+	// image, as far as the markers on their objects show them (Kubernetes
+	// only).
+	Management []WorkloadChains `json:"management,omitempty"`
 }
 
 // Plan is the outcome of one planning pass; Items follow the order the

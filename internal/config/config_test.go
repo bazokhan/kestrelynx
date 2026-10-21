@@ -589,7 +589,7 @@ func TestParse_RemediationPullRequestsRejected(t *testing.T) {
 		"plan off":      {"remediation:\n" + tok + "  pull_requests:\n    enabled: true\n", "requires remediation.enabled"},
 		"no token":      {"remediation:\n  enabled: true\n  pull_requests:\n    enabled: true\n", "remediation.github.token"},
 		"blank token":   {"remediation:\n  enabled: true\n  github:\n    token: \"\"\n  pull_requests:\n    enabled: true\n", "remediation.github.token"},
-		"kubernetes":    {"kubernetes:\n  enabled: true\nremediation:\n  enabled: true\n" + tok + "  pull_requests:\n    enabled: true\n", "kubernetes.enabled"},
+		"kubernetes":    {"kubernetes:\n  enabled: true\nremediation:\n  enabled: true\n" + tok + "  pull_requests:\n    enabled: true\n", "pull_requests.enabled is not supported with kubernetes.enabled"},
 		"kubernetes pr": {"kubernetes:\n  enabled: true\nremediation:\n" + tok + "  pull_requests:\n    enabled: true\n", "remediation.pull_requests.enabled"},
 	} {
 		_, err := Parse([]byte(minimal + "\n" + tc.body))
@@ -606,16 +606,25 @@ func TestParse_RemediationStorageDirMustBeAbsolute(t *testing.T) {
 	}
 }
 
-func TestParse_RemediationWithKubernetesRejected(t *testing.T) {
-	_, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: true\n"))
-	if err == nil {
-		t.Fatal("Parse: expected an error for remediation.enabled with kubernetes.enabled")
+func TestParse_RemediationPlanWithKubernetes(t *testing.T) {
+	c, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: true\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v, want the fix plan accepted with kubernetes.enabled", err)
 	}
-	if !strings.Contains(err.Error(), "remediation.enabled") || !strings.Contains(err.Error(), "kubernetes.enabled") {
-		t.Errorf("err = %v, want it to name both keys", err)
+	if !c.Remediation.Enabled || !c.Kubernetes.Enabled {
+		t.Errorf("remediation.enabled = %v, kubernetes.enabled = %v", c.Remediation.Enabled, c.Kubernetes.Enabled)
 	}
 	if _, err := Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: false\n")); err != nil {
 		t.Errorf("Parse: %v, want a disabled plan to be accepted with kubernetes", err)
+	}
+	// Pull requests stay off on Kubernetes, with or without the plan.
+	_, err = Parse([]byte(minimal + "\nkubernetes:\n  enabled: true\nremediation:\n  enabled: true\n  github:\n    token: ghp_exampletoken\n  pull_requests:\n    enabled: true\n"))
+	if err == nil || !strings.Contains(err.Error(), "remediation.pull_requests.enabled") || !strings.Contains(err.Error(), "kubernetes.enabled") {
+		t.Errorf("err = %v, want pull requests refused with kubernetes.enabled", err)
+	}
+	// Docker mode is as it was.
+	if _, err := Parse([]byte(minimal + "\nremediation:\n  enabled: true\n  github:\n    token: ghp_exampletoken\n  pull_requests:\n    enabled: true\n")); err != nil {
+		t.Errorf("Docker mode with pull requests: %v", err)
 	}
 }
 

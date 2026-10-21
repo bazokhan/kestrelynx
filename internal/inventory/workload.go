@@ -69,6 +69,23 @@ type Container struct {
 	// sensitive enough that even an in-use/not-observed verdict on it is
 	// unwelcome.
 	RuntimeExcluded bool
+	// Declared is what the workload's own definition says this container
+	// should run, for adapters whose runtime reports the running image
+	// separately from the definition. nil means the adapter has no such
+	// notion (Docker).
+	Declared *Declared
+}
+
+// Declared is the definition-side view of a running container: the image
+// reference its Pod spec names and the pull policy it sets. It is read from
+// the same listing as the running state and never filled in from it.
+type Declared struct {
+	// Ref is the spec's image reference, "" when the spec entry for the
+	// container could not be found or names no image.
+	Ref string
+	// PullPolicy is the spec's imagePullPolicy as written ("Always",
+	// "IfNotPresent", "Never"), "" when it is not set.
+	PullPolicy string
 }
 
 // maxComposeNameBytes mirrors Docker Compose's own project/service name limit;

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
+	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 )
 
 // Default locations for the projected ServiceAccount token and the
@@ -205,11 +206,55 @@ func (c *Client) readToken() (string, error) {
 // never be mistaken for a complete one, since a container that silently
 // dropped out of view is indistinguishable from one that stopped running.
 func (c *Client) RunningContainers(ctx context.Context) ([]inventory.Container, error) {
+	l, err := c.list(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	containers := c.mapContainers(l.pods, l.platformByNode, l.rsByKey, l.jobByKey)
+	sortContainers(containers)
+	return containers, nil
+}
+
+// Observe lists the cluster once and returns both what RunningContainers and
+// what DeployBindings return from that one listing, so that a container and
+// its management chain never come from two different moments. A failure of
+// any LIST fails the whole observation, as it does for each of the two.
+func (c *Client) Observe(ctx context.Context) ([]inventory.Container, []remediation.DeployBinding, error) {
+	l, err := c.list(ctx, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	containers := c.mapContainers(l.pods, l.platformByNode, l.rsByKey, l.jobByKey)
+	sortContainers(containers)
+	return containers, bindingsOf(l, time.Now().UTC()), nil
+}
+
+// listing is what one pass of LIST calls returned, indexed for the walks
+// from a Pod to its owner. idx is filled only when the marker-checked kinds
+// were listed.
+type listing struct {
+	pods           []podRaw
+	platformByNode map[string]inventory.Platform
+	rsByKey        map[string]replicaSetRaw
+	jobByKey       map[string]jobRaw
+	idx            markerIndexes
+}
+
+// list issues the LIST calls of one cycle: nodes, pods, ReplicaSets and Jobs,
+// and with markers also the Deployments, StatefulSets, DaemonSets and
+// CronJobs whose metadata carries the deployment-tool markers. ReplicaSets
+// and Jobs are the relays resolveWorkload's owner-reference chain (Pod ->
+// ReplicaSet -> Deployment, Pod -> Job -> CronJob) walks through. If any one
+// LIST ultimately fails (after its own retries), the whole listing fails: a
+// partial listing must never be mistaken for a complete one, since a
+// container that silently dropped out of view is indistinguishable from one
+// that stopped running.
+func (c *Client) list(ctx context.Context, markers bool) (listing, error) {
 	hc := c.httpClient
 	if hc == nil {
 		built, err := c.buildHTTPClient()
 		if err != nil {
-			return nil, fmt.Errorf("build http client: %w", err)
+			return listing{}, fmt.Errorf("build http client: %w", err)
 		}
 		// This Transport is scoped to this one cycle (a fresh one is built
 		// next cycle so a rotated CA takes effect promptly); without this,
@@ -222,37 +267,50 @@ func (c *Client) RunningContainers(ctx context.Context) ([]inventory.Container, 
 
 	token, err := c.readToken()
 	if err != nil {
-		return nil, fmt.Errorf("read token: %w", err)
+		return listing{}, fmt.Errorf("read token: %w", err)
 	}
 
 	nodes, err := fetchList[nodeRaw](ctx, c, hc, &token, "/api/v1/nodes")
 	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
+		return listing{}, fmt.Errorf("list nodes: %w", err)
 	}
-	platformByNode := indexPlatforms(nodes)
-
 	pods, err := listNamespaced[podRaw](ctx, c, hc, &token, "/api/v1", "pods")
 	if err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
+		return listing{}, fmt.Errorf("list pods: %w", err)
 	}
-
-	// ReplicaSets and Jobs are the relays resolveWorkload's owner-reference
-	// chain (Pod -> ReplicaSet -> Deployment, Pod -> Job -> CronJob) walks
-	// through.
 	replicaSets, err := listNamespaced[replicaSetRaw](ctx, c, hc, &token, "/apis/apps/v1", "replicasets")
 	if err != nil {
-		return nil, fmt.Errorf("list replicasets: %w", err)
+		return listing{}, fmt.Errorf("list replicasets: %w", err)
 	}
 	jobs, err := listNamespaced[jobRaw](ctx, c, hc, &token, "/apis/batch/v1", "jobs")
 	if err != nil {
-		return nil, fmt.Errorf("list jobs: %w", err)
+		return listing{}, fmt.Errorf("list jobs: %w", err)
 	}
-	rsByKey := indexReplicaSets(replicaSets)
-	jobByKey := indexJobs(jobs)
-
-	containers := c.mapContainers(pods, platformByNode, rsByKey, jobByKey)
-	sortContainers(containers)
-	return containers, nil
+	l := listing{
+		pods:           pods,
+		platformByNode: indexPlatforms(nodes),
+		rsByKey:        indexReplicaSets(replicaSets),
+		jobByKey:       indexJobs(jobs),
+	}
+	if !markers {
+		return l, nil
+	}
+	for _, k := range []struct {
+		group, resource string
+		into            *map[string]markerMetadata
+	}{
+		{"/apis/apps/v1", "deployments", &l.idx.deployments},
+		{"/apis/apps/v1", "statefulsets", &l.idx.statefulSets},
+		{"/apis/apps/v1", "daemonsets", &l.idx.daemonSets},
+		{"/apis/batch/v1", "cronjobs", &l.idx.cronJobs},
+	} {
+		objs, err := listNamespaced[markerObject](ctx, c, hc, &token, k.group, k.resource)
+		if err != nil {
+			return listing{}, fmt.Errorf("list %s: %w", k.resource, err)
+		}
+		*k.into = indexMarkerObjects(objs)
+	}
+	return l, nil
 }
 
 // sortContainers orders containers deterministically: (Image.Ref,

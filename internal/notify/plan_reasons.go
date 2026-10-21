@@ -43,6 +43,10 @@ var planReasonTexts = map[string]struct{ en, ja string }{
 	"introduced_kev":                     {"the candidate brings a vulnerability on the KEV list", "候補でKEV掲載の脆弱性が新たに入る"},
 	"adopted":                            {"the candidate was adopted", "候補を採用した"},
 
+	// A definition and the running state that disagree or are missing.
+	"declared_ref_mismatch":    {"the image the spec of the workload names is not the one the container runs", "ワークロードのspecが指すイメージと稼働中のコンテナのイメージが一致しない"},
+	"declared_ref_unavailable": {"the image the spec of the workload names could not be read", "ワークロードのspecが指すイメージを読み取れなかった"},
+
 	// References that are not looked up for a candidate.
 	"digest_only":            {"the reference has a digest and no tag", "タグがなく digest だけで指定されている"},
 	"tag_and_digest":         {"the reference has both a tag and a digest", "タグと digest の両方で指定されている"},

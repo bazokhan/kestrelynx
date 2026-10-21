@@ -107,8 +107,9 @@ func TestParse_WorkerInvalid(t *testing.T) {
 	}
 }
 
-// Pull requests with a mirror set still need Docker mode, as before.
-func TestParse_WorkerRegistryWithKubernetesStillRejected(t *testing.T) {
+// The work-image mirror setting is not tied to the adapter; with Kubernetes it
+// is accepted like any other setting of a plan that runs no work containers.
+func TestParse_WorkerRegistryWithKubernetesAccepted(t *testing.T) {
 	_, err := Parse([]byte(minimal + `
 kubernetes:
   enabled: true
@@ -117,8 +118,8 @@ remediation:
   worker:
     registry: registry.example.com
 `))
-	if err == nil || !strings.Contains(err.Error(), "kubernetes") {
-		t.Fatalf("err = %v, want the kubernetes rejection", err)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
 	}
 }
 

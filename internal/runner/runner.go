@@ -18,6 +18,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/intel"
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/notify"
+	"github.com/kitsunetrail/kestrelynx/internal/remediation"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 	"github.com/kitsunetrail/kestrelynx/internal/state"
 )
@@ -25,6 +26,14 @@ import (
 // ContainerLister enumerates running containers (implemented by docker.Client).
 type ContainerLister interface {
 	RunningContainers(ctx context.Context) ([]inventory.Container, error)
+}
+
+// ContainerObserver is a ContainerLister that can also report the management
+// chains of the same containers from the same listing (implemented by
+// kubernetes.Client). It is used only when the fix plan is on: the chains are
+// shown in the plan, and reading them costs more LIST calls.
+type ContainerObserver interface {
+	Observe(ctx context.Context) ([]inventory.Container, []remediation.DeployBinding, error)
 }
 
 // ImageScanner scans one image target (implemented by scanner.Trivy).
@@ -158,7 +167,7 @@ func (r Runner) source() scanner.ScanSource {
 // one bad image never sinks the run) and surfaced to the user.
 func (r Runner) RunOnce(ctx context.Context) error {
 	log := r.log()
-	containers, err := r.Lister.RunningContainers(ctx)
+	containers, bindings, err := r.listContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("list running containers: %w", err)
 	}
@@ -191,12 +200,24 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	}
 	var plan planOutcome
 	if r.Plan != nil {
-		plan = r.buildPlan(ctx, cyc, report, containers, scans, targets)
+		plan = r.buildPlan(ctx, cyc, report, containers, bindings, scans, targets)
 	}
 	if r.Store == nil {
 		return r.sendFull(ctx, report, plan)
 	}
 	return r.sendDiff(ctx, report, plan)
+}
+
+// listContainers lists the running containers. With the fix plan on and an
+// adapter that can report them, the management chains of the containers come
+// from the same listing; without either, only the containers are listed, as
+// they always were.
+func (r Runner) listContainers(ctx context.Context) ([]inventory.Container, []remediation.DeployBinding, error) {
+	if o, ok := r.Lister.(ContainerObserver); ok && r.Plan != nil {
+		return o.Observe(ctx)
+	}
+	containers, err := r.Lister.RunningContainers(ctx)
+	return containers, nil, err
 }
 
 // scanAll scans every running image, de-duplicating on the resolved

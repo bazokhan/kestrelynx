@@ -2,7 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -455,79 +454,28 @@ func buildOwnerChains(native nativeOwner, idx markerIndexes, observedAt time.Tim
 // DeployBindings returns one remediation.DeployBinding per running
 // container, using the same running-container criteria RunningContainers
 // documents (main containers with state.running, plus native sidecars). It
-// is a separate LIST cycle from RunningContainers — nothing computed there
-// is reused — so the two can be called independently. Chains is nil when the
-// Pod's owner-reference chain didn't resolve to a known workload; otherwise
-// see buildOwnerChains for how it's populated. Intended is left at its zero
-// value on every chain: what a management chain's final owner declares as
-// its image is not something this package reads.
+// is a separate LIST cycle from RunningContainers — Observe reads both from
+// one cycle. Chains is nil when the Pod's owner-reference chain didn't
+// resolve to a known workload; otherwise see buildOwnerChains for how it's
+// populated. Intended is left at its zero value on every chain: what a
+// management chain's final owner declares as its image is not something this
+// package reads.
 func (c *Client) DeployBindings(ctx context.Context) ([]remediation.DeployBinding, error) {
-	hc := c.httpClient
-	if hc == nil {
-		built, err := c.buildHTTPClient()
-		if err != nil {
-			return nil, fmt.Errorf("build http client: %w", err)
-		}
-		defer built.CloseIdleConnections()
-		hc = built
+	l, err := c.list(ctx, true)
+	if err != nil {
+		return nil, err
 	}
+	return bindingsOf(l, time.Now().UTC()), nil
+}
 
-	token, err := c.readToken()
-	if err != nil {
-		return nil, fmt.Errorf("read token: %w", err)
-	}
-
-	nodes, err := fetchList[nodeRaw](ctx, c, hc, &token, "/api/v1/nodes")
-	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-	platformByNode := indexPlatforms(nodes)
-
-	pods, err := listNamespaced[podRaw](ctx, c, hc, &token, "/api/v1", "pods")
-	if err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
-	}
-	replicaSets, err := listNamespaced[replicaSetRaw](ctx, c, hc, &token, "/apis/apps/v1", "replicasets")
-	if err != nil {
-		return nil, fmt.Errorf("list replicasets: %w", err)
-	}
-	jobs, err := listNamespaced[jobRaw](ctx, c, hc, &token, "/apis/batch/v1", "jobs")
-	if err != nil {
-		return nil, fmt.Errorf("list jobs: %w", err)
-	}
-	deployments, err := listNamespaced[markerObject](ctx, c, hc, &token, "/apis/apps/v1", "deployments")
-	if err != nil {
-		return nil, fmt.Errorf("list deployments: %w", err)
-	}
-	statefulSets, err := listNamespaced[markerObject](ctx, c, hc, &token, "/apis/apps/v1", "statefulsets")
-	if err != nil {
-		return nil, fmt.Errorf("list statefulsets: %w", err)
-	}
-	daemonSets, err := listNamespaced[markerObject](ctx, c, hc, &token, "/apis/apps/v1", "daemonsets")
-	if err != nil {
-		return nil, fmt.Errorf("list daemonsets: %w", err)
-	}
-	cronJobs, err := listNamespaced[markerObject](ctx, c, hc, &token, "/apis/batch/v1", "cronjobs")
-	if err != nil {
-		return nil, fmt.Errorf("list cronjobs: %w", err)
-	}
-
-	rsByKey := indexReplicaSets(replicaSets)
-	jobByKey := indexJobs(jobs)
-	idx := markerIndexes{
-		deployments:  indexMarkerObjects(deployments),
-		statefulSets: indexMarkerObjects(statefulSets),
-		daemonSets:   indexMarkerObjects(daemonSets),
-		cronJobs:     indexMarkerObjects(cronJobs),
-	}
-
-	observedAt := time.Now().UTC()
+// bindingsOf builds the bindings of every running container of l.
+func bindingsOf(l listing, observedAt time.Time) []remediation.DeployBinding {
 	var out []remediation.DeployBinding
-	for _, pod := range pods {
+	for _, pod := range l.pods {
 		namespace, name := pod.Metadata.Namespace, pod.Metadata.Name
-		platform := platformByNode[pod.Spec.NodeName]
-		native := resolveNativeOwner(pod, rsByKey, jobByKey)
-		chains := buildOwnerChains(native, idx, observedAt)
+		platform := l.platformByNode[pod.Spec.NodeName]
+		native := resolveNativeOwner(pod, l.rsByKey, l.jobByKey)
+		chains := buildOwnerChains(native, l.idx, observedAt)
 		workload := native.workload()
 
 		initSpecByName := make(map[string]specContainer, len(pod.Spec.InitContainers))
@@ -553,7 +501,7 @@ func (c *Client) DeployBindings(ctx context.Context) ([]remediation.DeployBindin
 		}
 	}
 	sortDeployBindings(out)
-	return out, nil
+	return out
 }
 
 // buildDeployBinding converts one running container status into a

@@ -124,6 +124,9 @@ func main() {
 	}
 
 	if cfg.Remediation.Enabled {
+		for _, w := range cfg.MappingsOutsideScope() {
+			log.Warn("a remediation mapping names a workload outside kubernetes.namespaces and has no effect", "workload", w)
+		}
 		r.Plan = buildPlanConfig(cfg)
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
 			r.Plan.Language = buildLanguageConfig(cfg, log)
@@ -169,6 +172,19 @@ func main() {
 // real runs show what a cycle costs.
 const gitHubRequestsPerCycle = 200
 
+// workloadParts splits a mapping's workload key: the project and service of a
+// Compose key, nothing for a Kubernetes key, which is used whole. ok is false
+// for a key of neither form, which config validation has already refused.
+func workloadParts(key string) (project, service string, ok bool) {
+	if p, s, err := config.ParseWorkloadKey(key); err == nil {
+		return p, s, true
+	}
+	if _, err := config.ParseKubernetesWorkloadKey(key); err == nil {
+		return "", "", true
+	}
+	return "", "", false
+}
+
 // dependencyMappings picks the mappings that read a dependency root. Config
 // validation has already checked the workload keys.
 func dependencyMappings(ms []config.RemediationMapping) []remediation.DependencyMapping {
@@ -177,8 +193,8 @@ func dependencyMappings(ms []config.RemediationMapping) []remediation.Dependency
 		if m.Dependencies == nil {
 			continue
 		}
-		project, service, err := config.ParseWorkloadKey(m.Workload)
-		if err != nil {
+		project, service, ok := workloadParts(m.Workload)
+		if !ok {
 			continue
 		}
 		out = append(out, remediation.DependencyMapping{
@@ -197,8 +213,8 @@ func composeMappings(ms []config.RemediationMapping) []remediation.ComposeMappin
 		if m.Compose == nil {
 			continue
 		}
-		project, service, err := config.ParseWorkloadKey(m.Workload)
-		if err != nil {
+		project, service, ok := workloadParts(m.Workload)
+		if !ok {
 			continue
 		}
 		out = append(out, remediation.ComposeMapping{
@@ -217,8 +233,8 @@ func dockerfileMappings(ms []config.RemediationMapping) []remediation.Dockerfile
 		if m.Dockerfile == nil {
 			continue
 		}
-		project, service, err := config.ParseWorkloadKey(m.Workload)
-		if err != nil {
+		project, service, ok := workloadParts(m.Workload)
+		if !ok {
 			continue
 		}
 		out = append(out, remediation.DockerfileMapping{
@@ -294,8 +310,8 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 	}
 }
 
-// buildPlanConfig assembles the read-only fix plan; config validation already
-// restricts it to the Docker adapter.
+// buildPlanConfig assembles the read-only fix plan. With Kubernetes, config
+// validation allows no pull requests and only dependency mappings.
 func buildPlanConfig(cfg config.Config) *runner.PlanConfig {
 	rc := cfg.Remediation
 	l := rc.Limits

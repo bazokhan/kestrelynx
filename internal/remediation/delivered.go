@@ -52,6 +52,11 @@ func Fingerprint(p Plan) string {
 		Resolved   int          `json:"resolved,omitempty"`
 		Remaining  int          `json:"remaining,omitempty"`
 		Introduced int          `json:"introduced,omitempty"`
+		// The Kubernetes parts are left out of the record when empty, so a
+		// plan of Docker containers fingerprints as it always did.
+		Declared   []DeclaredInstance `json:"declared,omitempty"`
+		Pull       []PullAdvice       `json:"pull,omitempty"`
+		Management []WorkloadChains   `json:"management,omitempty"`
 	}
 	type langPackage struct {
 		Name        string        `json:"name"`
@@ -219,8 +224,25 @@ func Fingerprint(p Plan) string {
 			if a.Service != b.Service {
 				return a.Service < b.Service
 			}
-			return a.Container < b.Container
+			if a.Container != b.Container {
+				return a.Container < b.Container
+			}
+			return a.Workload < b.Workload
 		})
+		fi.Declared = append([]DeclaredInstance(nil), it.Declared...)
+		sort.Slice(fi.Declared, func(i, j int) bool {
+			a, b := fi.Declared[i], fi.Declared[j]
+			if a.Workload != b.Workload {
+				return a.Workload < b.Workload
+			}
+			if a.Ref != b.Ref {
+				return a.Ref < b.Ref
+			}
+			return a.PullPolicy < b.PullPolicy
+		})
+		fi.Pull = it.Pull
+		fi.Management = append([]WorkloadChains(nil), it.Management...)
+		sort.Slice(fi.Management, func(i, j int) bool { return fi.Management[i].Key() < fi.Management[j].Key() })
 		if c := it.Candidate; c != nil {
 			fi.Candidate = &image{Ref: c.Ref, Config: c.ConfigDigest, Manifest: c.ManifestDigest, Top: c.TopDigest}
 		}

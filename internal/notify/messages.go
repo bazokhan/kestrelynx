@@ -382,8 +382,19 @@ type messages struct {
 	PlanLblFailed        string // "Failed"
 	PlanLblDeferred      string // "Deferred"
 	PlanLblMajor         string // "⚠️ Major version change"
+	PlanLblPullPolicy    string // "Pull policy"
+	PlanLblManagedBy     string // "Managed by (from markers)"
 
 	// Values.
+	PlanPullRestart       string // "restarting the Pods pulls the new content"
+	PlanPullChangeTag     string // "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed"
+	PlanPullImportToNode  string // "the image has to be brought to the node"
+	PlanPullValue         string // "%[1]s: %[2]s (%[3]s)" (policy, guidance, workloads)
+	PlanOwnerHelm         string // "Helm release %[1]s (%[2]s)" (name, namespace)
+	PlanOwnerArgoCD       string // "Argo CD app %s"
+	PlanOwnerFluxKust     string // "Flux Kustomization %[2]s/%[1]s" (name, namespace)
+	PlanOwnerFluxHelm     string // "Flux HelmRelease %[2]s/%[1]s" (name, namespace)
+	PlanManagedValue      string // "%[1]s: %[2]s" (workload, chain), when several workloads are shown
 	PlanFileValue         string // "%[2]s in %[1]s" (repository, path)
 	PlanPRValue           string // "%[1]s (%[2]s)" (link, status)
 	PlanPRStatusCreated   string // "opened now"
@@ -736,7 +747,18 @@ var enMessages = messages{
 	PlanLblFailed:        "Failed",
 	PlanLblDeferred:      "Deferred",
 	PlanLblMajor:         "⚠️ Major version change",
+	PlanLblPullPolicy:    "Pull policy",
+	PlanLblManagedBy:     "Managed by (from markers)",
 
+	PlanPullRestart:       "restarting the Pods pulls the new content",
+	PlanPullChangeTag:     "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed",
+	PlanPullImportToNode:  "the image has to be brought to the node",
+	PlanPullValue:         "%[1]s: %[2]s (%[3]s)",
+	PlanOwnerHelm:         "Helm release %[1]s (%[2]s)",
+	PlanOwnerArgoCD:       "Argo CD app %s",
+	PlanOwnerFluxKust:     "Flux Kustomization %[2]s/%[1]s",
+	PlanOwnerFluxHelm:     "Flux HelmRelease %[2]s/%[1]s",
+	PlanManagedValue:      "%[1]s: %[2]s",
 	PlanFileValue:         "%[2]s in %[1]s",
 	PlanPRValue:           "%[1]s (%[2]s)",
 	PlanPRStatusCreated:   "opened now",
@@ -1085,7 +1107,18 @@ var jaMessages = messages{
 	PlanLblFailed:        "失敗",
 	PlanLblDeferred:      "保留",
 	PlanLblMajor:         "⚠️ メジャーバージョンの変更",
+	PlanLblPullPolicy:    "pullポリシー",
+	PlanLblManagedBy:     "管理元(目印による推定)",
 
+	PlanPullRestart:       "Podを再起動すると新しい中身を取得する",
+	PlanPullChangeTag:     "ノードにある古い中身が使われるため再起動では直らない。固定タグへの変更かdigest指定が要る",
+	PlanPullImportToNode:  "ノードへのイメージの取り込みが要る",
+	PlanPullValue:         "%[1]s: %[2]s (%[3]s)",
+	PlanOwnerHelm:         "Helmリリース %[1]s (%[2]s)",
+	PlanOwnerArgoCD:       "Argo CDアプリ %s",
+	PlanOwnerFluxKust:     "Flux Kustomization %[2]s/%[1]s",
+	PlanOwnerFluxHelm:     "Flux HelmRelease %[2]s/%[1]s",
+	PlanManagedValue:      "%[1]s: %[2]s",
 	PlanFileValue:         "%[1]s の %[2]s",
 	PlanPRValue:           "%[1]s (%[2]s)",
 	PlanPRStatusCreated:   "今回作成",

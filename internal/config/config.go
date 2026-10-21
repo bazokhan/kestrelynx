@@ -283,11 +283,12 @@ func (s Secret) GoString() string             { return `"` + s.redacted() + `"` 
 func (s Secret) MarshalText() ([]byte, error) { return []byte(s.redacted()), nil }
 func (s Secret) LogValue() slog.Value         { return slog.StringValue(s.redacted()) }
 
-// RemediationMapping ties a running Compose workload to the repository that
+// RemediationMapping ties a running workload to the repository that
 // holds its source. Exactly one of Compose, Dependencies and Dockerfile is
 // set.
 type RemediationMapping struct {
-	// Workload is the running workload, compose/<project>/<service>.
+	// Workload is the running workload: compose/<project>/<service> with the
+	// Docker adapter, <kind>/<namespace>/<name>/<container> with Kubernetes.
 	Workload string
 	// Repository is the GitHub repository, owner/name.
 	Repository string
@@ -734,8 +735,8 @@ func validateRemediation(c *Config) error {
 	if r.PullRequests.Enabled && !r.Enabled {
 		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.enabled")
 	}
-	if r.Enabled && c.Kubernetes.Enabled {
-		return fmt.Errorf("config: remediation.enabled is not supported with kubernetes.enabled")
+	if r.PullRequests.Enabled && c.Kubernetes.Enabled {
+		return fmt.Errorf("config: remediation.pull_requests.enabled is not supported with kubernetes.enabled; the fix plan alone is available on Kubernetes")
 	}
 	if r.PullRequests.Enabled && r.GitHub.Token.Value() == "" {
 		return fmt.Errorf("config: remediation.pull_requests.enabled requires remediation.github.token")
@@ -775,7 +776,7 @@ func validateRemediation(c *Config) error {
 	if err := validateRegistries(r.Registries); err != nil {
 		return err
 	}
-	return validateMappings(r.Mappings)
+	return validateMappings(r.Mappings, c.Kubernetes.Enabled)
 }
 
 // validateRegistries checks the registry logins. No message contains a
