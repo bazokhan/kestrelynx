@@ -16,7 +16,7 @@ See [Setup steps](remediation-setup.md) to enable them.
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
 | Kubernetes plans | Published-image and Dockerfile base-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
-| Kubernetes PRs | Image tag updates in plain manifests and base image updates in Dockerfiles |
+| Kubernetes PRs | Image tag updates in plain manifests and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
 
 ### Supported targets {#supported-targets}
 
@@ -545,7 +545,13 @@ The following tables give each code's meaning and related decision rules or chec
 | `pip_target_undecidable` | The environment the packages run in cannot be determined | [pip verification environment](remediation-logic.md#pip-target-environment) |
 | `pip_target_mismatch` | The environment pip resolves for differs from the one the packages run in | [pip verification environment](remediation-logic.md#pip-target-environment) |
 | `work_image_not_configured` | No work environment is available for updates | [Checking update failures](remediation-troubleshooting.md#check-update-failure) |
-| `work_namespace_not_configured` | Language-package updates on Kubernetes still require manual action and do not create PRs | [Scope and requirements](#scope-and-requirements) |
+| `work_namespace_not_configured` | The work namespace required for updates on Kubernetes is not configured, so manual action is required | [Work Pod configuration](configuration.md#remediation-worker-kubernetes) |
+| `work_runtime_class_unsupported` | An unsupported RuntimeClass is configured for work Pods, so manual action is required | [Work Pod configuration](configuration.md#remediation-worker-kubernetes) |
+| `work_cluster_too_old` | The cluster is older than Kubernetes 1.30, which the work Pod policy requires, so manual action is required | [Prerequisites](remediation-setup.md#kubernetes-language-updates) |
+| `work_pod_limit` | The work Pod count or namespace quota is at its limit, so the update waits for the next cycle | [Work Pod configuration](configuration.md#remediation-worker-kubernetes) |
+| `work_admission_unverified` | The work namespace's Pod creation rules could not be confirmed to be in force, so no work Pod is started | [Work Pod execution](remediation-logic.md#kubernetes-work-pods) |
+| `work_priority_class_missing` | The PriorityClass configured for work Pods is missing or does not match the required settings, so manual action is required | [Setup steps](remediation-setup.md#kubernetes-language-updates) |
+| `work_pod_not_started` | The work Pod did not start in time, so the update waits for the next cycle | [Work Pod checks](remediation-troubleshooting.md#check-update-failure) |
 | `work_image_unavailable` | The work image could not be made ready | [Pinning official images](remediation-logic.md#worker-images) |
 
 ### Tool retrieval reasons {#tool-reasons}

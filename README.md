@@ -32,7 +32,7 @@
 | Target | Operation and scope |
 | --- | --- |
 | Docker | One instance per host; running images across all Compose projects and standalone containers |
-| Kubernetes | In-cluster deployment; read-only ServiceAccount; all or selected namespaces |
+| Kubernetes | In-cluster deployment; read-only scanning; all or selected namespaces; additional permissions limited to a work namespace for language-package updates |
 
 - **Kubernetes ownership**: Deployment, StatefulSet, DaemonSet, Job, and CronJob associations (`unknown` for unresolved ownership)
 - **Scan targets**: containers running at discovery time, including Kubernetes native sidecars
@@ -102,7 +102,7 @@ Long notifications continue in additional messages with repeated section and ima
 ## Remediation plans and pull requests (experimental)
 
 - Propose image and dependency updates for Docker, Compose, and Kubernetes
-- Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles
+- Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](docs/documentation/remediation-setup.md#kubernetes-language-updates)
 - Remediation plans and optional GitHub PR creation are both disabled by default
 - Users check changes, merge, deploy, and verify after deployment
 

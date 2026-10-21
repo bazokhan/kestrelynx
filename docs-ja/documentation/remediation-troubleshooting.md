@@ -37,7 +37,9 @@
 | ツールを取得できない | 取得先への通信、取得枠、通知の詳細を確認する | [ツールの取得](outbound-communication.md#tool-downloads)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
 | ツールのハッシュが一致しない | 宣言したハッシュと、取得・照合の詳細を確認する | [ツールの版宣言](remediation-reference.md#tool-declarations)・[ツールの取得と照合](remediation-logic.md#tool-verification) |
 | ツールキャッシュを利用できない | 保存先の書き込み権限、空き容量、キャッシュ容量の設定を確認する | [ツールキャッシュの容量](configuration.md#remediation-tool-cache)・[ツール取得の理由](remediation-reference.md#tool-reasons) |
-| 作業用コンテナを実行できない | Docker API、作業用イメージの取得先、作業環境の検査ログを確認する | [修正PRの有効化](remediation-setup.md#enable-pull-requests)・[作業用コンテナの実行](remediation-logic.md#worker-execution) |
+| Dockerの作業用コンテナを実行できない | Docker API、作業用イメージの取得先、作業環境の検査ログを確認する | [修正PRの有効化](remediation-setup.md#enable-pull-requests)・[作業用コンテナの実行](remediation-logic.md#worker-execution) |
+| Kubernetesの言語パッケージ更新が手動対応または延期になる | 理由コードに従い、作業用namespace、Kubernetesの版、RuntimeClassの未指定、RBAC、Pod作成規則とパラメータ、PriorityClass、Pod数・クォータ、Podのイベントを確認する | [導入手順](remediation-setup.md#kubernetes-language-updates)・[理由コード](remediation-reference.md#reason-codes) |
+| Kubernetesで`update_result_invalid`になり、結果ログの欠落が示される | 実行ノードの`containerLogMaxSize`が`144Mi`以上か、ログが切り詰められたりローテーションされたりしていないかを確認する | [導入条件](remediation-setup.md#kubernetes-language-updates) |
 | 作業プログラムを利用できない | 利用中の配布物とログを確認し、独自ビルドでは作業プログラムの配置も確認する | [作業プログラムの配置先](configuration.md#remediation-worker-program) |
 | 処理の上限や期限で止まる | 通知に示された上限、設定値、次の実行予定を確認する | [処理の上限](configuration.md#remediation-limits)・[更新結果の理由](remediation-reference.md#update-reasons) |
 | 修正版に届かない、一部だけPRに入る | 除外されたパッケージ、残った版、親パッケージの依存範囲を確認する | [部分PR](remediation-results.md#partial-pull-requests)・[更新結果の理由](remediation-reference.md#update-reasons) |

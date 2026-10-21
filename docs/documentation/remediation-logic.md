@@ -420,12 +420,27 @@ See [Tool version declarations](remediation-reference.md#tool-declarations) for 
 
 ## Work container execution {#worker-execution}
 
+### Work Pod execution {#kubernetes-work-pods}
+
+On Kubernetes, language-package updates and supported re-resolution through dependent packages run in disposable Pods in the configured work namespace.
+The user applies the required resources following the [setup steps](remediation-setup.md#kubernetes-language-updates).
+
+- Fix the permitted Pod configuration through ValidatingAdmissionPolicy
+- In every cycle that runs language-package updates, use `dryRun` creation requests that do not persist Pods to check that a compliant Pod is accepted and Pods violating the rules are rejected
+- Check that the created Pod matches the requested configuration before sending input files
+- Encrypt results with a key for each execution attempt, writing only encrypted result content and fixed status messages to logs
+- Keep GitHub tokens, image registry credentials, and KestreLynx configuration out of the Pod
+- Make the root filesystem read-only and restrict writes to capacity-limited temporary storage
+- Attempt to delete Pods after processing and remove leftovers at startup and during periodic cleanup
+
+Failure to verify the Pod creation rules requires manual action with `work_admission_unverified`.
+Failure to retrieve the cluster version defers updates with the same reason code, while Pod count or resource limits defer updates with `work_pod_limit`.
 ### Pinning official images {#worker-images}
 
 Language package updates use official Node.js and Python images.
 Their content is pinned by digest in the bundled table and does not follow changes to the same tag.
 
-- Docker retrieves the required images
+- Docker or the Kubernetes node's container runtime retrieves the required images
 - Mirrors must provide content with the same digest as the bundled table
 - Language package updates are deferred if the image cannot be retrieved
 - Retrieval failures do not cause package managers to run inside the KestreLynx container as a fallback
@@ -471,7 +486,8 @@ See [Tool cache capacity](configuration.md#remediation-tool-cache) for capacity 
 
 ### Container inputs {#worker-inputs}
 
-Files needed for the update, the bundled work program, and retrieved and verified tools are placed in the container before it starts.
+Files needed for the update, the bundled work program, and retrieved and verified tools are placed before update processing starts.
+On Kubernetes, files are sent through the receiving container after the created Pod is checked.
 
 | Input type | Treatment |
 | --- | --- |
@@ -487,7 +503,7 @@ See [Credential destinations](outbound-communication.md#credential-destinations)
 Work containers have restrictions on privileges, resources, writable locations, and execution.
 
 - Run as non-root with all Linux capabilities dropped and `no-new-privileges` enabled
-- Limit memory, CPU, process count, output size, and execution time
+- Limit memory, CPU, process count, output size, and execution time, using node-level PID limits for process counts on Kubernetes
 - Restrict writable locations to capacity-limited temporary storage
 - Disable package scripts and source builds
 - Verify that the runtime, tools, and work program match the specified content
@@ -499,7 +515,7 @@ See [Processing limits](configuration.md#remediation-limits) for workload settin
 
 ### Result collection {#worker-results}
 
-After collecting results from standard output, KestreLynx attempts to remove the work container.
+After collecting results from standard output on Docker, or collecting and decrypting encrypted results from Pod logs on Kubernetes, KestreLynx attempts to remove the work container or Pod.
 Collected results are inspected by KestreLynx before being used to decide whether to adopt the update.
 
 - Checks consistency among returned files, sizes, hashes, executed operations, and exit status

@@ -71,7 +71,8 @@ PRには、イメージ参照とdigest、Workload名、リポジトリ名、ソ�
 
 | 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
 | --- | --- | --- | --- |
-| Docker | Docker Hubまたは設定したミラー | 作業用の公式Node.js・Pythonイメージを取得 | 言語パッケージの更新に必要なイメージがローカルにない場合 |
+| DockerまたはKubernetesノードのコンテナランタイム | Docker Hubまたは設定したミラー | 作業用の公式Node.js・Pythonイメージを取得 | 言語パッケージの更新に必要なイメージがローカルにない場合 |
+| Kubernetesノードのコンテナランタイム | KestreLynxイメージのレジストリ | 入力ファイルを受け取るコンテナのイメージを取得 | 作業用Podに必要なイメージがローカルにない場合 |
 
 ミラーの設定は[作業用イメージの取得先](configuration.md#remediation-worker-registry)、固定と取得不能時の扱いは[公式イメージの固定](remediation-logic.md#worker-images)を参照してください。
 
@@ -134,7 +135,14 @@ Webhookには、版指定・変更一覧・処理量・再試行可能な日時�
 
 ## 作業用コンテナのネットワーク {#worker-network}
 
-作業用コンテナはDockerのbridgeネットワークを使います。
+Dockerの作業用コンテナはbridgeネットワークを使います。
 通信先をネットワークの許可リストで制限する構成ではありません。
 
-ネットワーク以外の制限は、[実行時の制限](remediation-logic.md#worker-restrictions)を参照してください。
+Kubernetesの作業用Podには、利用者がNetworkPolicyを適用します。
+`deploy/kubernetes/work/40-networkpolicy.yaml`の例は受信を拒否し、送信をDNSと除外範囲外のIPv4宛てTCP 443に限定します。
+
+この例は公開HTTPSサイト全般への接続を許可し、npmやPyPIだけに限定しません。
+NetworkPolicyを実施するCNIが必要で、標準のNetworkPolicyではPodとその実行ノードの通信は遮断しません。
+
+導入時の調整は[Kubernetesの言語パッケージ更新](remediation-setup.md#kubernetes-language-updates)、ネットワーク以外の制限は[実行時の制限](remediation-logic.md#worker-restrictions)を参照してください。
+

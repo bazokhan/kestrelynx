@@ -81,6 +81,7 @@ Docker・Kubernetes向けの機能の概要は[修正計画の案内](remediatio
 | `configmap.yaml` | `config.yml`を含むConfigMap `kestrelynx-config`です。 |
 | `pvc.yaml` | アクセスモード`ReadWriteOnce`で1 GiBを要求するPersistentVolumeClaim `kestrelynx-state`です。 |
 | `deployment.yaml` | `Recreate`戦略を使用するレプリカ数1のDeploymentです。設定を`/etc/kestrelynx`に、状態データを`/var/lib/kestrelynx`にマウントします。 |
+| `work/` | 言語パッケージ更新用の任意の追加マニフェストで、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)に従って別途適用します。 |
 
 修正計画を有効にすると、通常の取得対象に加えて`deployments`・`statefulsets`・`daemonsets`・`cronjobs`をLISTします。
 配布の読み取り専用ClusterRoleは、そのまま使用できます。

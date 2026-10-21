@@ -146,7 +146,7 @@ runtime:
 # Planning does not write to GitHub or use work containers; it saves local
 # records and scan caches.
 #
-# Pull requests additionally allow GitHub writes and Docker work containers
+# Pull requests additionally allow GitHub writes and Docker work containers or configured Kubernetes work Pods
 # for language-package updates.
 #
 # A candidate or PR does not mean a running image is fixed, and KestreLynx
@@ -155,7 +155,7 @@ runtime:
 # KestreLynx uses HTTPS to public or configured private image registries and
 # GitHub for mapped sources; Trivy downloads databases and comparison images.
 #
-# Language updates use public npm and PyPI; Docker fetches official Node.js
+# Language updates use public npm and PyPI; Docker or Kubernetes nodes fetch official Node.js
 # and Python images from Docker Hub or the configured mirror.
 #
 # With remediation disabled, scans and notifications are unchanged.
@@ -168,7 +168,7 @@ runtime:
 #   # versions. Requires remediation.enabled, source mappings and
 #   # github.token. No automatic merge or deployment; existing branches are
 #   # not rewritten. PR creation can start the repository's pull_request CI.
-#   # On Docker, language updates run in disposable work containers, with their
+#   # Language updates run in disposable Docker containers or configured Kubernetes Pods, with their
 #   # output and before/after dependency-file scans checked by KestreLynx.
 #   # Neither application tests nor image rebuilds are run. Off by default.
 #   pull_requests:
@@ -244,7 +244,9 @@ runtime:
 #   #     path: docker/Dockerfile
 #   #     target: runtime
 #   #
-#   # Kubernetes PRs use the existing read-only scan RBAC. Merging may trigger
+#   # Kubernetes manifest and Dockerfile PRs use the read-only scan RBAC.
+#   # Language-package PRs additionally need the user-applied work namespace
+#   # and permissions in deploy/kubernetes/work/. Merging may trigger
 #   # deployment through external automatic synchronization or CI.
 #   #
 #   # For an image you build yourself, the findings in the layers of its base
@@ -321,7 +323,7 @@ runtime:
 #   # KestreLynx supplies the work program and checked tools to the official
 #   # images and checks the container environment before running updates.
 #   #
-#   # KestreLynx creates, starts and removes work containers through Docker API.
+#   # In Docker mode, KestreLynx creates, starts and removes work containers through Docker API.
 #   # A :ro socket mount does not restrict these API operations.
 #   mappings:
 #     - workload: compose/example/web
@@ -379,13 +381,37 @@ runtime:
 #   # and caches them under storage_dir; pip comes with the Python image.
 #   #
 #   # Cached tools are checked again before reuse and passed to work
-#   # containers; Docker pulls the images when first needed.
+#   # containers; Docker or Kubernetes nodes pull the images when first needed.
 #   #
 #   # An unavailable image or tool defers language updates; package managers
 #   # are never run in the KestreLynx container instead.
 #   #
 #   # These settings are validated at startup even when remediation is disabled.
 #   # worker:
+#   #   # Kubernetes language-package updates, including supported re-resolution
+#   #   # through dependent packages. Requires kubernetes.enabled: true,
+#   #   # Kubernetes 1.30+, and user-applied deploy/kubernetes/work/ manifests.
+#   #   # See docs/documentation/remediation-setup.md#kubernetes-language-updates.
+#   #   # Nodes need containerLogMaxSize >= 144Mi and Pod PID limits;
+#   #   # the example NetworkPolicy requires a CNI that enforces it.
+#   #   # Omit this entire subsection to leave Kubernetes language updates manual.
+#   #   kubernetes:
+#   #     # No default namespace; setting it enables work Pods for PR processing.
+#   #     namespace: kestrelynx-work
+#   #     # Work Pod account without permissions or a token; default shown.
+#   #     service_account: kestrelynx-work
+#   #     # Must exist with preemptionPolicy: Never; default shown.
+#   #     priority_class: kestrelynx-work
+#   #     # KestreLynx repository@sha256:... for the receiving container.
+#   #     # Empty reads the digest-pinned image from KestreLynx's own Pod status.
+#   #     receiver_image: ""
+#   #     # Maximum Pods held by this instance, including undeleted finished Pods.
+#   #     # Default 1; accepted range 1..16; namespace quotas also apply.
+#   #     max_concurrent_pods: 1
+#   #     # Unsupported: a non-empty value makes language updates manual.
+#   #     runtime_class: ""
+#   #   # Keep these names and image repositories consistent with the work
+#   #   # manifests and 52-policy-params.yaml, including any registry mirror.
 #   #   # Optional Docker Hub mirror: lowercase host[:port][/path], with no
 #   #   # scheme, tag or digest; empty uses Docker Hub.
 #   #   registry: registry.example.com:5000/dockerhub

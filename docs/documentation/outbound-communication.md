@@ -71,7 +71,8 @@ See [Image registry authentication](configuration.md#remediation-registries) for
 
 | Sender | Destination | Information retrieved or sent | When |
 | --- | --- | --- | --- |
-| Docker | Docker Hub or the configured mirror | Download official Node.js and Python work images | An image required for a language-package update is not available locally. |
+| Docker or the Kubernetes node's container runtime | Docker Hub or the configured mirror | Download official Node.js and Python work images | An image required for a language-package update is not available locally. |
+| Kubernetes node's container runtime | KestreLynx image registry | Download the image for the container receiving input files | An image required for a work Pod is not available locally. |
 
 See [Work image source](configuration.md#remediation-worker-registry) for mirror settings and [Pinning official images](remediation-logic.md#worker-images) for pinning and handling unavailable images.
 
@@ -134,7 +135,14 @@ See [GitHub access](configuration.md#remediation-github) and [Image registry aut
 
 ## Work container network {#worker-network}
 
-Work containers use Docker bridge networking.
+Docker work containers use bridge networking.
 Destinations are not restricted by a network allowlist.
 
-See [Runtime restrictions](remediation-logic.md#worker-restrictions) for restrictions other than networking.
+For Kubernetes work Pods, the user applies a NetworkPolicy.
+The example in `deploy/kubernetes/work/40-networkpolicy.yaml` denies ingress and limits egress to DNS and TCP port 443 to IPv4 addresses outside the excluded ranges.
+
+This example allows connections to public HTTPS sites generally, rather than restricting them to npm and PyPI.
+A CNI that enforces NetworkPolicy is required, and standard NetworkPolicy does not block communication between a Pod and its execution node.
+
+See [Kubernetes language-package updates](remediation-setup.md#kubernetes-language-updates) for installation adjustments and [Runtime restrictions](remediation-logic.md#worker-restrictions) for restrictions other than networking.
+

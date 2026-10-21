@@ -180,6 +180,22 @@ Composeの`build`からの特定と明示したDockerfileとの照合は[ベー�
 
 上限による結果は[理由コード](remediation-reference.md#reason-codes)、PRの扱いは[PRの管理](remediation-logic.md#pr-management)、実行期限と後処理は[作業用コンテナの実行](remediation-logic.md#worker-execution)を参照してください。
 
+### 作業用Podの設定 {#remediation-worker-kubernetes}
+
+Kubernetesモードの言語パッケージ更新に使います。
+[導入手順](remediation-setup.md#kubernetes-language-updates)に従い、利用者が作業用namespaceと必要なリソースを適用します。
+
+| 設定項目 | 既定値 | 形式・適用範囲 |
+| --- | --- | --- |
+| `remediation.worker.kubernetes.namespace` | 空 | 作業用Podを作るnamespace名で、未設定の場合は言語パッケージ更新が`work_namespace_not_configured`で手動対応になります。 |
+| `remediation.worker.kubernetes.service_account` | `kestrelynx-work` | 作業用PodのServiceAccount名で、権限とトークンを持たないものを指定します。 |
+| `remediation.worker.kubernetes.priority_class` | `kestrelynx-work` | 作業用PodのPriorityClass名で、`preemptionPolicy: Never`のものを指定します。 |
+| `remediation.worker.kubernetes.receiver_image` | 空 | 入力ファイルを受け取るコンテナのKestreLynxイメージを`repository@sha256:...`で指定し、空の場合はKestreLynx自身のPodの状態からdigest付き参照を取得します。 |
+| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | 同じインスタンスが同時に保持する作業用Pod数の上限で、`1`〜`16`を指定し、未削除の終了済みPodも数えます。 |
+| `remediation.worker.kubernetes.runtime_class` | 空 | 未対応のため空にし、指定した場合は`work_runtime_class_unsupported`で手動対応になります。 |
+
+これらの設定には`kubernetes.enabled: true`が必要です。
+`namespace`を省略してほかの項目だけを設定した場合や、名前・イメージ参照・数値の形式が不正な場合は、起動時にエラーになります。
 ### 作業用イメージの取得先 {#remediation-worker-registry}
 
 | 設定項目 | 既定値 | 形式・検証条件 |

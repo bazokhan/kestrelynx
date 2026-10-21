@@ -123,7 +123,7 @@ remediation:
 
 !!! note "Docker API"
 
-    言語パッケージの更新では、KestreLynxがDocker APIで作業用コンテナを作成・起動・削除します。Docker socketの`:ro`はAPI操作を制限しないため、配布のCompose構成では`:rw`へ変更する必要はありません。Docker APIのプロキシを使う場合は、これらの操作を許可してください。
+    Dockerモードの言語パッケージ更新では、KestreLynxがDocker APIで作業用コンテナを作成・起動・削除します。Docker socketの`:ro`はAPI操作を制限しないため、配布のCompose構成では`:rw`へ変更する必要はありません。Docker APIのプロキシを使う場合は、これらの操作を許可してください。
 
 ### KubernetesのPR設定 {#kubernetes-pull-requests}
 
@@ -152,9 +152,94 @@ remediation:
 ```
 
 設定を反映してKestreLynxのPodを再起動します。
-RBACはスキャン用の読み取り専用のままで、クラスタへの書き込み権限は不要です。
+このマニフェスト・Dockerfileの更新には、スキャン用の読み取り専用RBACだけを使います。
+言語パッケージの更新には、次の作業用Podの設定を追加します。
 
 編集できる形式は[マニフェストの形式](remediation-reference.md#manifest-formats)、作成条件は[KubernetesのマニフェストPR](remediation-logic.md#kubernetes-manifest-prs)を参照してください。
+
+### Kubernetesの言語パッケージ更新 {#kubernetes-language-updates}
+
+npm・pnpm・pip・uvの更新は、利用者が用意した作業用namespaceにKestreLynxが作る使い捨てのPodで実行します。
+npm・pnpm・uvの[依存元からの再解決](remediation-reference.md#dependent-reresolution-limits)にも同じPodを使います。
+
+#### 導入条件
+
+- Kubernetes 1.30以上で、`kubernetes.enabled: true`を設定する
+- 作業用Podを実行する各ノードの`containerLogMaxSize`を、大きな結果を保持できるように`144Mi`以上に設定する
+- 作業用Podを実行する各ノードで、Podのプロセス数を制限するPID上限を設定する
+- NetworkPolicyを実施するCNIを使う
+
+最大の結果ログはAPI経由で約94.56 MiB、ノード上の保存形式では約143.69 MiBです。
+ログの切り詰めやローテーションで結果が欠けると、その結果は採用しません。
+
+#### マニフェストの準備と適用
+
+`deploy/kubernetes/work/`の次の箇所を配置先に合わせます。
+
+- `00-namespace.yaml`・`10-rbac.yaml`・`51-validatingadmissionpolicybinding.yaml`・`52-policy-params.yaml`などの作業用namespace名とServiceAccount名をそろえる
+- `10-rbac.yaml`のRoleBindingの`subjects`を、KestreLynxが使うServiceAccount名とnamespaceに合わせる
+- `20-priorityclass.yaml`は`preemptionPolicy: Never`を維持し、名前を変える場合は設定と`52-policy-params.yaml`の`priorityClass`もそろえる
+- `52-policy-params.yaml`の`receiverRepository`をKestreLynxイメージのリポジトリ名、`workRepositories`を公式イメージまたは設定したミラーのリポジトリ名、`arch`をKestreLynxのPodと実行ノードのアーキテクチャに合わせる
+- `40-networkpolicy.yaml`のDNSの選択条件と除外するアドレス範囲を、クラスタのDNS・Pod・Service・ノードのネットワークに合わせる
+- ValidatingAdmissionPolicyとそのbindingの`metadata.name`は、確認処理で使う`kestrelynx-work`のままにする
+
+リポジトリのルートで次を実行し、namespace、制限、ポリシーのパラメータ、ポリシーとbinding、操作権限の順に適用します。
+
+```sh
+kubectl apply -f deploy/kubernetes/work/00-namespace.yaml
+kubectl apply -f deploy/kubernetes/work/20-priorityclass.yaml
+kubectl apply -f deploy/kubernetes/work/30-resourcequota.yaml
+kubectl apply -f deploy/kubernetes/work/40-networkpolicy.yaml
+kubectl apply -f deploy/kubernetes/work/52-policy-params.yaml
+kubectl apply -f deploy/kubernetes/work/50-validatingadmissionpolicy.yaml
+kubectl apply -f deploy/kubernetes/work/51-validatingadmissionpolicybinding.yaml
+kubectl apply -f deploy/kubernetes/work/10-rbac.yaml
+```
+
+作業用namespaceにはPod Securityの`restricted`を適用し、作業用ServiceAccountには権限やトークンを持たせません。
+ResourceQuotaの例はPod数を8に制限し、CPU・メモリ・一時ストレージにも上限を設けます。
+
+追加権限は、利用者がRoleとRoleBindingを適用した場合だけ、作業用namespaceに限ってKestreLynxへ与えます。
+スキャン用ClusterRoleは読み取り専用のままで、Secretなどの操作権限は追加しません。
+
+| 対象 | 追加する操作 |
+| --- | --- |
+| `pods` | `create`・`get`・`list`・`delete` |
+| `pods/attach` | 入力ファイルを受信用コンテナの標準入力へ送る接続の`create`・`get` |
+| `pods/log` | 暗号化した結果を回収するための`get` |
+
+#### 設定と起動確認
+
+既存のGitHub tokenと対応付けを保持し、`deploy/kubernetes/configmap.yaml`の`config.yml`に次を統合します。
+`namespace`は適用した作業用namespace名、`workload`とリポジトリは更新対象に合わせます。
+
+```yaml
+kubernetes:
+  enabled: true
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: true
+  worker:
+    kubernetes:
+      namespace: kestrelynx-work
+  mappings:
+    - workload: deployment/example/api/app
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+配布構成では次を実行し、ログと次回の通知で言語パッケージ更新の有効化と処理結果を確認します。
+
+```sh
+kubectl apply -f deploy/kubernetes/configmap.yaml
+kubectl rollout restart -n kestrelynx deployment/kestrelynx
+kubectl logs -n kestrelynx deployment/kestrelynx -f
+```
+
+設定の既定値は[作業用Podの設定](configuration.md#remediation-worker-kubernetes)、安全策と実行条件は[作業用Podの実行](remediation-logic.md#kubernetes-work-pods)を参照してください。
 ### PR作成の有効化 {#enable-pr-creation}
 
 1. [GitHubアクセスの準備](#prepare-github-access)で設定したtokenに、PR作成に必要なアクセスがあることを確認する

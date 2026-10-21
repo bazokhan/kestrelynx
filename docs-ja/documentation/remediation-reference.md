@@ -16,7 +16,7 @@
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
 | Kubernetesの計画 | 配布イメージ・Dockerfileのベースイメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
-| KubernetesのPR | プレーンなマニフェストのイメージタグとDockerfileのベースイメージの更新 |
+| KubernetesのPR | プレーンなマニフェストのイメージタグとDockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
 
 ### 更新対象 {#supported-targets}
 
@@ -545,7 +545,13 @@ PR記録の`state`には、次の値があります。
 | `pip_target_undecidable` | パッケージが動く環境を判断できない | [pipの検証環境](remediation-logic.md#pip-target-environment) |
 | `pip_target_mismatch` | pipの依存解決対象と、パッケージが動く環境が一致しない | [pipの検証環境](remediation-logic.md#pip-target-environment) |
 | `work_image_not_configured` | 更新用の作業環境が用意されていない | [更新を実行できない場合](remediation-troubleshooting.md#check-update-failure) |
-| `work_namespace_not_configured` | Kubernetesでは言語パッケージの更新はまだ手動対応で、PRを作成しない | [対応範囲](#scope-and-requirements) |
+| `work_namespace_not_configured` | Kubernetesでの更新に必要な作業用namespaceが設定されていないため手動対応 | [作業用Podの設定](configuration.md#remediation-worker-kubernetes) |
+| `work_runtime_class_unsupported` | 作業用Podに未対応のRuntimeClassが設定されているため手動対応 | [作業用Podの設定](configuration.md#remediation-worker-kubernetes) |
+| `work_cluster_too_old` | クラスタが作業用Podのポリシーに必要なKubernetes 1.30より古いため手動対応 | [導入条件](remediation-setup.md#kubernetes-language-updates) |
+| `work_pod_limit` | 作業用Pod数またはnamespaceのクォータが上限で、更新を次回に持ち越す | [作業用Podの設定](configuration.md#remediation-worker-kubernetes) |
+| `work_admission_unverified` | 作業用namespaceのPod作成規則が有効と確認できず、作業用Podを起動しない | [作業用Podの実行](remediation-logic.md#kubernetes-work-pods) |
+| `work_priority_class_missing` | 作業用Podに設定したPriorityClassが存在しない、または必要な設定と一致しないため手動対応 | [導入手順](remediation-setup.md#kubernetes-language-updates) |
+| `work_pod_not_started` | 作業用Podが時間内に起動せず、更新を次回に持ち越す | [作業用Podの確認](remediation-troubleshooting.md#check-update-failure) |
 | `work_image_unavailable` | 作業用イメージを用意できなかった | [公式イメージの固定](remediation-logic.md#worker-images) |
 
 ### ツール取得の理由 {#tool-reasons}

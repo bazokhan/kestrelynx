@@ -32,7 +32,7 @@
 | 対象 | 動作と範囲 |
 | --- | --- |
 | Docker | ホストごとに1インスタンス、全Composeプロジェクト・単独コンテナの稼働イメージ |
-| Kubernetes | クラスタ内配置、読み取り専用ServiceAccount、全namespaceまたは指定namespace |
+| Kubernetes | クラスタ内配置、スキャンは読み取り専用、全namespaceまたは指定namespace、言語パッケージ更新時は作業用namespaceに限定した追加権限 |
 
 - **Kubernetesの所属取得**：Deployment・StatefulSet・DaemonSet・Job・CronJob（管理元不明は`unknown`）
 - **スキャン対象**：取得時点で稼働中のコンテナ、Kubernetesのnative sidecar
@@ -102,7 +102,7 @@
 ## 修正計画と修正PR（実験的）
 
 - Docker・Compose・Kubernetes向けに、イメージと依存パッケージの更新を提案する
-- KubernetesのPRは、プレーンなマニフェストのイメージタグとDockerfileのベースイメージの更新に対応する
+- KubernetesのPRは、プレーンなマニフェストのイメージタグとDockerfileのベースイメージに加え、[作業用Podを設定](docs-ja/documentation/remediation-setup.md#kubernetes-language-updates)するとnpm・pnpm・pip・uvの更新にも対応する
 - 修正計画と任意のGitHub PR作成は、どちらも既定で無効
 - 利用者が変更を確認し、マージ、配置、配置後の確認を行う
 

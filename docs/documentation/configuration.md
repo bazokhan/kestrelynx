@@ -180,6 +180,22 @@ The following options are under `remediation.limits`.
 
 See [Reason codes](remediation-reference.md#reason-codes) for outcomes caused by limits, [PR management](remediation-logic.md#pr-management) for PR handling, and [Work container execution](remediation-logic.md#worker-execution) for execution deadlines and cleanup.
 
+### Work Pod configuration {#remediation-worker-kubernetes}
+
+These settings apply to language-package updates in Kubernetes mode.
+The user applies the work namespace and required resources following the [setup steps](remediation-setup.md#kubernetes-language-updates).
+
+| Setting | Default | Format and scope |
+| --- | --- | --- |
+| `remediation.worker.kubernetes.namespace` | empty | Namespace for work Pods; when unset, language-package updates require manual action with `work_namespace_not_configured`. |
+| `remediation.worker.kubernetes.service_account` | `kestrelynx-work` | ServiceAccount for work Pods; specify one without permissions or a token. |
+| `remediation.worker.kubernetes.priority_class` | `kestrelynx-work` | PriorityClass for work Pods; specify one with `preemptionPolicy: Never`. |
+| `remediation.worker.kubernetes.receiver_image` | empty | KestreLynx image for the container receiving input files, in `repository@sha256:...` form; empty reads the digest-pinned reference from the status of KestreLynx's own Pod. |
+| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | Maximum work Pods held by the same instance at once, from `1` to `16`, including finished Pods that have not been deleted. |
+| `remediation.worker.kubernetes.runtime_class` | empty | Unsupported and must remain empty; setting it requires manual action with `work_runtime_class_unsupported`. |
+
+These settings require `kubernetes.enabled: true`.
+Setting other fields without `namespace`, or supplying invalid names, image references, or numeric values, causes a startup error.
 ### Work image source {#remediation-worker-registry}
 
 | Option | Default | Format and validation |

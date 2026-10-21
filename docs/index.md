@@ -103,7 +103,8 @@ available and annotate upgrade risk, without guaranteeing compatibility.
 ## Remediation plans and pull requests (experimental)
 
 Kubernetes remediation plans show published-image update candidates, guidance for pulling floating tags again, and language-package update candidates.
-Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles.
+Kubernetes PRs support image tag updates in plain manifests and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates when [work Pods are configured](documentation/remediation-setup.md#kubernetes-language-updates).
+For npm, pnpm, and uv, this also includes re-resolution through dependent packages under the supported conditions.
 For Docker and Compose, KestreLynx can propose changes to three kinds of source:
 
 - Published image tags in Compose files
@@ -113,7 +114,7 @@ For Docker and Compose, KestreLynx can propose changes to three kinds of source:
 Both remediation plans and pull requests are disabled by default.
 Plans select candidates, compare scans, and notify without writing to GitHub
 or starting work containers. Enabling pull requests separately allows GitHub
-changes and Docker work containers for language-package updates.
+changes and Docker work containers or user-configured Kubernetes work Pods for language-package updates.
 
 These screenshots show actual output from the [demo repository](https://github.com/kitsunetrail/kestrelynx-demo), which intentionally pins older images and dependencies, with the [generated PRs available on GitHub](https://github.com/kitsunetrail/kestrelynx-demo/pulls).
 
@@ -149,7 +150,7 @@ images your containers are running.
 <dt>Docker</dt>
 <dd markdown="span">One instance per host covers running containers across Compose projects and standalone deployments.</dd>
 <dt>Kubernetes</dt>
-<dd markdown="span">An in-cluster Deployment discovers running containers across all or selected namespaces using a ServiceAccount with read-only API access.</dd>
+<dd markdown="span">An in-cluster Deployment discovers running containers across all or selected namespaces through read-only API operations, with additional permissions limited to a work namespace only when language-package updates are configured.</dd>
 <dt>Verified scope</dt>
 <dd markdown="span">Single-node K3s with containerd on linux/amd64. Multi-node clusters, arm64, managed Kubernetes, and authenticated private registries remain unverified. [Verification record](development/kubernetes-support.md)</dd>
 <dt>Discovery</dt>

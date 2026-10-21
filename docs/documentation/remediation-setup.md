@@ -123,7 +123,7 @@ Complete [Verifying remediation plan startup](#verify-fix-plans) before enabling
 
 !!! note "Docker API"
 
-    For language package updates, KestreLynx creates, starts, and removes work containers through the Docker API. Mounting the Docker socket with `:ro` does not restrict API operations, so the supplied Compose configuration does not need to change to `:rw`. If you use a Docker API proxy, allow these operations.
+    For language package updates in Docker mode, KestreLynx creates, starts, and removes work containers through the Docker API. Mounting the Docker socket with `:ro` does not restrict API operations, so the supplied Compose configuration does not need to change to `:rw`. If you use a Docker API proxy, allow these operations.
 
 ### Kubernetes PR configuration {#kubernetes-pull-requests}
 
@@ -152,9 +152,94 @@ remediation:
 ```
 
 Apply the configuration and restart the KestreLynx Pod.
-RBAC remains read-only for scanning; no cluster write permissions are required.
+These manifest and Dockerfile updates use only the read-only scanning RBAC.
+Language-package updates additionally require the work Pod configuration below.
 
 See [Manifest formats](remediation-reference.md#manifest-formats) for editable inputs and [Kubernetes manifest PRs](remediation-logic.md#kubernetes-manifest-prs) for creation requirements.
+
+### Kubernetes language-package updates {#kubernetes-language-updates}
+
+npm, pnpm, pip, and uv updates run in disposable Pods that KestreLynx creates in a user-provided work namespace.
+The same Pods also run [re-resolution through dependent packages](remediation-reference.md#dependent-reresolution-limits) for npm, pnpm, and uv.
+
+#### Prerequisites
+
+- Use Kubernetes 1.30 or later and set `kubernetes.enabled: true`
+- Set `containerLogMaxSize` to at least `144Mi` on every node running work Pods so that large results fit
+- Configure a PID limit on every node running work Pods to limit the number of processes in a Pod
+- Use a CNI that enforces NetworkPolicy
+
+The largest result log is approximately 94.56 MiB through the API and 143.69 MiB in the node's storage format.
+Results missing content because of log truncation or rotation are not adopted.
+
+#### Manifest preparation and application
+
+Adjust the following settings in `deploy/kubernetes/work/` for the installation.
+
+- Keep the work namespace and ServiceAccount names consistent across `00-namespace.yaml`, `10-rbac.yaml`, `51-validatingadmissionpolicybinding.yaml`, `52-policy-params.yaml`, and the other manifests
+- Set the RoleBinding's `subjects` in `10-rbac.yaml` to the ServiceAccount name and namespace used by KestreLynx
+- Keep `preemptionPolicy: Never` in `20-priorityclass.yaml`, and match the configuration and `priorityClass` in `52-policy-params.yaml` if renaming it
+- Set `receiverRepository` in `52-policy-params.yaml` to the KestreLynx image repository, `workRepositories` to the official image repositories or configured mirror repositories, and `arch` to the architecture of the KestreLynx Pod and execution nodes
+- Adjust the DNS selectors and excluded address ranges in `40-networkpolicy.yaml` for the cluster's DNS, Pod, Service, and node networks
+- Keep the ValidatingAdmissionPolicy and its binding's `metadata.name` as `kestrelynx-work`, which the verification checks use
+
+Run the following from the repository root to apply the namespace, limits, policy parameters, policy and binding, and permissions in that order.
+
+```sh
+kubectl apply -f deploy/kubernetes/work/00-namespace.yaml
+kubectl apply -f deploy/kubernetes/work/20-priorityclass.yaml
+kubectl apply -f deploy/kubernetes/work/30-resourcequota.yaml
+kubectl apply -f deploy/kubernetes/work/40-networkpolicy.yaml
+kubectl apply -f deploy/kubernetes/work/52-policy-params.yaml
+kubectl apply -f deploy/kubernetes/work/50-validatingadmissionpolicy.yaml
+kubectl apply -f deploy/kubernetes/work/51-validatingadmissionpolicybinding.yaml
+kubectl apply -f deploy/kubernetes/work/10-rbac.yaml
+```
+
+The work namespace enforces the Pod Security `restricted` profile, and the work ServiceAccount has no permissions or token.
+The example ResourceQuota limits the namespace to 8 Pods and also caps CPU, memory, and ephemeral storage.
+
+Additional permissions are granted to KestreLynx only within the work namespace when the user applies the Role and RoleBinding.
+The scanning ClusterRole remains read-only, and no permissions to operate on Secrets or other resources are added.
+
+| Resource | Additional operations |
+| --- | --- |
+| `pods` | `create`, `get`, `list`, and `delete` |
+| `pods/attach` | `create` and `get` for the connection that sends input files to the receiving container's standard input |
+| `pods/log` | `get` to collect encrypted results |
+
+#### Configuration and startup verification
+
+Keep the existing GitHub token and mappings, and merge the following into `config.yml` in `deploy/kubernetes/configmap.yaml`.
+Set `namespace` to the applied work namespace and adjust `workload` and the repository for the update target.
+
+```yaml
+kubernetes:
+  enabled: true
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: true
+  worker:
+    kubernetes:
+      namespace: kestrelynx-work
+  mappings:
+    - workload: deployment/example/api/app
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+For the supplied deployment, run the following and check the logs and next notification for language-package update activation and processing results.
+
+```sh
+kubectl apply -f deploy/kubernetes/configmap.yaml
+kubectl rollout restart -n kestrelynx deployment/kestrelynx
+kubectl logs -n kestrelynx deployment/kestrelynx -f
+```
+
+See [Work Pod configuration](configuration.md#remediation-worker-kubernetes) for defaults and [Work Pod execution](remediation-logic.md#kubernetes-work-pods) for safeguards and execution conditions.
 ### Enabling PR creation {#enable-pr-creation}
 
 1. Confirm that the token configured in [Preparing GitHub access](#prepare-github-access) has the access needed to create PRs

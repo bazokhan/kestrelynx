@@ -80,6 +80,7 @@ the following manifests.
 | `configmap.yaml` | ConfigMap `kestrelynx-config` containing `config.yml`. |
 | `pvc.yaml` | PersistentVolumeClaim `kestrelynx-state`, requesting 1 GiB with `ReadWriteOnce` access. |
 | `deployment.yaml` | Single-replica Deployment with the `Recreate` strategy, configuration mounted at `/etc/kestrelynx`, and state at `/var/lib/kestrelynx`. |
+| `work/` | Optional additional manifests for language-package updates, applied separately following [Work Pod configuration](remediation-setup.md#kubernetes-language-updates). |
 
 Enabling remediation plans adds LIST calls for `deployments`, `statefulsets`, `daemonsets`, and `cronjobs` to the usual discovery calls.
 The supplied read-only ClusterRole can be used unchanged.
