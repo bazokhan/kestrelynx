@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -75,6 +76,11 @@ func (c *checker) allowedExtra(path string, v any) bool {
 		return isString
 	case "metadata.managedFields":
 		return true
+	case "metadata.generation":
+		// Kubernetes 1.34 and newer set the generation of a Pod to 1 when it is
+		// created; older servers leave it out.
+		f, ok := v.(float64)
+		return ok && f >= 1 && f == math.Trunc(f)
 	case "metadata.annotations":
 		m, ok := v.(map[string]any)
 		return ok && len(m) == 0

@@ -99,6 +99,10 @@ func TestCheckPodAllowsOnlyTheListedServerAdditions(t *testing.T) {
 	if _, err := CheckPod(req, server(nil), false, ""); err != nil {
 		t.Fatalf("a Pod with the usual defaults: %v", err)
 	}
+	// Kubernetes 1.34 and newer set the generation of a Pod to 1.
+	if _, err := CheckPod(req, server(func(p pm) { p["metadata"].(pm)["generation"] = float64(1) }), false, ""); err != nil {
+		t.Errorf("a Pod with a generation: %v", err)
+	}
 	// Quantities in their canonical spelling.
 	canon := server(func(p pm) {
 		l := resourcesOf(workOf(p))["limits"].(pm)
@@ -112,14 +116,21 @@ func TestCheckPodAllowsOnlyTheListedServerAdditions(t *testing.T) {
 		"toleration": func(p pm) {
 			specOf(p)["tolerations"] = append(specOf(p)["tolerations"].([]any), pm{"operator": "Exists"})
 		},
-		"host alias":    func(p pm) { specOf(p)["hostAliases"] = []any{pm{"ip": "1.2.3.4"}} },
-		"initContainer": func(p pm) { specOf(p)["initContainers"] = append(specOf(p)["initContainers"].([]any), pm{"name": "x"}) },
-		"owner":         func(p pm) { p["metadata"].(pm)["ownerReferences"] = []any{pm{"name": "x"}} },
-		"finalizer":     func(p pm) { p["metadata"].(pm)["finalizers"] = []any{"x"} },
-		"label":         func(p pm) { labelsOf(p)["x"] = "y" },
-		"pull policy":   func(p pm) { workOf(p)["imagePullPolicy"] = "Always" },
-		"preemption":    func(p pm) { specOf(p)["preemptionPolicy"] = "PreemptLowerPriority" },
-		"not a Pod":     func(p pm) { p["kind"] = "Secret" },
+		"host alias":            func(p pm) { specOf(p)["hostAliases"] = []any{pm{"ip": "1.2.3.4"}} },
+		"initContainer":         func(p pm) { specOf(p)["initContainers"] = append(specOf(p)["initContainers"].([]any), pm{"name": "x"}) },
+		"owner":                 func(p pm) { p["metadata"].(pm)["ownerReferences"] = []any{pm{"name": "x"}} },
+		"finalizer":             func(p pm) { p["metadata"].(pm)["finalizers"] = []any{"x"} },
+		"label":                 func(p pm) { labelsOf(p)["x"] = "y" },
+		"pull policy":           func(p pm) { workOf(p)["imagePullPolicy"] = "Always" },
+		"preemption":            func(p pm) { specOf(p)["preemptionPolicy"] = "PreemptLowerPriority" },
+		"not a Pod":             func(p pm) { p["kind"] = "Secret" },
+		"generation zero":       func(p pm) { p["metadata"].(pm)["generation"] = float64(0) },
+		"generation negative":   func(p pm) { p["metadata"].(pm)["generation"] = float64(-1) },
+		"generation fractional": func(p pm) { p["metadata"].(pm)["generation"] = 1.5 },
+		"generation string":     func(p pm) { p["metadata"].(pm)["generation"] = "1" },
+		"generation null":       func(p pm) { p["metadata"].(pm)["generation"] = nil },
+		"generation elsewhere":  func(p pm) { specOf(p)["generation"] = float64(1) },
+		"observed generation":   func(p pm) { p["metadata"].(pm)["observedGeneration"] = float64(1) },
 	}
 	for name, mutate := range wrong {
 		if _, err := CheckPod(req, server(mutate), false, ""); err == nil {
@@ -185,5 +196,30 @@ func TestCollectKeepsWhatItCannotRead(t *testing.T) {
 	}
 	if n, err := r.Collect(t.Context(), time.Now()); err != nil || n != 0 || len(f.deleted) != 0 {
 		t.Fatalf("%d %v %v", n, err, f.deleted)
+	}
+}
+
+// A generation the request itself names must come back unchanged: the server's
+// permission to add one does not cover a request that carries one.
+func TestCheckPodGenerationInRequest(t *testing.T) {
+	req := BuildPod(testParams())
+	req["metadata"].(pm)["generation"] = float64(1)
+	got := deepCopy(req)
+	meta := got["metadata"].(pm)
+	meta["uid"], meta["resourceVersion"], meta["creationTimestamp"] = testUID(1), "7", "2026-10-21T00:00:00Z"
+	specOf(got)["preemptionPolicy"] = "Never"
+	specOf(got)["priority"] = float64(-100)
+	specOf(got)["schedulerName"] = "default-scheduler"
+	specOf(got)["serviceAccount"] = specOf(got)["serviceAccountName"]
+	specOf(got)["tolerations"] = deepCopyList(defaultTolerations)
+	for _, c := range append(specOf(got)["containers"].([]any), specOf(got)["initContainers"].([]any)...) {
+		c.(pm)["imagePullPolicy"] = "IfNotPresent"
+	}
+	if _, err := CheckPod(req, got, false, ""); err != nil {
+		t.Fatalf("an unchanged generation: %v", err)
+	}
+	meta["generation"] = float64(2)
+	if _, err := CheckPod(req, got, false, ""); err == nil {
+		t.Error("a changed generation was accepted")
 	}
 }
