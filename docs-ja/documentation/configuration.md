@@ -203,7 +203,7 @@ Kubernetesモードの言語パッケージ更新に使います。
 | `remediation.worker.kubernetes.service_account` | `kestrelynx-work` | 作業用PodのServiceAccount名で、権限とトークンを持たないものを指定します。 |
 | `remediation.worker.kubernetes.priority_class` | `kestrelynx-work` | 作業用PodのPriorityClass名で、`preemptionPolicy: Never`のものを指定します。 |
 | `remediation.worker.kubernetes.receiver_image` | 空 | 入力ファイルを受け取るコンテナのKestreLynxイメージを`repository@sha256:...`で指定し、空の場合はKestreLynx自身のPodの状態からdigest付き参照を取得します。 |
-| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | 同じインスタンスが同時に保持する作業用Pod数の上限で、`1`〜`16`を指定し、未削除の終了済みPodも数えます。 |
+| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | 同じインスタンスが同時に保持する作業用Pod数の上限で、`1`〜`16`を指定し、未削除の終了済みPodは数え、削除中のPodは数えません。削除中のPodを含む総数は作業用namespaceのResourceQuotaで制限します。 |
 | `remediation.worker.kubernetes.runtime_class` | 空 | 未対応のため空にし、指定した場合は`work_runtime_class_unsupported`で手動対応になります。 |
 
 これらの設定には`kubernetes.enabled: true`が必要です。

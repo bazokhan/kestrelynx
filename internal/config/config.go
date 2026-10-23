@@ -217,7 +217,8 @@ type RemediationWorkerKubernetes struct {
 	RuntimeClass string
 	// PriorityClass is the user's PriorityClass that never preempts.
 	PriorityClass string
-	// MaxConcurrentPods bounds the work Pods that exist at once.
+	// MaxConcurrentPods bounds the work Pods that exist at once, not counting
+	// Pods already being deleted.
 	MaxConcurrentPods int
 }
 

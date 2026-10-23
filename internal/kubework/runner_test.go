@@ -280,6 +280,27 @@ func TestRunJobQuotaAndConcurrency(t *testing.T) {
 			t.Error("a Pod was made over the limit")
 		}
 	})
+	t.Run("terminating and running Pods defer at the limit", func(t *testing.T) {
+		f := newFake()
+		r := testRunner(t, f)
+		verified(t, r)
+		f.pods["kestrelynx-work-gone"] = pm{"metadata": pm{"name": "kestrelynx-work-gone", "deletionTimestamp": "2026-01-01T00:00:00Z"}}
+		f.pods["kestrelynx-work-live"] = pm{"metadata": pm{"name": "kestrelynx-work-live"}}
+		_, err := r.RunJob(context.Background(), testSpec("job-1"))
+		wantUnavailable(t, err, false, ReasonPodLimit)
+		if u := r.checkConcurrency(context.Background()); u == nil || !strings.Contains(u.Detail, "1 work Pods exist") {
+			t.Errorf("unavailable %+v", u)
+		}
+	})
+	t.Run("only terminating Pods do not count", func(t *testing.T) {
+		f := newFake()
+		r := testRunner(t, f)
+		verified(t, r)
+		f.pods["kestrelynx-work-gone"] = pm{"metadata": pm{"name": "kestrelynx-work-gone", "deletionTimestamp": "2026-01-01T00:00:00Z"}}
+		if u := r.checkConcurrency(context.Background()); u != nil {
+			t.Errorf("deferred: %+v", u)
+		}
+	})
 	t.Run("lost answer removes our Pod and defers", func(t *testing.T) {
 		f := newFake()
 		r := testRunner(t, f)

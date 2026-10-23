@@ -203,7 +203,7 @@ The user applies the work namespace and required resources following the [setup 
 | `remediation.worker.kubernetes.service_account` | `kestrelynx-work` | ServiceAccount for work Pods; specify one without permissions or a token. |
 | `remediation.worker.kubernetes.priority_class` | `kestrelynx-work` | PriorityClass for work Pods; specify one with `preemptionPolicy: Never`. |
 | `remediation.worker.kubernetes.receiver_image` | empty | KestreLynx image for the container receiving input files, in `repository@sha256:...` form; empty reads the digest-pinned reference from the status of KestreLynx's own Pod. |
-| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | Maximum work Pods held by the same instance at once, from `1` to `16`, including finished Pods that have not been deleted. |
+| `remediation.worker.kubernetes.max_concurrent_pods` | `1` | Maximum work Pods held by the same instance at once, from `1` to `16`, including finished Pods that have not been deleted and excluding Pods already being deleted; the work namespace's ResourceQuota limits the total including those. |
 | `remediation.worker.kubernetes.runtime_class` | empty | Unsupported and must remain empty; setting it requires manual action with `work_runtime_class_unsupported`. |
 
 These settings require `kubernetes.enabled: true`.

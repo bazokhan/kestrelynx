@@ -52,7 +52,9 @@ type Config struct {
 	Env        []string
 	InstanceID string
 	SessionID  string
-	// MaxConcurrent is how many work Pods of this installation may exist at once.
+	// MaxConcurrent is how many work Pods of this installation may exist at
+	// once, not counting Pods already being deleted; the namespace's
+	// ResourceQuota bounds the total including those.
 	MaxConcurrent int
 	// Limits bound the input; MaxResultTarBytes bounds the result tar.
 	Limits            workexec.TransferLimits
@@ -148,6 +150,7 @@ type podView struct {
 		UID               string            `json:"uid"`
 		Labels            map[string]string `json:"labels"`
 		CreationTimestamp string            `json:"creationTimestamp"`
+		DeletionTimestamp string            `json:"deletionTimestamp"`
 	} `json:"metadata"`
 	Spec struct {
 		NodeName string `json:"nodeName"`
@@ -314,14 +317,26 @@ func (r *Runner) admissionProblem() *workexec.Unavailable {
 }
 
 // checkConcurrency defers the job when this installation already has as many
-// work Pods as it may (finished ones count until they are collected).
+// work Pods as it may (finished ones count until they are collected). A Pod
+// that is already being deleted does not count: it is on its way out, and
+// counting it would defer jobs for the whole grace period after each job. The
+// namespace's ResourceQuota still counts such a Pod until it is gone, so the
+// quota can still refuse a create in that window; createFailed defers the job
+// then, which is correct.
 func (r *Runner) checkConcurrency(ctx context.Context) *workexec.Unavailable {
 	pods, err := r.cfg.API.ListPods(ctx, r.selector())
 	if err != nil {
 		return unavailable(false, ReasonPodLimit, "the work Pods could not be counted: %v", clip(err.Error(), 200))
 	}
-	if len(pods) >= r.cfg.MaxConcurrent {
-		return unavailable(false, ReasonPodLimit, "%d work Pods exist (limit %d)", len(pods), r.cfg.MaxConcurrent)
+	live := 0
+	for _, obj := range pods {
+		if v, err := viewOf(obj); err == nil && v.Metadata.DeletionTimestamp != "" {
+			continue
+		}
+		live++
+	}
+	if live >= r.cfg.MaxConcurrent {
+		return unavailable(false, ReasonPodLimit, "%d work Pods exist (limit %d)", live, r.cfg.MaxConcurrent)
 	}
 	return nil
 }
