@@ -5,7 +5,7 @@ This section covers the problems being addressed, approaches tried, lessons lear
 Development logs record how features were explored and implemented.
 For instructions on currently available features, see [Documentation](../documentation/index.md).
 
-- October 20, 2026 — [Kubernetes remediation pull request development](kubernetes-remediation.md) — explicit mappings of change locations, version matching, and safe language package updates in disposable Pods (design; implementation not started)
+- October 20, 2026 — [Kubernetes remediation pull request development](kubernetes-remediation.md) — explicit user mappings of change locations and language package updates in disposable Pods within the cluster (implemented; verified from PR creation through GitOps deployment on a validation host)
 - October 15, 2026 — [Development of re-resolution through dependent packages](dependent-reresolution.md) — updating dependent packages within declared ranges and checking each dependency position for vulnerability increases (implemented; PR creation verified in the production environment)
 - October 8, 2026 — [Remediation plan and pull request development](remediation-pull-requests.md) — selecting candidate fixes from running container findings and connecting comparisons and notifications to GitHub PRs (implementation in progress)
 - October 3, 2026 — [Short-lived container scanning development](short-lived-containers.md) — design for recording short-lived container executions and keeping the last version that ran under each image name in scan and notification scope for 14 days (design; implementation not started)

@@ -143,6 +143,7 @@ The example in `deploy/kubernetes/work/40-networkpolicy.yaml` denies ingress and
 
 This example allows connections to public HTTPS sites generally, rather than restricting them to npm and PyPI.
 A CNI that enforces NetworkPolicy is required, and standard NetworkPolicy does not block communication between a Pod and its execution node.
+Until the CNI finishes applying the policy to a new Pod, egress may be unrestricted for a few seconds (observed with the default K3s CNI).
 
 See [Kubernetes language-package updates](remediation-setup.md#kubernetes-language-updates) for installation adjustments and [Runtime restrictions](remediation-logic.md#worker-restrictions) for restrictions other than networking.
 

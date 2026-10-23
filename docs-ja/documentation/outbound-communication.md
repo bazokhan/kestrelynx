@@ -143,6 +143,7 @@ Kubernetesの作業用Podには、利用者がNetworkPolicyを適用します。
 
 この例は公開HTTPSサイト全般への接続を許可し、npmやPyPIだけに限定しません。
 NetworkPolicyを実施するCNIが必要で、標準のNetworkPolicyではPodとその実行ノードの通信は遮断しません。
+CNIが新しいPodに制限を設定し終えるまでの数秒間は、送信が制限されない場合があります(K3sの既定のCNIで確認)。
 
 導入時の調整は[Kubernetesの言語パッケージ更新](remediation-setup.md#kubernetes-language-updates)、ネットワーク以外の制限は[実行時の制限](remediation-logic.md#worker-restrictions)を参照してください。
 
