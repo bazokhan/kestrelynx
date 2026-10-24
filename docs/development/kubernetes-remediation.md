@@ -99,11 +99,13 @@ Language package updates target Kubernetes 1.30 and later, with the following sa
 | Item | Details |
 | --- | --- |
 | OS | Ubuntu 26.04 (validation host) |
-| K3s | v1.31.5 |
+| K3s on the validation host | v1.31.5 |
 | Flux | v2.4.0 |
 | Argo CD | v2.13.2 |
 | Helm | v3.16.2 |
 | GitHub repository for validation | Held the files to update and was used to verify PR creation, merging, and deployment |
+| Local k3d | K3s v1.31.5, v1.34.12, and v1.36.5 (log limits changed on the v1.31.5 node) |
+| Private image on ghcr.io | Pulled from the validation host |
 
 Flux managed the manifest and Kustomize applications, while Argo CD managed the Helm application, each covering separate targets.
 An application applied directly without either tool was also tested.
@@ -117,11 +119,14 @@ An application applied directly without either tool was also tested.
 | GitOps deployment | Merged PRs, prompted reconciliation, and checked the running targets and subsequent update decisions |
 | Cases requiring manual action | Changed image references and the declared scope of effects to verify that automatic updates stopped |
 | Safeguards for job Pods | Tested permissions, admission rules, and network restrictions, and checked cleanup after restarts and whether plaintext appeared in logs or other collected information |
+| PR replacement and private registries | Published newer versions, repeated runs, and changed credentials, checking PR and comment states, scan outcomes, and logs |
+| Node log limits | Ran updates producing about 4.6 MB of logs with limits of 1 MiB and 144 MiB, checking log rotation and update results |
+| Newer K3s versions | Tested permissions, admission rules, updates, and re-resolution on each version, checking outcomes and network restrictions on new Pods in v1.36.5 |
 
 ## Verification results
 
 Within the tested scope, remediation PR creation, association with existing PRs, GitOps deployment, and stopping when prerequisites were unmet worked as expected.
-The two issues found during verification and their handling are described under “Issues found during verification” at the end of this section.
+The three issues found during verification and their handling are described under “Issues found during verification” at the end of this section.
 
 ### Remediation PRs
 
@@ -179,7 +184,34 @@ Re-resolution through dependent packages with uv remained pending because the ca
 | Inspection of logs, termination messages, Pod information, and Events during language package updates | No plaintext inputs or results were found in the collected information |
 | Connectivity checks after network restrictions took effect on a test Pod with the same NetworkPolicy | Among the destinations tested, only DNS to CoreDNS and external TCP port 443 were reachable |
 
-The delay of a few seconds before network restrictions took effect is described below under “Issues found during verification.”
+The delay of a few seconds before network restrictions took effect is described under “Issues found during verification” at the end of this section.
+
+### PR replacement and private registries
+
+| Scenario | Result |
+| --- | --- |
+| Connection to a private registry with valid credentials | Successfully scanned the image and retrieved the list of newer versions |
+| Publication of 1.0.2 after creating a PR for 1.0.1 while 1.0.0 was running | Created a PR for 1.0.2, added a comment identifying the replacement to the older PR, and closed the older PR |
+| Repeated runs after replacement | Created no additional PRs or comments |
+| Connection with invalid credentials | Reported a scan failure and left PRs unchanged |
+| Inspection of logs from successful and failed authentication attempts | Neither set of credentials was found in the logs |
+
+### Node log limits
+
+| Scenario | Result |
+| --- | --- |
+| Log rotation with a limit of 1 MiB | Rejected the result and treated the update as failed |
+| Inspection of the failure reason | Indicated that `containerLogMaxSize` must be greater than 150,664,968 bytes |
+| Four runs with the node's CPU restricted | Log rotation occurred in three runs but could not be triggered consistently |
+| Change to a limit of 144 MiB with the same CPU restriction | All six updates succeeded without log rotation |
+
+### Newer K3s versions
+
+| Scenario | Result |
+| --- | --- |
+| Inspection of permissions and admission rules | Confirmed that permissions were limited to the work namespace and noncompliant Pods were rejected |
+| Execution of job Pods | Language package updates and re-resolution through dependent packages succeeded |
+| Creation of a new Pod after applying NetworkPolicy on v1.36.5 | Restrictions took effect from the first connection attempt, with no observed interval of unrestricted traffic |
 
 ### Issues found during verification
 
@@ -198,15 +230,19 @@ The delay of a few seconds before network restrictions took effect is described 
 | Observed behavior | With the default CNI in the tested K3s environment, egress was unrestricted for a few seconds before NetworkPolicy took effect on a new Pod |
 | Documentation | Recorded this limitation, which KestreLynx cannot control, under [Work container network](../documentation/outbound-communication.md#worker-network) |
 
+#### Job Pod creation blocked by metadata.generation
+
+| Item | Details |
+| --- | --- |
+| Observed behavior | The `metadata.generation` field added by the API server in Kubernetes 1.34 and later was treated as a disallowed change, preventing job Pod creation |
+| Change | Added only `metadata.generation` to the permitted fields, restricting its value to an integer of 1 or greater |
+| Verification result | On K3s v1.31.5, v1.34.12, and v1.36.5, noncompliant Pods were rejected, and language package updates and re-resolution through dependent packages succeeded |
+
 ## Unverified areas and next steps
 
-- **PR replacement on GitHub**
-    - No newer patch release was available in the same version series, so replacement of an older PR with a new one was verified only by unit tests, not in a real environment
-- **Result size and execution environments**
-    - Handling results larger than the node's log limit still requires verification in a real environment
-    - Behavior on newer K3s versions and other Kubernetes distributions remains unverified
-- **Additional cases requiring manual action**
-    - References containing `${VAR}`, Kustomize entries without `newTag`, and empty Helm tags were verified only by unit tests
+- References containing `${VAR}`, Kustomize entries without `newTag`, and empty Helm tags were verified only by unit tests
+- Behavior on Kubernetes distributions other than K3s or with other CNIs remains unverified
+- A method for consistently triggering log rotation has not yet been established
 
 ## Update history
 
@@ -216,6 +252,8 @@ The delay of a few seconds before network restrictions took effect is described 
 - Recorded verification of GitOps deployment and safeguards for job Pods.
 - Fixed delays caused by terminating Pods and documented the delay before network restrictions take effect.
 - Updated the unverified scope and next steps.
+- Verified PR replacement using a private registry image and checked log limits.
+- Verified behavior on newer K3s versions and fixed job Pod creation blocked by `metadata.generation`.
 
 ### October 20, 2026
 
