@@ -3,19 +3,25 @@ package runner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/kitsunetrail/kestrelynx/internal/analyze"
+	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 )
 
-// fakeNodeRuntime records when it was refreshed relative to scans.
+// fakeNodeRuntime records when it was refreshed relative to scans. A name
+// other than "" is appended to the event, to tell refreshers apart.
 type fakeNodeRuntime struct {
 	events *[]string
 	err    error
+	name   string
 }
 
 func (f fakeNodeRuntime) Refresh(context.Context) error {
-	*f.events = append(*f.events, "refresh")
+	*f.events = append(*f.events, strings.TrimSpace("refresh "+f.name))
 	return f.err
 }
 
@@ -35,11 +41,11 @@ func (e eventScanner) Scan(_ context.Context, target scanner.ScanTarget) scanner
 func TestRunOnce_NodeRuntimeRefreshedOnceBeforeScans(t *testing.T) {
 	var events []string
 	r := Runner{
-		Lister:      fakeLister{containers: refs("a:1", "b:1")},
-		Scanner:     eventScanner{events: &events},
-		Notifier:    &fakeNotifier{},
-		Now:         clock,
-		NodeRuntime: fakeNodeRuntime{events: &events},
+		Lister:            fakeLister{containers: refs("a:1", "b:1")},
+		Scanner:           eventScanner{events: &events},
+		Notifier:          &fakeNotifier{},
+		Now:               clock,
+		RuntimeRefreshers: []RuntimeRefresher{fakeNodeRuntime{events: &events}},
 	}
 	if err := r.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -55,15 +61,37 @@ func TestRunOnce_NodeRuntimeRefreshedOnceBeforeScans(t *testing.T) {
 	}
 }
 
+func TestRunOnce_RuntimeRefreshersCalledInOrder(t *testing.T) {
+	var events []string
+	r := Runner{
+		Lister:   fakeLister{containers: refs("a:1")},
+		Scanner:  eventScanner{events: &events},
+		Notifier: &fakeNotifier{},
+		Now:      clock,
+		RuntimeRefreshers: []RuntimeRefresher{
+			fakeNodeRuntime{events: &events, name: "node"},
+			fakeNodeRuntime{events: &events, name: "python", err: errors.New("offline")},
+			fakeNodeRuntime{events: &events, name: "third"},
+		},
+	}
+	if err := r.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	want := []string{"refresh node", "refresh python", "refresh third", "scan a:1"}
+	if strings.Join(events, "|") != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 func TestRunOnce_NodeRuntimeRefreshFailureContinues(t *testing.T) {
 	var events []string
 	notif := &fakeNotifier{}
 	r := Runner{
-		Lister:      fakeLister{containers: refs("a:1")},
-		Scanner:     eventScanner{events: &events},
-		Notifier:    notif,
-		Now:         clock,
-		NodeRuntime: fakeNodeRuntime{events: &events, err: errors.New("offline")},
+		Lister:            fakeLister{containers: refs("a:1")},
+		Scanner:           eventScanner{events: &events},
+		Notifier:          notif,
+		Now:               clock,
+		RuntimeRefreshers: []RuntimeRefresher{fakeNodeRuntime{events: &events, err: errors.New("offline")}},
 	}
 	if err := r.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -90,7 +118,7 @@ func TestRunOnce_NodeRuntimeNilIsNotCalled(t *testing.T) {
 }
 
 func TestRunOnce_RuntimeUncheckedForcesNotification(t *testing.T) {
-	uncheckedScan := scanner.ImageScan{RuntimeUnchecked: true}
+	uncheckedScan := scanner.ImageScan{RuntimeUnchecked: []string{inventory.NodeRuntimePackage}}
 	for _, diff := range []bool{false, true} {
 		var events []string
 		notif := &fakeNotifier{}
@@ -111,7 +139,7 @@ func TestRunOnce_RuntimeUncheckedForcesNotification(t *testing.T) {
 			t.Errorf("diff=%v: an unchecked runtime must send a notification even with nothing else to report", diff)
 			continue
 		}
-		if got := notif.msg.Report.RuntimeUnchecked; len(got) != 1 || got[0] != "node:22" {
+		if got := notif.msg.Report.RuntimeUnchecked; len(got) != 1 || got[0] != (analyze.RuntimeUncheckedRef{Image: "node:22", Package: inventory.NodeRuntimePackage}) {
 			t.Errorf("diff=%v: Report.RuntimeUnchecked = %v", diff, got)
 		}
 	}

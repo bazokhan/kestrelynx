@@ -69,9 +69,10 @@ type IntelSource interface {
 	Discussions(ctx context.Context, ids []string) map[string]intel.Discussion
 }
 
-// NodeRuntimeRefresher loads the advisory data the image scanners use to
-// check the Node.js runtime of an image (implemented by nodecore.Refresher).
-type NodeRuntimeRefresher interface {
+// RuntimeRefresher loads the advisory data the image scanners use to check
+// one language runtime of an image (implemented by nodecore.Refresher and
+// pycore.Refresher).
+type RuntimeRefresher interface {
 	Refresh(ctx context.Context) error
 }
 
@@ -134,11 +135,12 @@ type Runner struct {
 	// true for this deployment.
 	GenericWebhookConfigured bool
 
-	// NodeRuntime loads, once per cycle before any image is scanned, the
-	// data the scanners use to check the Node.js runtime. A failure is
-	// logged and the cycle goes on, with that runtime left unchecked. nil
-	// (the default) means the feature is off and the cycle is unchanged.
-	NodeRuntime NodeRuntimeRefresher
+	// RuntimeRefreshers load, once per cycle before any image is scanned and
+	// in this order, the data the scanners use to check the language
+	// runtimes (Node.js, CPython). A failure is logged and the cycle goes
+	// on, with that runtime left unchecked. Empty (the default) means the
+	// feature is off and the cycle is unchanged.
+	RuntimeRefreshers []RuntimeRefresher
 
 	// Plan enables the read-only fix plan. nil (the default) means the plan
 	// is off: no database preparation, no comparison-mode scans, no registry
@@ -186,9 +188,9 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	images := inventory.DistinctImages(containers)
 	log.Info("scanning images", "count", len(images))
 
-	if r.NodeRuntime != nil {
-		if err := r.NodeRuntime.Refresh(ctx); err != nil {
-			log.Warn("node.js advisory data unavailable; the Node.js runtime of images is not checked this cycle", "err", err)
+	for _, rf := range r.RuntimeRefreshers {
+		if err := rf.Refresh(ctx); err != nil {
+			log.Warn("language runtime advisory data unavailable; that runtime of images is not checked this cycle", "refresher", fmt.Sprintf("%T", rf), "err", err)
 		}
 	}
 

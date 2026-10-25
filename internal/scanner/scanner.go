@@ -193,10 +193,12 @@ type ImageScan struct {
 	// at most maxConfigEnv entries of at most maxConfigEnvLen bytes each;
 	// longer entries are dropped. nil when the report carried none.
 	ConfigEnv []string
-	// RuntimeUnchecked is true when a RuntimeAdvisor detected a language
-	// runtime in this image but could not check it against advisories this
-	// cycle, so the absence of runtime findings says nothing.
-	RuntimeUnchecked bool
+	// RuntimeUnchecked lists, sorted and without duplicates, the package
+	// names of the language runtimes a RuntimeAdvisor detected in this image
+	// but could not check against advisories this cycle, so the absence of
+	// their findings says nothing. nil when every detected runtime was
+	// checked.
+	RuntimeUnchecked []string
 }
 
 // Bounds on ImageScan.ConfigEnv, so a hostile report cannot make the parser
@@ -222,9 +224,9 @@ type RuntimeAugment struct {
 	// Packages are the package lists of the added runtimes, so the runtime
 	// counts as present in the image even when it has no findings.
 	Packages []ResultPackages
-	// Unchecked is true when a runtime was detected but its advisories were
-	// unavailable.
-	Unchecked bool
+	// Unchecked lists the package names of the runtimes that were detected
+	// but whose advisories were unavailable.
+	Unchecked []string
 }
 
 // maxRetainedPackages bounds how many packages ParseReport keeps per scan, so

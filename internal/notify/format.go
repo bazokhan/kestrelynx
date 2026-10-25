@@ -182,13 +182,44 @@ func unconfirmedRefsLine(r analyze.Report, msg messages) string {
 	return fmt.Sprintf(msg.UnconfirmedRefsLine, strings.Join(refs, ", "))
 }
 
-// runtimeUncheckedLine is the note that the Node.js runtime of some images
-// was not checked ("" when every one was).
+// runtimeUncheckedLine is the note that a language runtime of some images was
+// not checked ("" when every one was). It names the runtimes, sorted, and
+// counts the distinct images.
 func runtimeUncheckedLine(r analyze.Report, msg messages) string {
 	if len(r.RuntimeUnchecked) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(msg.RuntimeUncheckedLine, len(r.RuntimeUnchecked))
+	images := map[string]bool{}
+	seen := map[string]bool{}
+	var names []string
+	for _, u := range r.RuntimeUnchecked {
+		images[u.Image] = true
+		if !seen[u.Package] {
+			seen[u.Package] = true
+			names = append(names, u.Package)
+		}
+	}
+	sort.Strings(names)
+	return fmt.Sprintf(msg.RuntimeUncheckedLine, strings.Join(names, msg.RuntimeNameSeparator), len(images))
+}
+
+// runtimeUncheckedPayload is one entry of the webhook's runtime_unchecked.
+type runtimeUncheckedPayload struct {
+	Image   string `json:"image"`
+	Package string `json:"package"`
+}
+
+// runtimeUncheckedPayloads converts the report's pairs (nil when none, so the
+// field is omitted).
+func runtimeUncheckedPayloads(refs []analyze.RuntimeUncheckedRef) []runtimeUncheckedPayload {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]runtimeUncheckedPayload, len(refs))
+	for i, u := range refs {
+		out[i] = runtimeUncheckedPayload{Image: u.Image, Package: u.Package}
+	}
+	return out
 }
 
 // visibleChange pairs a state.Change with the subset of its Groups notify
@@ -499,10 +530,10 @@ type webhookPayload struct {
 	WontFix     []imagePayload      `json:"wont_fix"`
 	EOLPackages []imagePayload      `json:"eol_packages"` // every end-of-life package group, folded and act_now ones included
 	ScanErrors  []errorPayload      `json:"scan_errors"`
-	// RuntimeUnchecked lists the images whose Node.js runtime was not checked
-	// because its advisory data was unavailable; absent when none.
-	RuntimeUnchecked []string     `json:"runtime_unchecked,omitempty"`
-	Diff             *diffPayload `json:"diff,omitempty"`
+	// RuntimeUnchecked lists the language runtimes of images that were not
+	// checked because their advisory data was unavailable; absent when none.
+	RuntimeUnchecked []runtimeUncheckedPayload `json:"runtime_unchecked,omitempty"`
+	Diff             *diffPayload              `json:"diff,omitempty"`
 	// Runtime is the Sensor-wide runtime status, present only when
 	// runtime.enabled is true (analyze.Report.Runtime != nil).
 	Runtime *runtimePayload `json:"runtime,omitempty"`
@@ -870,7 +901,7 @@ func BuildWebhookPayloadWithPlan(r analyze.Report, d *state.Diff, plan *PlanInfo
 		EOLPackages: imagePayloads(r.EOLPackages, byRef),
 		ScanErrors:  errorPayloads(r.ScanErrors),
 
-		RuntimeUnchecked: r.RuntimeUnchecked,
+		RuntimeUnchecked: runtimeUncheckedPayloads(r.RuntimeUnchecked),
 	}
 	if r.Triage {
 		pv := r.ByPriority()

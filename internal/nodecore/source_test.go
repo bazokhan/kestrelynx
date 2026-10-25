@@ -378,7 +378,7 @@ func TestRefresher(t *testing.T) {
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); aug.Unchecked || len(aug.Findings) == 0 {
+	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); len(aug.Unchecked) > 0 || len(aug.Findings) == 0 {
 		t.Errorf("after Refresh: %+v", aug)
 	}
 
@@ -388,7 +388,7 @@ func TestRefresher(t *testing.T) {
 	if err := r.Refresh(context.Background()); err == nil {
 		t.Fatal("want an error")
 	}
-	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); !aug.Unchecked {
+	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); len(aug.Unchecked) == 0 {
 		t.Errorf("after failed Refresh: %+v, want Unchecked", aug)
 	}
 }
@@ -478,5 +478,22 @@ func TestLoadOversizedPostIsUnusable(t *testing.T) {
 	snap, err := st.source(t, newClock(t)).Load(context.Background())
 	if snap != nil || err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Errorf("Load = %v, %v; want nil and a size error", snap, err)
+	}
+}
+
+func TestLoadDataset404UsesCache(t *testing.T) {
+	st := newSite(t)
+	c := newClock(t)
+	src := st.source(t, c)
+	mustLoad(t, src)
+	for _, p := range []string{"/wg", "/releases", "/schedule", "/feed"} {
+		st.force(p, http.StatusNotFound)
+	}
+	c.advance(21 * time.Hour)
+	mustLoad(t, src)
+
+	c.advance(7 * 24 * time.Hour)
+	if snap, err := src.Load(context.Background()); snap != nil || err == nil {
+		t.Errorf("Load = %v, %v; want unusable once the cache is past 7 days", snap, err)
 	}
 }

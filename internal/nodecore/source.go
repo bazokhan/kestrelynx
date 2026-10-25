@@ -233,8 +233,8 @@ func (s *Source) post(ctx context.Context, dir string, times fetchTimes, it feed
 }
 
 // dataset returns the content of a cached file, re-downloading it first when
-// the cache is older than refreshAfter. A failed download falls back to the
-// cache while it is within maxStale. A 404 is always returned as such.
+// the cache is older than refreshAfter. A failed download, a 404 included,
+// falls back to the cache while it is within maxStale.
 func (s *Source) dataset(ctx context.Context, dir string, times fetchTimes, name, url string, validate func([]byte) error) ([]byte, error) {
 	path := filepath.Join(dir, filepath.FromSlash(name))
 	at := times[name]
@@ -248,10 +248,6 @@ func (s *Source) dataset(ctx context.Context, dir string, times fetchTimes, name
 			at = now
 			times[name] = at
 		} else {
-			var nf *notFoundError
-			if errors.As(err, &nf) {
-				return nil, err
-			}
 			if !usable(at, now) {
 				if at.IsZero() {
 					return nil, err

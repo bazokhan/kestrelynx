@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
@@ -41,11 +42,11 @@ type Trivy struct {
 	// read local images from, so Trivy reads the same engine KestreLynx
 	// lists containers from. Empty leaves Trivy's own default.
 	DockerHost string
-	// Runtime, when set, adds findings for language runtimes Trivy does not
-	// report to every successful image scan (not to fs scans). Every scan of
-	// a cycle must see the same advisory data, so the same Runtime is shared
-	// by the cycle's scanners.
-	Runtime RuntimeAdvisor
+	// Runtimes add findings for language runtimes Trivy does not report to
+	// every successful image scan (not to fs scans), in order. Every scan of
+	// a cycle must see the same advisory data, so the same advisors are
+	// shared by the cycle's scanners.
+	Runtimes []RuntimeAdvisor
 }
 
 // New returns a Trivy with KestreLynx defaults (HIGH/CRITICAL, trivy on PATH).
@@ -343,14 +344,28 @@ func (t Trivy) Scan(ctx context.Context, target ScanTarget) (result ImageScan) {
 	return t.augment(reconcileTarget(scan, target))
 }
 
-// augment adds t.Runtime's findings and package lists to a successful scan.
+// augment adds t.Runtimes' findings and package lists to a successful scan.
+// Every advisor sees the scan as Trivy reported it, not as an earlier advisor
+// extended it.
 func (t Trivy) augment(scan ImageScan) ImageScan {
-	if t.Runtime == nil || scan.Err != nil {
+	if len(t.Runtimes) == 0 || scan.Err != nil {
 		return scan
 	}
-	a := t.Runtime.Augment(scan, normalizeSeverities(strings.Split(t.severity(), ",")))
-	scan.Findings = append(scan.Findings, a.Findings...)
-	scan.Packages = append(scan.Packages, a.Packages...)
-	scan.RuntimeUnchecked = a.Unchecked
+	severities := normalizeSeverities(strings.Split(t.severity(), ","))
+	base := scan
+	unchecked := map[string]bool{}
+	for _, rt := range t.Runtimes {
+		a := rt.Augment(base, severities)
+		scan.Findings = append(scan.Findings, a.Findings...)
+		scan.Packages = append(scan.Packages, a.Packages...)
+		for _, p := range a.Unchecked {
+			unchecked[p] = true
+		}
+	}
+	scan.RuntimeUnchecked = nil
+	for p := range unchecked {
+		scan.RuntimeUnchecked = append(scan.RuntimeUnchecked, p)
+	}
+	sort.Strings(scan.RuntimeUnchecked)
 	return scan
 }

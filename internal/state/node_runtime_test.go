@@ -9,7 +9,7 @@ import (
 
 func uncheckedScan(image string, finds ...scanner.Finding) scanner.ImageScan {
 	s := scanOf(image, finds...)
-	s.RuntimeUnchecked = true
+	s.RuntimeUnchecked = []string{inventory.NodeRuntimePackage}
 	return s
 }
 
@@ -106,5 +106,67 @@ func TestCompute_UncheckedNodeRuntimeEOLIsHeld(t *testing.T) {
 	}
 	if len(d3.ResolvedEOLPackages) != 1 {
 		t.Errorf("ResolvedEOLPackages = %v, want one", d3.ResolvedEOLPackages)
+	}
+}
+
+func TestCompute_OnlyTheUncheckedRuntimeIsHeld(t *testing.T) {
+	const img = "app:1"
+	node := finding(img, inventory.NodeRuntimePackage, "CVE-N", scanner.StatusFixed)
+	py := finding(img, inventory.PythonRuntimePackage, "CVE-P", scanner.StatusFixed)
+	nodeKey := img + "\t" + inventory.NodeRuntimePackage
+	pyKey := img + "\t" + inventory.PythonRuntimePackage
+
+	_, st1 := Compute(empty(), report(day1, scanOf(img, node, py)))
+	if len(st1.Findings) != 2 {
+		t.Fatalf("cycle 1 Findings = %v, want both runtimes", st1.Findings)
+	}
+
+	// Only the Python runtime data was unavailable: its record is held, the
+	// Node.js record is judged as usual and, being absent, resolved.
+	s := scanOf(img)
+	s.RuntimeUnchecked = []string{inventory.PythonRuntimePackage}
+	d2, st2 := Compute(st1, report(day2, s))
+	if _, ok := st2.Findings[pyKey]; !ok {
+		t.Error("the Python runtime entry was dropped although it was unchecked")
+	}
+	if _, ok := st2.Findings[nodeKey]; ok {
+		t.Error("the Node.js entry was held although only the Python runtime was unchecked")
+	}
+	if got := resolvedPackages(d2); len(got) != 1 || got[0] != img+" "+inventory.NodeRuntimePackage {
+		t.Errorf("Resolved = %v, want only the Node.js package", got)
+	}
+
+	// Both unchecked: both held.
+	s = scanOf(img)
+	s.RuntimeUnchecked = []string{inventory.NodeRuntimePackage, inventory.PythonRuntimePackage}
+	d3, st3 := Compute(st1, report(day2, s))
+	if len(st3.Findings) != 2 || len(d3.Resolved) != 0 {
+		t.Errorf("Findings = %v, Resolved = %v, want both held and none resolved", st3.Findings, d3.Resolved)
+	}
+}
+
+func TestCompute_OnlyTheUncheckedRuntimeEOLIsHeld(t *testing.T) {
+	const img = "app:1"
+	nodeKey := img + "\t" + inventory.NodeRuntimePackage
+	pyKey := img + "\t" + inventory.PythonRuntimePackage
+
+	_, st1 := Compute(empty(), report(day1, scanOf(img,
+		eolFinding(img, inventory.NodeRuntimePackage, "CVE-E1"),
+		eolFinding(img, inventory.PythonRuntimePackage, "CVE-E2"))))
+	if len(st1.EOLPackages) != 2 {
+		t.Fatalf("cycle 1 EOLPackages = %v, want both runtimes", st1.EOLPackages)
+	}
+
+	s := scanOf(img)
+	s.RuntimeUnchecked = []string{inventory.NodeRuntimePackage}
+	d2, st2 := Compute(st1, report(day2, s))
+	if _, ok := st2.EOLPackages[nodeKey]; !ok {
+		t.Error("the Node.js end-of-life entry was dropped although it was unchecked")
+	}
+	if _, ok := st2.EOLPackages[pyKey]; ok {
+		t.Error("the Python runtime end-of-life entry was held although only Node.js was unchecked")
+	}
+	if len(d2.ResolvedEOLPackages) != 1 || d2.ResolvedEOLPackages[0].Package != inventory.PythonRuntimePackage {
+		t.Errorf("ResolvedEOLPackages = %v, want only the Python runtime", d2.ResolvedEOLPackages)
 	}
 }

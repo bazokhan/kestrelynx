@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -519,15 +520,21 @@ func TestBuild_MediumDoesNotRankAsHigh(t *testing.T) {
 
 func TestBuild_RuntimeUnchecked(t *testing.T) {
 	scans := []scanner.ImageScan{
-		{Image: "b:1", RuntimeUnchecked: true},
-		{Image: "a:1", RuntimeUnchecked: true},
-		{Image: "a:1", RuntimeUnchecked: true}, // second entity of the same ref
+		{Image: "b:1", RuntimeUnchecked: []string{inventory.NodeRuntimePackage}},
+		{Image: "a:1", RuntimeUnchecked: []string{inventory.NodeRuntimePackage}},
+		{Image: "a:1", RuntimeUnchecked: []string{inventory.NodeRuntimePackage}}, // second entity of the same ref
+		{Image: "a:1", RuntimeUnchecked: []string{inventory.PythonRuntimePackage, inventory.NodeRuntimePackage}},
 		{Image: "c:1"},
-		{Image: "d:1", RuntimeUnchecked: true, Err: errString("scan failed")},
+		{Image: "d:1", RuntimeUnchecked: []string{inventory.NodeRuntimePackage}, Err: errString("scan failed")},
 	}
 	r := Build(scans, nil, Triage{}, fixedTime)
-	if got := r.RuntimeUnchecked; len(got) != 2 || got[0] != "a:1" || got[1] != "b:1" {
-		t.Errorf("RuntimeUnchecked = %v, want [a:1 b:1]", got)
+	want := []RuntimeUncheckedRef{
+		{Image: "a:1", Package: inventory.NodeRuntimePackage},
+		{Image: "a:1", Package: inventory.PythonRuntimePackage},
+		{Image: "b:1", Package: inventory.NodeRuntimePackage},
+	}
+	if got := r.RuntimeUnchecked; !reflect.DeepEqual(got, want) {
+		t.Errorf("RuntimeUnchecked = %v, want %v", got, want)
 	}
 	if r := Build([]scanner.ImageScan{{Image: "c:1"}}, nil, Triage{}, fixedTime); r.RuntimeUnchecked != nil {
 		t.Errorf("RuntimeUnchecked = %v, want nil", r.RuntimeUnchecked)

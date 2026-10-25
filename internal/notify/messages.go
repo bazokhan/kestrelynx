@@ -58,9 +58,11 @@ type messages struct {
 	IdentityUnconfirmed string // "identity unconfirmed: scanned by reference"
 	UnresolvedRefsLine  string // "⚠️ %[1]s — %[2]s\n" (IdentityUnconfirmed text, comma-joined refs)
 	UnconfirmedRefsLine string // "⏳ unconfirmed this cycle, holding previous findings — %s\n" (comma-joined refs)
-	// RuntimeUncheckedLine says the Node.js runtime of some images was not
-	// matched against advisories this cycle: "ℹ️ Node.js advisories could not be fetched, so the Node.js runtime of %d image(s) was not checked.\n"
+	// RuntimeUncheckedLine says a language runtime of some images was not
+	// matched against advisories this cycle: "ℹ️ Advisories for %[1]s could not be fetched, so the runtime of %[2]d image(s) was not checked.\n"
+	// (runtime names joined with RuntimeNameSeparator, count of distinct images)
 	RuntimeUncheckedLine string
+	RuntimeNameSeparator string // ", " between the runtime names of RuntimeUncheckedLine
 
 	// --- new/changed findings ---
 	NewSinceLastScanHeading string // "\n*🆕 New since last scan (%d)*\n"
@@ -471,7 +473,8 @@ var enMessages = messages{
 	IdentityUnconfirmed:  "identity unconfirmed: scanned by reference",
 	UnresolvedRefsLine:   "⚠️ %[1]s — %[2]s\n",
 	UnconfirmedRefsLine:  "⏳ unconfirmed this cycle, holding previous findings — %s\n",
-	RuntimeUncheckedLine: "ℹ️ Node.js advisories could not be fetched, so the Node.js runtime of %d image(s) was not checked.\n",
+	RuntimeUncheckedLine: "ℹ️ Advisories for %[1]s could not be fetched, so the runtime of %[2]d image(s) was not checked.\n",
+	RuntimeNameSeparator: ", ",
 
 	NewSinceLastScanHeading: "\n*🆕 New since last scan (%d)*\n",
 	MoreCount:               " (+%d more)",
@@ -831,7 +834,8 @@ var jaMessages = messages{
 	IdentityUnconfirmed:  "実体未確認: 参照によるスキャン",
 	UnresolvedRefsLine:   "⚠️ %[1]s — %[2]s\n",
 	UnconfirmedRefsLine:  "⏳ 今回は未確認、前回の所見を保持 — %s\n",
-	RuntimeUncheckedLine: "ℹ️ Node.js の脆弱性情報を取得できなかったため、%d 件のイメージの Node.js 本体を照合していません。\n",
+	RuntimeUncheckedLine: "ℹ️ %[1]s の脆弱性情報を取得できなかったため、%[2]d 件のイメージの本体を照合していません。\n",
+	RuntimeNameSeparator: "・",
 
 	NewSinceLastScanHeading: "\n*🆕 前回のスキャンからの新規検出 (%d件)*\n",
 	MoreCount:               " (ほか +%d件)",

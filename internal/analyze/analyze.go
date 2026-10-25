@@ -242,6 +242,13 @@ func (f ImageFindings) TotalCount() int {
 	return n
 }
 
+// RuntimeUncheckedRef names a language runtime (Package, e.g. "Node.js") of an
+// image that was detected but not checked.
+type RuntimeUncheckedRef struct {
+	Image   string
+	Package string
+}
+
 // ScanError records an image whose scan failed, so it is surfaced rather than
 // silently dropped.
 type ScanError struct {
@@ -333,10 +340,11 @@ type Report struct {
 	// Unconfirmed entity this cycle (a projection of Images, kept as its own
 	// field so notify doesn't have to re-derive it). Always nil for Docker.
 	UnconfirmedRefs []string
-	// RuntimeUnchecked is the sorted, de-duplicated set of references whose
-	// language runtime (Node.js) was detected but not checked because its
-	// advisory data was unavailable. Scans that failed are not included.
-	RuntimeUnchecked []string
+	// RuntimeUnchecked is the set of (reference, runtime package) pairs whose
+	// language runtime (Node.js, Python runtime) was detected but not checked
+	// because its advisory data was unavailable, de-duplicated and sorted by
+	// reference, then package. Scans that failed are not included.
+	RuntimeUnchecked []RuntimeUncheckedRef
 	Triage           bool        // priorities were assigned (renderers use ByPriority)
 	Intel            IntelStatus // freshness of the intel behind the priorities
 	GeneratedAt      time.Time
@@ -526,7 +534,7 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 	byStatus := map[scanner.Status]map[imgKey]map[inventory.PackageRef]*pkgAcc{}
 	obs := map[string]*obsAcc{}     // by ref, the inventory backing Report.Images
 	meta := map[imgKey]entityMeta{} // per-entity Subject/Pinned, for buildSection
-	uncheckedSeen := map[string]bool{}
+	uncheckedSeen := map[RuntimeUncheckedRef]bool{}
 
 	for _, s := range scans {
 		a := obs[s.Image]
@@ -575,9 +583,12 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 			r.EOSLImages = append(r.EOSLImages, s.Image)
 		}
 
-		if s.RuntimeUnchecked && !uncheckedSeen[s.Image] {
-			uncheckedSeen[s.Image] = true
-			r.RuntimeUnchecked = append(r.RuntimeUnchecked, s.Image)
+		for _, pkg := range s.RuntimeUnchecked {
+			ref := RuntimeUncheckedRef{Image: s.Image, Package: pkg}
+			if !uncheckedSeen[ref] {
+				uncheckedSeen[ref] = true
+				r.RuntimeUnchecked = append(r.RuntimeUnchecked, ref)
+			}
 		}
 
 		k := imgKey{ref: s.Image, key: s.Subject.Key}
@@ -635,7 +646,13 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 	}
 
 	sort.Strings(r.EOSLImages)
-	sort.Strings(r.RuntimeUnchecked)
+	sort.Slice(r.RuntimeUnchecked, func(i, j int) bool {
+		a, b := r.RuntimeUnchecked[i], r.RuntimeUnchecked[j]
+		if a.Image != b.Image {
+			return a.Image < b.Image
+		}
+		return a.Package < b.Package
+	})
 	byKey, byRef := indexContainers(containers)
 	r.Actionable = buildSection(byStatus[scanner.StatusFixed], tr, byKey, meta)
 	r.Watch = buildSection(byStatus[scanner.StatusAffected], tr, byKey, meta)

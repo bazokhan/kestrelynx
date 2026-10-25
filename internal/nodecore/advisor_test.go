@@ -28,7 +28,7 @@ func advisorWithFixture(t *testing.T) *Advisor {
 
 func TestAugmentFindings(t *testing.T) {
 	aug := advisorWithFixture(t).Augment(nodeScan("22.23.3"), allSeverities)
-	if aug.Unchecked {
+	if len(aug.Unchecked) > 0 {
 		t.Fatal("Unchecked")
 	}
 	var f *scanner.Finding
@@ -136,11 +136,11 @@ func TestAugmentNodeVersionDetection(t *testing.T) {
 	a := advisorWithFixture(t)
 	for _, v := range []string{"v22.1.0", "22.1", "22.01.0", "22.1.0-rc1", "22.1.0 ", "", "lts"} {
 		aug := a.Augment(nodeScan(v), allSeverities)
-		if len(aug.Findings) != 0 || len(aug.Packages) != 0 || aug.Unchecked {
+		if len(aug.Findings) != 0 || len(aug.Packages) != 0 || len(aug.Unchecked) > 0 {
 			t.Errorf("NODE_VERSION=%q: got %+v, want empty", v, aug)
 		}
 	}
-	if aug := a.Augment(scanner.ImageScan{Image: "x"}, allSeverities); len(aug.Packages) != 0 || aug.Unchecked {
+	if aug := a.Augment(scanner.ImageScan{Image: "x"}, allSeverities); len(aug.Packages) != 0 || len(aug.Unchecked) > 0 {
 		t.Errorf("no env: got %+v", aug)
 	}
 
@@ -156,15 +156,15 @@ func TestAugmentNodeVersionDetection(t *testing.T) {
 func TestAugmentWithoutSnapshot(t *testing.T) {
 	var a Advisor
 	aug := a.Augment(nodeScan("22.23.3"), allSeverities)
-	if !aug.Unchecked || len(aug.Findings) != 0 || len(aug.Packages) != 0 {
+	if len(aug.Unchecked) == 0 || len(aug.Findings) != 0 || len(aug.Packages) != 0 {
 		t.Errorf("got %+v, want Unchecked only", aug)
 	}
-	if aug := a.Augment(nodeScan("v22"), allSeverities); aug.Unchecked {
+	if aug := a.Augment(nodeScan("v22"), allSeverities); len(aug.Unchecked) > 0 {
 		t.Error("undetected runtime must not be Unchecked")
 	}
 	a.Set(fixtureSnapshot(t))
 	a.Set(nil)
-	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); !aug.Unchecked {
+	if aug := a.Augment(nodeScan("22.23.3"), allSeverities); len(aug.Unchecked) == 0 {
 		t.Error("Set(nil) should make runtimes unchecked")
 	}
 }
@@ -249,7 +249,7 @@ func TestAdvisorConcurrent(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
 				aug := a.Augment(nodeScan("22.23.3"), allSeverities)
-				if !aug.Unchecked && len(aug.Findings) == 0 {
+				if len(aug.Unchecked) == 0 && len(aug.Findings) == 0 {
 					t.Error("checked scan without findings")
 				}
 			}

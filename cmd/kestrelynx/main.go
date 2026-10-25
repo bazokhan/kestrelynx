@@ -30,6 +30,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/kubernetes"
 	"github.com/kitsunetrail/kestrelynx/internal/nodecore"
 	"github.com/kitsunetrail/kestrelynx/internal/notify"
+	"github.com/kitsunetrail/kestrelynx/internal/pycore"
 	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
 	"github.com/kitsunetrail/kestrelynx/internal/remediation"
@@ -115,18 +116,13 @@ func main() {
 		r.WatchEPSS = cfg.Triage.WatchEPSS
 		r.DiscussionLinks = cfg.Triage.DiscussionLinks
 	}
-	// One advisor serves every image scan of the cycle (the normal scanner
-	// and, below, the fix plan's comparison scanner), so they all match the
-	// Node.js runtime against the same data. Fs scans in work.go never get it.
-	var nodeAdvisor *nodecore.Advisor
-	if cfg.Scan.NodeRuntime.Enabled {
-		var refresher nodecore.Refresher
-		nodeAdvisor, refresher = buildNodeRuntime(cfg, log)
-		r.NodeRuntime = refresher
-		tr := r.Scanner.(scanner.Trivy)
-		tr.Runtime = nodeAdvisor
-		r.Scanner = tr
-	}
+	// One advisor per language runtime serves every image scan of the cycle
+	// (the normal scanner and, below, the fix plan's comparison scanner), so
+	// they all match the runtimes against the same data. Fs scans in work.go
+	// never get them.
+	runtimeAdvisors, runtimeRefreshers := buildRuntimes(cfg, log)
+	r.RuntimeRefreshers = runtimeRefreshers
+	r.Scanner = withRuntimes(r.Scanner.(scanner.Trivy), runtimeAdvisors)
 	if cfg.Runtime.Enabled {
 		r.Evidence = evidence.NewFileProvider(cfg.Runtime.EvidenceDir)
 		r.MuteUnfixableNotInUse = cfg.Runtime.MuteUnfixableNotInUse
@@ -147,11 +143,7 @@ func main() {
 			log.Warn("a remediation mapping names a workload outside kubernetes.namespaces and has no effect", "workload", w)
 		}
 		r.Plan = buildPlanConfig(cfg)
-		if nodeAdvisor != nil {
-			tr := r.Plan.Scanner.(scanner.Trivy)
-			tr.Runtime = nodeAdvisor
-			r.Plan.Scanner = tr
-		}
+		r.Plan.Scanner = withRuntimes(r.Plan.Scanner.(scanner.Trivy), runtimeAdvisors)
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
 			if cfg.Kubernetes.Enabled {
 				r.Plan.Language = kubernetesLanguageConfig(cfg, log)
@@ -396,6 +388,31 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 	}
 }
 
+// buildRuntimes builds the advisor and the refresher of every language
+// runtime the config enables, in the order the refreshers are called (Node.js,
+// then CPython). Both slices are empty when none is enabled.
+func buildRuntimes(cfg config.Config, log *slog.Logger) ([]scanner.RuntimeAdvisor, []runner.RuntimeRefresher) {
+	var advisors []scanner.RuntimeAdvisor
+	var refreshers []runner.RuntimeRefresher
+	if cfg.Scan.NodeRuntime.Enabled {
+		advisor, refresher := buildNodeRuntime(cfg, log)
+		advisors = append(advisors, advisor)
+		refreshers = append(refreshers, refresher)
+	}
+	if cfg.Scan.PythonRuntime.Enabled {
+		advisor, refresher := buildPythonRuntime(cfg, log)
+		advisors = append(advisors, advisor)
+		refreshers = append(refreshers, refresher)
+	}
+	return advisors, refreshers
+}
+
+// withRuntimes returns tr with the advisors appended to its runtime checks.
+func withRuntimes(tr scanner.Trivy, advisors []scanner.RuntimeAdvisor) scanner.Trivy {
+	tr.Runtimes = append(tr.Runtimes, advisors...)
+	return tr
+}
+
 // buildNodeRuntime builds the Node.js advisory data source and the advisor the
 // image scanners share. The data is cached in a nodejs directory next to the
 // diff state, like the intel cache, whether or not triage is enabled, so one
@@ -412,6 +429,25 @@ func buildNodeRuntime(cfg config.Config, log *slog.Logger) (*nodecore.Advisor, n
 			ReleasesURL:     nr.ReleasesURL,
 			ScheduleURL:     nr.ScheduleURL,
 			Log:             log,
+		},
+		Advisor: advisor,
+	}
+}
+
+// buildPythonRuntime builds the CPython advisory data source and the advisor
+// the image scanners share. The data is cached in a python directory next to
+// the diff state, like the Node.js data.
+func buildPythonRuntime(cfg config.Config, log *slog.Logger) (*pycore.Advisor, pycore.Refresher) {
+	pr := cfg.Scan.PythonRuntime
+	advisor := &pycore.Advisor{}
+	return advisor, pycore.Refresher{
+		Source: &pycore.Source{
+			CacheDir:         filepath.Join(filepath.Dir(cfg.State.Path), "python"),
+			AdvisoryDBURL:    pr.AdvisoryDBURL,
+			CVERecordBaseURL: pr.CVERecordBaseURL,
+			ReleasesURL:      pr.ReleasesURL,
+			ReleaseCycleURL:  pr.ReleaseCycleURL,
+			Log:              log,
 		},
 		Advisor: advisor,
 	}

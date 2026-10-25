@@ -990,3 +990,58 @@ scan:
 		t.Error("node_runtime.enabled: false was not honoured")
 	}
 }
+
+func TestParse_PythonRuntimeDefaults(t *testing.T) {
+	c, err := Parse([]byte(minimal))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if want := (PythonRuntimeConfig{Enabled: true}); c.Scan.PythonRuntime != want {
+		t.Errorf("default PythonRuntime = %+v, want %+v", c.Scan.PythonRuntime, want)
+	}
+}
+
+func TestParse_PythonRuntimeOverrides(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://x.test"
+scan:
+  python_runtime:
+    advisory_db_url: "https://mirror.test/db.tar.gz"
+    cve_record_base_url: "https://mirror.test/cves/"
+    releases_url: "https://mirror.test/releases.json"
+    release_cycle_url: "https://mirror.test/cycle.json"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := PythonRuntimeConfig{
+		Enabled:          true,
+		AdvisoryDBURL:    "https://mirror.test/db.tar.gz",
+		CVERecordBaseURL: "https://mirror.test/cves/",
+		ReleasesURL:      "https://mirror.test/releases.json",
+		ReleaseCycleURL:  "https://mirror.test/cycle.json",
+	}
+	if c.Scan.PythonRuntime != want {
+		t.Errorf("PythonRuntime = %+v, want %+v", c.Scan.PythonRuntime, want)
+	}
+}
+
+func TestParse_PythonRuntimeDisabled(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://x.test"
+scan:
+  python_runtime:
+    enabled: false
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.Scan.PythonRuntime.Enabled {
+		t.Error("python_runtime.enabled: false was not honoured")
+	}
+	if !c.Scan.NodeRuntime.Enabled {
+		t.Error("disabling python_runtime must not disable node_runtime")
+	}
+}

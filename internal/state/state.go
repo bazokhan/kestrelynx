@@ -505,12 +505,14 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 	refContentID := map[string]string{}
 	fullyFailedRef := map[string]bool{}
 	partiallyFailedRef := map[string]bool{}
-	// runtimeUnchecked holds the references whose Node.js runtime was
-	// detected but not checked this cycle, so its absence from the report is
-	// no evidence that its findings were fixed.
-	runtimeUnchecked := map[string]bool{}
-	for _, ref := range r.RuntimeUnchecked {
-		runtimeUnchecked[ref] = true
+	// runtimeUnchecked holds the (reference, runtime package) pairs whose
+	// language runtime was detected but not checked this cycle, so its
+	// absence from the report is no evidence that its findings were fixed.
+	// Keyed by pair, so a missing Node.js data set never holds the record of
+	// the Python runtime of the same image.
+	runtimeUnchecked := map[analyze.RuntimeUncheckedRef]bool{}
+	for _, u := range r.RuntimeUnchecked {
+		runtimeUnchecked[u] = true
 	}
 	for _, o := range r.Images {
 		if o.ScanFailed {
@@ -688,8 +690,8 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 			carryMuted(next.Muted, prev.Muted, k)
 			heldKey[k] = true
 			continue
-		case runtimeUnchecked[ref] && keyPackage(k) == inventory.NodeRuntimePackage:
-			// The scan succeeded but the Node.js runtime was not checked:
+		case runtimeUnchecked[analyze.RuntimeUncheckedRef{Image: ref, Package: keyPackage(k)}]:
+			// The scan succeeded but this language runtime was not checked:
 			// hold its record like a partially failed scan, other packages
 			// of the reference are judged as usual.
 			e.ContentID = ""
@@ -724,8 +726,8 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 			next.EOLPackages[k] = e
 			continue
 		}
-		// An unchecked Node.js runtime is held the same way.
-		if runtimeUnchecked[ref] && keyPackage(k) == inventory.NodeRuntimePackage {
+		// An unchecked language runtime is held the same way.
+		if runtimeUnchecked[analyze.RuntimeUncheckedRef{Image: ref, Package: keyPackage(k)}] {
 			next.EOLPackages[k] = e
 			heldKey[k] = true
 			carryMuted(next.Muted, prev.Muted, k)

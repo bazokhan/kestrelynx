@@ -62,8 +62,9 @@ func (s ScheduleConfig) DailyTime() (hour, min int, ok bool) {
 }
 
 type ScanConfig struct {
-	Severity    []string // Trivy severities to report, e.g. HIGH, CRITICAL
-	NodeRuntime NodeRuntimeConfig
+	Severity      []string // Trivy severities to report, e.g. HIGH, CRITICAL
+	NodeRuntime   NodeRuntimeConfig
+	PythonRuntime PythonRuntimeConfig
 }
 
 // NodeRuntimeConfig controls the check of the Node.js binary of official node
@@ -77,6 +78,18 @@ type NodeRuntimeConfig struct {
 	BlogPostBaseURL string
 	ReleasesURL     string
 	ScheduleURL     string
+}
+
+// PythonRuntimeConfig controls the check of the CPython of official python
+// images against the Python Software Foundation's security advisories, which
+// Trivy does not report. The URLs override the public data sources (mirrors,
+// air-gapped environments); an empty URL means the default source.
+type PythonRuntimeConfig struct {
+	Enabled          bool
+	AdvisoryDBURL    string
+	CVERecordBaseURL string
+	ReleasesURL      string
+	ReleaseCycleURL  string
 }
 
 type NotifyConfig struct {
@@ -438,6 +451,13 @@ type rawConfig struct {
 			ReleasesURL     string `yaml:"releases_url"`
 			ScheduleURL     string `yaml:"schedule_url"`
 		} `yaml:"node_runtime"`
+		PythonRuntime struct {
+			Enabled          *bool  `yaml:"enabled"`
+			AdvisoryDBURL    string `yaml:"advisory_db_url"`
+			CVERecordBaseURL string `yaml:"cve_record_base_url"`
+			ReleasesURL      string `yaml:"releases_url"`
+			ReleaseCycleURL  string `yaml:"release_cycle_url"`
+		} `yaml:"python_runtime"`
 	} `yaml:"scan"`
 	Notify struct {
 		SlackWebhookURL   string `yaml:"slack_webhook_url"`
@@ -694,6 +714,13 @@ func Parse(data []byte) (Config, error) {
 				BlogPostBaseURL: raw.Scan.NodeRuntime.BlogPostBaseURL,
 				ReleasesURL:     raw.Scan.NodeRuntime.ReleasesURL,
 				ScheduleURL:     raw.Scan.NodeRuntime.ScheduleURL,
+			},
+			PythonRuntime: PythonRuntimeConfig{
+				Enabled:          boolOr(raw.Scan.PythonRuntime.Enabled, true),
+				AdvisoryDBURL:    raw.Scan.PythonRuntime.AdvisoryDBURL,
+				CVERecordBaseURL: raw.Scan.PythonRuntime.CVERecordBaseURL,
+				ReleasesURL:      raw.Scan.PythonRuntime.ReleasesURL,
+				ReleaseCycleURL:  raw.Scan.PythonRuntime.ReleaseCycleURL,
 			},
 		},
 		Notify: NotifyConfig(raw.Notify),

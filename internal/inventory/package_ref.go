@@ -111,6 +111,16 @@ const EcosystemNodeRuntime Ecosystem = "node-runtime"
 // key with either.
 const NodeRuntimePackage = "Node.js"
 
+// EcosystemPythonRuntime is the CPython runtime itself as built into the
+// official python images (under /usr/local, outside any package manager).
+// Like EcosystemNodeRuntime, Trivy never reports it.
+const EcosystemPythonRuntime Ecosystem = "python-runtime"
+
+// PythonRuntimePackage is the package name of EcosystemPythonRuntime
+// findings. It contains a space, which neither a PyPI project name nor a
+// distro package name can, so it never shares a key with either.
+const PythonRuntimePackage = "Python runtime"
+
 // knownEcosystems is the allowlist ParseEcosystem checks against.
 var knownEcosystems = map[Ecosystem]bool{
 	EcosystemActiveState:        true,
@@ -177,6 +187,7 @@ var knownEcosystems = map[Ecosystem]bool{
 	EcosystemBitnami:        true,
 	EcosystemJulia:          true,
 	EcosystemNodeRuntime:    true,
+	EcosystemPythonRuntime:  true,
 }
 
 // ParseEcosystem maps a raw Trivy Result.Type to an Ecosystem, falling back

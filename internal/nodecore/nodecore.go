@@ -58,7 +58,7 @@ func (a *Advisor) Augment(scan scanner.ImageScan, severities []string) scanner.R
 	}
 	snap := a.snap.Load()
 	if snap == nil {
-		return scanner.RuntimeAugment{Unchecked: true}
+		return scanner.RuntimeAugment{Unchecked: []string{inventory.NodeRuntimePackage}}
 	}
 	bin := binaryPath(scan.Packages)
 
