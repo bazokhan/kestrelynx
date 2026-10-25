@@ -32,6 +32,8 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 | `wont_fix` | objectの配列 | `will_not_fix`のイメージで、該当なしは`[]` |
 | `eol_packages` | objectの配列 | 全`end_of_life`グループのイメージで、該当なしは`[]` |
 | `scan_errors` | objectの配列 | [スキャン失敗](#scan-errors)で、該当なしは`[]` |
+
+| `runtime_unchecked` | stringの配列 | セキュリティ情報を利用できずNode.js本体を照合しなかったイメージ参照で、該当なしは省略 |
 | `diff` | object | [差分](#diff)で、fullモードでは省略 |
 | `runtime` | object | [Sensorの情報と使用状況の件数](#runtime)で、稼働時の使用状況が無効なら省略 |
 | `remediation` | object | [修正計画とPR処理の結果](webhook-remediation-reference.md#remediation-fields)で、修正計画が無効なら省略 |
@@ -56,7 +58,7 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 | `priority_counts.act_now` | integer | Act nowの件数 |
 | `priority_counts.watch` | integer | Watchの件数 |
 | `priority_counts.low` | integer | Lowの件数 |
-| `intel` | object | 脅威情報の利用可否と鮮度で、トリアージ無効時は省略 |
+| `intel` | object | KEVとEPSSの利用可否と鮮度で、トリアージ無効時は省略 |
 | `intel.degraded` | boolean | KEVとEPSSの両方を利用できない場合は`true` |
 | `intel.kev_ok` | boolean | KEVを利用できる場合は`true` |
 | `intel.epss_ok` | boolean | EPSSを利用できる場合は`true` |
@@ -64,6 +66,9 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 
 `priority_counts`には、EOLパッケージをAct nowの場合だけ加算します。
 `eol_packages`と集計対象が重なり、3値の合計は全パッケージグループ数とは限りません。
+
+Node.js本体を照合できなかったイメージは、トップレベルの`runtime_unchecked`に含めます。
+通知と履歴の扱いは、[Node.jsのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
 
 ### スキャン失敗 {#scan-errors}
 
@@ -146,10 +151,10 @@ Slackの注釈との対応は、[スキャンの警告](slack-display.md#scan-wa
 | `vulns[]`のフィールド名 | 型 | 意味・省略条件 |
 | --- | --- | --- |
 | `id` | string | Slackリンク表記を含まない脆弱性ID |
-| `severity` | string | Trivyの深刻度 |
-| `status` | string | 集約先と異なる元のTrivyステータスで、同じ場合は省略 |
+| `severity` | string | 脆弱性の深刻度 |
+| `status` | string | 集約先と異なる元の脆弱性ステータスで、同じ場合は省略 |
 | `url` | string | 主要アドバイザリーURLで、取得できなければ省略 |
-| `title` | string | Trivyの短いタイトルで、取得できなければ省略 |
+| `title` | string | 脆弱性の短いタイトルで、取得できなければ省略 |
 | `kev` | boolean | 利用可能なKEVカタログに掲載されている場合は`true` |
 | `ransomware` | boolean | KEVのランサムウェアフラグで、`false`なら省略 |
 | `epss` | numberまたは`null` | EPSS確率で、不明なら`null` |
@@ -157,7 +162,7 @@ Slackの注釈との対応は、[スキャンの警告](slack-display.md#scan-wa
 | `refs` | objectの配列 | [追加参照](#reference-fields)で、空なら省略 |
 
 `status`が省略されている場合は、所属する`findings[]`の`status`と同じ値として読みます。
-元のTrivyステータスがない場合は、`unknown`を出力します。
+元の脆弱性ステータスがない場合は、`unknown`を出力します。
 
 ### 追加参照 {#reference-fields}
 

@@ -25,6 +25,20 @@ Detected CVEs are matched locally; the list of detected CVEs is not sent to the 
 
 See [Configuration](configuration.md) for the source, and [Threat intelligence updates](scan-logic.md#intel-cache) and [Unavailable threat intelligence](scan-logic.md#degraded-triage) for updates and download failure handling.
 
+### Node.js advisory downloads {#node-runtime-download}
+
+| Sender | Destination | Information retrieved or sent | When |
+| --- | --- | --- | --- |
+| KestreLynx | `raw.githubusercontent.com` by default | Bulk download of the `nodejs/security-wg` core index containing CVEs, severities, affected ranges, and fixed ranges | Node.js runtime checks are enabled and the data needs to be downloaded or refreshed. |
+| KestreLynx | `nodejs.org` and `raw.githubusercontent.com` by default | Retrieve the security blog listing through RSS and post bodies as Markdown from `nodejs/nodejs.org` to supplement CVEs missing from security-wg | Node.js runtime checks are enabled and the data needs to be downloaded or refreshed. |
+| KestreLynx | `nodejs.org` by default | Bulk download of `dist/index.json` containing release dates | Node.js runtime checks are enabled and the data needs to be downloaded or refreshed. |
+| KestreLynx | `raw.githubusercontent.com` by default | Bulk download of `nodejs/Release`'s `schedule.json` containing release-line EOL dates | Node.js runtime checks are enabled and the data needs to be downloaded or refreshed. |
+
+The security blog supplements security-wg because index updates can lag releases by several weeks or longer.
+These public datasets are matched locally; image information and detected CVEs are not sent to the download sources.
+
+Sources and mirror settings are described in [Node.js runtime checks](configuration.md#node-runtime), with refresh rules in [Threat intelligence updates](scan-logic.md#intel-cache) and failure handling in [Unavailable Node.js advisory data](scan-logic.md#node-runtime-unavailable).
+
 ### Hacker News searches {#hacker-news-search}
 
 | Sender | Destination | Information retrieved or sent | When |

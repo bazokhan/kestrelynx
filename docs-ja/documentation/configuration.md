@@ -20,9 +20,26 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `scan.severity` | `[HIGH, CRITICAL]` | 分析と通知の対象にするTrivyの深刻度です。 |
+| `scan.severity` | `[HIGH, CRITICAL]` | Node.js本体の検出結果を含め、分析と通知の対象にする深刻度です。 |
 
 指定できる値は`UNKNOWN`、`LOW`、`MEDIUM`、`HIGH`、`CRITICAL`です。
+
+### Node.js本体の脆弱性照合 {#node-runtime}
+
+KestreLynxは、`NODE_VERSION`に記録されたNode.jsの版をNode.jsのセキュリティ情報と照合します。
+判定規則と制約は、[Node.js本体の検出結果](scan-logic.md#node-runtime)に記載しています。
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `scan.node_runtime.enabled` | `true` | セキュリティ情報の取得とNode.js本体の照合を有効にします。`false`では両方を停止します。 |
+| `scan.node_runtime.security_wg_url` | 空 | security-wgのcore索引のミラーURLです。空の場合は`https://raw.githubusercontent.com/nodejs/security-wg/main/vuln/core/index.json`を使います。 |
+| `scan.node_runtime.blog_feed_url` | 空 | セキュリティブログのRSSフィードのミラーURLです。空の場合は`https://nodejs.org/en/feed/vulnerability.xml`を使います。 |
+| `scan.node_runtime.blog_post_base_url` | 空 | ブログ本文のMarkdownのミラーベースURLです。空の場合は`https://raw.githubusercontent.com/nodejs/nodejs.org/main/apps/site/pages/en/blog/vulnerability/`を使います。 |
+| `scan.node_runtime.releases_url` | 空 | リリース日の一覧のミラーURLです。空の場合は`https://nodejs.org/dist/index.json`を使います。 |
+| `scan.node_runtime.schedule_url` | 空 | 系列ごとのEOL日の一覧のミラーURLです。空の場合は`https://raw.githubusercontent.com/nodejs/Release/main/schedule.json`を使います。 |
+
+キャッシュは、`state.path`と同じディレクトリの`nodejs/`配下に保存します。
+取得先は、[Node.jsのセキュリティ情報の取得](outbound-communication.md#node-runtime-download)に記載しています。
 
 ## 通知先
 

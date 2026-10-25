@@ -20,9 +20,26 @@ Use the container's `TZ` environment variable to select the timezone used by
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `scan.severity` | `[HIGH, CRITICAL]` | Trivy severities retained for analysis and notification. |
+| `scan.severity` | `[HIGH, CRITICAL]` | Severities retained for analysis and notification, including Node.js runtime findings. |
 
 Allowed severity values are `UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, and `CRITICAL`.
+
+### Node.js runtime checks {#node-runtime}
+
+KestreLynx checks the Node.js version recorded in `NODE_VERSION` against Node.js security advisories.
+Matching rules and limitations are described in [Node.js runtime findings](scan-logic.md#node-runtime).
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `scan.node_runtime.enabled` | `true` | Enable advisory downloads and Node.js runtime checks; `false` disables both. |
+| `scan.node_runtime.security_wg_url` | empty | Mirror URL for the security-wg core index; empty uses `https://raw.githubusercontent.com/nodejs/security-wg/main/vuln/core/index.json`. |
+| `scan.node_runtime.blog_feed_url` | empty | Mirror URL for the security blog RSS feed; empty uses `https://nodejs.org/en/feed/vulnerability.xml`. |
+| `scan.node_runtime.blog_post_base_url` | empty | Mirror base URL for blog post Markdown; empty uses `https://raw.githubusercontent.com/nodejs/nodejs.org/main/apps/site/pages/en/blog/vulnerability/`. |
+| `scan.node_runtime.releases_url` | empty | Mirror URL for release dates; empty uses `https://nodejs.org/dist/index.json`. |
+| `scan.node_runtime.schedule_url` | empty | Mirror URL for release-line EOL dates; empty uses `https://raw.githubusercontent.com/nodejs/Release/main/schedule.json`. |
+
+The cache is stored under `nodejs/` in the same directory as `state.path`.
+Download destinations are listed in [Node.js advisory downloads](outbound-communication.md#node-runtime-download).
 
 ## Notification destinations
 

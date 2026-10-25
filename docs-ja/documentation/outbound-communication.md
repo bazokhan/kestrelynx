@@ -25,6 +25,20 @@ KestreLynxと、スキャン・依存更新に使用するツールの通信先�
 
 取得先は[設定](configuration.md)、更新と取得失敗時の扱いは[脅威情報の更新](scan-logic.md#intel-cache)と[脅威情報を利用できない場合](scan-logic.md#degraded-triage)を参照してください。
 
+### Node.jsのセキュリティ情報の取得 {#node-runtime-download}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 既定は`raw.githubusercontent.com` | CVE・深刻度・影響範囲・修正範囲を含む`nodejs/security-wg`のcore索引を一括取得 | Node.js本体の照合が有効で、データの取得・更新が必要な場合 |
+| KestreLynx | 既定は`nodejs.org`・`raw.githubusercontent.com` | セキュリティブログの一覧をRSS、本文を`nodejs/nodejs.org`のMarkdownとして取得し、security-wgに未登録のCVEを補完 | Node.js本体の照合が有効で、データの取得・更新が必要な場合 |
+| KestreLynx | 既定は`nodejs.org` | リリース日を含む`dist/index.json`を一括取得 | Node.js本体の照合が有効で、データの取得・更新が必要な場合 |
+| KestreLynx | 既定は`raw.githubusercontent.com` | 系列ごとのEOL日を含む`nodejs/Release`の`schedule.json`を一括取得 | Node.js本体の照合が有効で、データの取得・更新が必要な場合 |
+
+security-wgの索引更新はリリースから数週間以上遅れることがあるため、セキュリティブログで補います。
+これらの公開データとの照合はローカルで行い、イメージの情報や検出したCVEは取得先へ送信しません。
+
+取得先とミラーの設定は[Node.js本体の脆弱性照合](configuration.md#node-runtime)、更新規則は[脅威情報の更新](scan-logic.md#intel-cache)、取得失敗時の扱いは[Node.jsのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
+
 ### Hacker Newsの検索 {#hacker-news-search}
 
 | 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |

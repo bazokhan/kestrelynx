@@ -121,7 +121,7 @@ Severity, fix status, EOL, and priority describe different aspects of a finding.
 
 ### Severity {#severity}
 
-KestreLynx uses the severity reported by Trivy.
+For findings reported by Trivy, KestreLynx uses Trivy's severity.
 See [Configuration](configuration.md) for selecting severity levels and their defaults.
 
 Severity and priority do not necessarily match.
@@ -129,7 +129,7 @@ Priority follows the [Priority rules](#cve-priority-rules).
 
 ### Fix status {#status}
 
-Fix status comes from Trivy's `Status` and is not inferred from the fixed-version field.
+For findings reported by Trivy, fix status comes from Trivy's `Status` and is not inferred from the fixed-version field.
 Statuses are normalized during grouping as follows.
 
 | Trivy `Status` | Meaning | Grouped as |
@@ -160,11 +160,43 @@ See [EOL display](slack-display.md#eol-display) for how this appears in Slack.
 
 ### Package EOL {#eol-package}
 
-Package EOL findings have a Trivy `Status` of `end_of_life`.
+For findings reported by Trivy, package EOL findings have a `Status` of `end_of_life`.
 The distributor treats these CVEs as outside the target release's support scope, with no fix planned for that release.
 
 EOL findings are handled separately from ordinary findings, and both can exist for the same package.
 This classification continues when triage is disabled.
+
+### Node.js runtime findings {#node-runtime}
+
+Official `node` images and their derivatives install the Node.js runtime under `/usr/local` from nodejs.org tarballs.
+Trivy does not report this runtime as a package, so KestreLynx checks it against Node.js security advisories.
+
+| Item | Handling |
+| --- | --- |
+| Version | Read `NODE_VERSION` in `X.Y.Z` form from the image configuration environment variables in the scan result. |
+| Notification | Report findings with package name `Node.js` and type `node-runtime`. |
+| Executable path | Infer `<prefix>/bin/node` from npm at `<prefix>/lib/node_modules/npm` found by Trivy, falling back to `usr/local/bin/node` when that location is unavailable. |
+| Runtime usage | When [Runtime usage](runtime-usage.md) is enabled, use Sensor evidence of this executable running to assess whether the runtime is in use. |
+| Severity | Exclude CVEs whose severity is not selected by `scan.severity`. |
+
+| Fix status | Condition and displayed version |
+| --- | --- |
+| `fixed` | A fix is available in the installed release line; display the version that fixes all reported CVEs in the fixed group. |
+| `affected` | The release line is affected and has no fixed version. |
+| `end_of_life` | The release line reached EOL before the advisory was published, and the advisory does not mention that line. |
+
+The EOL rule follows Node.js security posts, which state that EOL versions are always affected.
+
+- Excluded advisory entries
+  - Entries about npm itself or modules bundled with npm are excluded because Trivy reports them separately as packages under `node_modules/npm`.
+  - Windows-only entries are excluded for Linux images.
+- Coverage and limitations
+  - Images without `NODE_VERSION`, including images containing only a copied `node` binary and distroless images without that variable, are not checked.
+  - Distro `nodejs` packages installed through apk or dpkg continue to be reported by Trivy.
+  - If `NODE_VERSION` differs from the actual `node` binary, matching uses the version in `NODE_VERSION`.
+  - Blog advisories do not give the first affected version within a release line, so older versions in that line can also be reported for vulnerabilities introduced later.
+
+Settings are described in [Node.js runtime checks](configuration.md#node-runtime), and data sources in [Node.js advisory downloads](outbound-communication.md#node-runtime-download).
 
 ## Exploitation-based priority {#triage}
 
@@ -213,6 +245,13 @@ If a refresh fails, a validated cache remains usable for up to 7 days after retr
 Caches older than this limit are treated as unavailable for priority decisions.
 See [Configuration](configuration.md) for cache storage and persistence.
 
+Node.js advisory data also uses a 20-hour refresh interval.
+
+| Node.js cache | Handling |
+| --- | --- |
+| security-wg core index, blog RSS feed, release index, and release schedule | As with KEV and EPSS, a failed refresh can use cached data for up to 7 days after retrieval. |
+| Storage | `nodejs/` in the same directory as the state file. |
+
 ### Unavailable threat intelligence {#degraded-triage}
 
 The decision method depends on which sources are usable.
@@ -229,6 +268,22 @@ During degraded triage, nothing is classified as Low, and `will_not_fix` does no
 
 See [Ordinary package changes](diff-logic.md#normal-changes) and [EOL package changes](diff-logic.md#eol-package-changes) for escalation diffs during degraded triage.
 See [Threat intelligence warnings](slack-display.md#intel-warnings) for how unavailable sources and stale caches are displayed.
+
+### Unavailable Node.js advisory data {#node-runtime-unavailable}
+
+Node.js runtime matching is skipped for a cycle if any of the four datasets—security-wg, the security blog, release dates, or the release schedule—is unavailable.
+A failed download with no usable cache from the last 7 days leaves the corresponding index or feed unavailable.
+
+| Situation | Handling |
+| --- | --- |
+| The cycle contains images with `NODE_VERSION` in `X.Y.Z` form | Include the annotation below, with `N` representing the number of unchecked images. |
+| No findings have changed | Send a notification when there are unchecked images. |
+| An unchecked image has saved `Node.js` records | Retain those records instead of treating them as resolved. |
+| Generic webhook | Include unchecked image references in the top-level `runtime_unchecked` array; omit it when none apply. |
+
+> Node.js advisories could not be fetched, so the Node.js runtime of N image(s) was not checked.
+
+The JSON field is described in [Webhook report fields](webhook-reference.md#top-level).
 
 ### Decisions with triage disabled {#triage-disabled}
 
