@@ -182,6 +182,15 @@ func unconfirmedRefsLine(r analyze.Report, msg messages) string {
 	return fmt.Sprintf(msg.UnconfirmedRefsLine, strings.Join(refs, ", "))
 }
 
+// runtimeUncheckedLine is the note that the Node.js runtime of some images
+// was not checked ("" when every one was).
+func runtimeUncheckedLine(r analyze.Report, msg messages) string {
+	if len(r.RuntimeUnchecked) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(msg.RuntimeUncheckedLine, len(r.RuntimeUnchecked))
+}
+
 // visibleChange pairs a state.Change with the subset of its Groups notify
 // actually renders a row for.
 type visibleChange struct {
@@ -490,7 +499,10 @@ type webhookPayload struct {
 	WontFix     []imagePayload      `json:"wont_fix"`
 	EOLPackages []imagePayload      `json:"eol_packages"` // every end-of-life package group, folded and act_now ones included
 	ScanErrors  []errorPayload      `json:"scan_errors"`
-	Diff        *diffPayload        `json:"diff,omitempty"`
+	// RuntimeUnchecked lists the images whose Node.js runtime was not checked
+	// because its advisory data was unavailable; absent when none.
+	RuntimeUnchecked []string     `json:"runtime_unchecked,omitempty"`
+	Diff             *diffPayload `json:"diff,omitempty"`
 	// Runtime is the Sensor-wide runtime status, present only when
 	// runtime.enabled is true (analyze.Report.Runtime != nil).
 	Runtime *runtimePayload `json:"runtime,omitempty"`
@@ -857,6 +869,8 @@ func BuildWebhookPayloadWithPlan(r analyze.Report, d *state.Diff, plan *PlanInfo
 		WontFix:     imagePayloads(r.WontFix, byRef),
 		EOLPackages: imagePayloads(r.EOLPackages, byRef),
 		ScanErrors:  errorPayloads(r.ScanErrors),
+
+		RuntimeUnchecked: r.RuntimeUnchecked,
 	}
 	if r.Triage {
 		pv := r.ByPriority()

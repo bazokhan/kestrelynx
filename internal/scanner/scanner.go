@@ -188,6 +188,43 @@ type ImageScan struct {
 	// maxRetainedPackages, so Packages is a prefix of the full list and must
 	// not be read as complete.
 	PackagesTruncated bool
+
+	// ConfigEnv is Metadata.ImageConfig.config.Env verbatim ("NAME=value"),
+	// at most maxConfigEnv entries of at most maxConfigEnvLen bytes each;
+	// longer entries are dropped. nil when the report carried none.
+	ConfigEnv []string
+	// RuntimeUnchecked is true when a RuntimeAdvisor detected a language
+	// runtime in this image but could not check it against advisories this
+	// cycle, so the absence of runtime findings says nothing.
+	RuntimeUnchecked bool
+}
+
+// Bounds on ImageScan.ConfigEnv, so a hostile report cannot make the parser
+// hold unbounded memory. Real images set a few dozen variables.
+const (
+	maxConfigEnv    = 1024
+	maxConfigEnvLen = 32 << 10
+)
+
+// RuntimeAdvisor adds findings for a language runtime Trivy does not report
+// (a runtime unpacked from a tarball rather than installed through a package
+// manager). Trivy.Scan calls it on every successful image scan.
+type RuntimeAdvisor interface {
+	// Augment returns what to add to scan. severities are the upper-case
+	// severities the scan reports; findings of any other severity must be
+	// left out, the same way Trivy's --severity leaves them out.
+	Augment(scan ImageScan, severities []string) RuntimeAugment
+}
+
+// RuntimeAugment is what a RuntimeAdvisor adds to one image scan.
+type RuntimeAugment struct {
+	Findings []Finding
+	// Packages are the package lists of the added runtimes, so the runtime
+	// counts as present in the image even when it has no findings.
+	Packages []ResultPackages
+	// Unchecked is true when a runtime was detected but its advisories were
+	// unavailable.
+	Unchecked bool
 }
 
 // maxRetainedPackages bounds how many packages ParseReport keeps per scan, so
@@ -246,6 +283,7 @@ type trivyReport struct {
 			Variant      string `json:"variant"`
 			Config       struct {
 				Labels map[string]string `json:"Labels"`
+				Env    []string          `json:"Env"`
 			} `json:"config"`
 		} `json:"ImageConfig"`
 	} `json:"Metadata"`
@@ -318,6 +356,14 @@ func ParseReport(data []byte) (ImageScan, error) {
 		}
 		if v := l["com.docker.compose.service"]; len(v) <= 256 {
 			scan.ComposeService = v
+		}
+	}
+	for _, e := range r.Metadata.ImageConfig.Config.Env {
+		if len(scan.ConfigEnv) >= maxConfigEnv {
+			break
+		}
+		if len(e) <= maxConfigEnvLen {
+			scan.ConfigEnv = append(scan.ConfigEnv, e)
 		}
 	}
 	// A Metadata.ImageID that fails the boundary check is never normalized

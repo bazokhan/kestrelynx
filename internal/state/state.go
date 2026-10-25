@@ -505,6 +505,13 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 	refContentID := map[string]string{}
 	fullyFailedRef := map[string]bool{}
 	partiallyFailedRef := map[string]bool{}
+	// runtimeUnchecked holds the references whose Node.js runtime was
+	// detected but not checked this cycle, so its absence from the report is
+	// no evidence that its findings were fixed.
+	runtimeUnchecked := map[string]bool{}
+	for _, ref := range r.RuntimeUnchecked {
+		runtimeUnchecked[ref] = true
+	}
 	for _, o := range r.Images {
 		if o.ScanFailed {
 			fullyFailedRef[o.Ref] = true
@@ -681,6 +688,15 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 			carryMuted(next.Muted, prev.Muted, k)
 			heldKey[k] = true
 			continue
+		case runtimeUnchecked[ref] && keyPackage(k) == inventory.NodeRuntimePackage:
+			// The scan succeeded but the Node.js runtime was not checked:
+			// hold its record like a partially failed scan, other packages
+			// of the reference are judged as usual.
+			e.ContentID = ""
+			next.Findings[k] = e
+			carryMuted(next.Muted, prev.Muted, k)
+			heldKey[k] = true
+			continue
 		case curEOL[k] != nil:
 			// Every CVE left for end-of-life: the package is not resolved,
 			// its end-of-life change announces it instead.
@@ -706,6 +722,13 @@ func Compute(prev State, r analyze.Report) (Diff, State) {
 		// stopped being end-of-life.
 		if fullyFailedRef[ref] || partiallyFailedRef[ref] {
 			next.EOLPackages[k] = e
+			continue
+		}
+		// An unchecked Node.js runtime is held the same way.
+		if runtimeUnchecked[ref] && keyPackage(k) == inventory.NodeRuntimePackage {
+			next.EOLPackages[k] = e
+			heldKey[k] = true
+			carryMuted(next.Muted, prev.Muted, k)
 			continue
 		}
 		d.ResolvedEOLPackages = append(d.ResolvedEOLPackages, ResolvedEOL{Image: ref, Package: keyPackage(k), StillOpen: cur[k] != nil})

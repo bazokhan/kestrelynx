@@ -62,7 +62,21 @@ func (s ScheduleConfig) DailyTime() (hour, min int, ok bool) {
 }
 
 type ScanConfig struct {
-	Severity []string // Trivy severities to report, e.g. HIGH, CRITICAL
+	Severity    []string // Trivy severities to report, e.g. HIGH, CRITICAL
+	NodeRuntime NodeRuntimeConfig
+}
+
+// NodeRuntimeConfig controls the check of the Node.js binary of official node
+// images against Node.js's own security advisories, which Trivy does not
+// report. The URLs override the public data sources (mirrors, air-gapped
+// environments); an empty URL means the default source.
+type NodeRuntimeConfig struct {
+	Enabled         bool
+	SecurityWGURL   string
+	BlogFeedURL     string
+	BlogPostBaseURL string
+	ReleasesURL     string
+	ScheduleURL     string
 }
 
 type NotifyConfig struct {
@@ -415,7 +429,15 @@ type rawConfig struct {
 		RunOnStart *bool  `yaml:"run_on_start"`
 	} `yaml:"schedule"`
 	Scan struct {
-		Severity []string `yaml:"severity"`
+		Severity    []string `yaml:"severity"`
+		NodeRuntime struct {
+			Enabled         *bool  `yaml:"enabled"`
+			SecurityWGURL   string `yaml:"security_wg_url"`
+			BlogFeedURL     string `yaml:"blog_feed_url"`
+			BlogPostBaseURL string `yaml:"blog_post_base_url"`
+			ReleasesURL     string `yaml:"releases_url"`
+			ScheduleURL     string `yaml:"schedule_url"`
+		} `yaml:"node_runtime"`
 	} `yaml:"scan"`
 	Notify struct {
 		SlackWebhookURL   string `yaml:"slack_webhook_url"`
@@ -663,7 +685,17 @@ func Parse(data []byte) (Config, error) {
 			DailyAt:    raw.Schedule.DailyAt,
 			RunOnStart: boolOr(raw.Schedule.RunOnStart, true),
 		},
-		Scan:   ScanConfig{Severity: raw.Scan.Severity},
+		Scan: ScanConfig{
+			Severity: raw.Scan.Severity,
+			NodeRuntime: NodeRuntimeConfig{
+				Enabled:         boolOr(raw.Scan.NodeRuntime.Enabled, true),
+				SecurityWGURL:   raw.Scan.NodeRuntime.SecurityWGURL,
+				BlogFeedURL:     raw.Scan.NodeRuntime.BlogFeedURL,
+				BlogPostBaseURL: raw.Scan.NodeRuntime.BlogPostBaseURL,
+				ReleasesURL:     raw.Scan.NodeRuntime.ReleasesURL,
+				ScheduleURL:     raw.Scan.NodeRuntime.ScheduleURL,
+			},
+		},
 		Notify: NotifyConfig(raw.Notify),
 		Docker: DockerConfig{Socket: stringOr(raw.Docker.Socket, "")},
 		Kubernetes: KubernetesConfig{

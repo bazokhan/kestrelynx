@@ -28,6 +28,7 @@ import (
 	"github.com/kitsunetrail/kestrelynx/internal/intel"
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/kubernetes"
+	"github.com/kitsunetrail/kestrelynx/internal/nodecore"
 	"github.com/kitsunetrail/kestrelynx/internal/notify"
 	"github.com/kitsunetrail/kestrelynx/internal/regauth"
 	"github.com/kitsunetrail/kestrelynx/internal/registry"
@@ -114,6 +115,18 @@ func main() {
 		r.WatchEPSS = cfg.Triage.WatchEPSS
 		r.DiscussionLinks = cfg.Triage.DiscussionLinks
 	}
+	// One advisor serves every image scan of the cycle (the normal scanner
+	// and, below, the fix plan's comparison scanner), so they all match the
+	// Node.js runtime against the same data. Fs scans in work.go never get it.
+	var nodeAdvisor *nodecore.Advisor
+	if cfg.Scan.NodeRuntime.Enabled {
+		var refresher nodecore.Refresher
+		nodeAdvisor, refresher = buildNodeRuntime(cfg, log)
+		r.NodeRuntime = refresher
+		tr := r.Scanner.(scanner.Trivy)
+		tr.Runtime = nodeAdvisor
+		r.Scanner = tr
+	}
 	if cfg.Runtime.Enabled {
 		r.Evidence = evidence.NewFileProvider(cfg.Runtime.EvidenceDir)
 		r.MuteUnfixableNotInUse = cfg.Runtime.MuteUnfixableNotInUse
@@ -134,6 +147,11 @@ func main() {
 			log.Warn("a remediation mapping names a workload outside kubernetes.namespaces and has no effect", "workload", w)
 		}
 		r.Plan = buildPlanConfig(cfg)
+		if nodeAdvisor != nil {
+			tr := r.Plan.Scanner.(scanner.Trivy)
+			tr.Runtime = nodeAdvisor
+			r.Plan.Scanner = tr
+		}
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
 			if cfg.Kubernetes.Enabled {
 				r.Plan.Language = kubernetesLanguageConfig(cfg, log)
@@ -375,6 +393,27 @@ func buildPullRequestConfig(rc config.RemediationConfig, language string) *runne
 		HelmValues:   helmValuesMappings(rc.Mappings),
 		Repositories: pullRequestRepositories(rc.Mappings),
 		Store:        store,
+	}
+}
+
+// buildNodeRuntime builds the Node.js advisory data source and the advisor the
+// image scanners share. The data is cached in a nodejs directory next to the
+// diff state, like the intel cache, whether or not triage is enabled, so one
+// volume mount covers all of it.
+func buildNodeRuntime(cfg config.Config, log *slog.Logger) (*nodecore.Advisor, nodecore.Refresher) {
+	nr := cfg.Scan.NodeRuntime
+	advisor := &nodecore.Advisor{}
+	return advisor, nodecore.Refresher{
+		Source: &nodecore.Source{
+			CacheDir:        filepath.Join(filepath.Dir(cfg.State.Path), "nodejs"),
+			SecurityWGURL:   nr.SecurityWGURL,
+			BlogFeedURL:     nr.BlogFeedURL,
+			BlogPostBaseURL: nr.BlogPostBaseURL,
+			ReleasesURL:     nr.ReleasesURL,
+			ScheduleURL:     nr.ScheduleURL,
+			Log:             log,
+		},
+		Advisor: advisor,
 	}
 }
 

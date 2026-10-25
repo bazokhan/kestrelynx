@@ -936,3 +936,57 @@ func TestParse_RemediationTokenDecodeErrorsDoNotEchoIt(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_NodeRuntimeDefaults(t *testing.T) {
+	c, err := Parse([]byte(minimal))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if want := (NodeRuntimeConfig{Enabled: true}); c.Scan.NodeRuntime != want {
+		t.Errorf("default NodeRuntime = %+v, want %+v", c.Scan.NodeRuntime, want)
+	}
+}
+
+func TestParse_NodeRuntimeOverrides(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://x.test"
+scan:
+  node_runtime:
+    security_wg_url: "https://mirror.test/index.json"
+    blog_feed_url: "https://mirror.test/feed.xml"
+    blog_post_base_url: "https://mirror.test/posts/"
+    releases_url: "https://mirror.test/dist.json"
+    schedule_url: "https://mirror.test/schedule.json"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := NodeRuntimeConfig{
+		Enabled:         true,
+		SecurityWGURL:   "https://mirror.test/index.json",
+		BlogFeedURL:     "https://mirror.test/feed.xml",
+		BlogPostBaseURL: "https://mirror.test/posts/",
+		ReleasesURL:     "https://mirror.test/dist.json",
+		ScheduleURL:     "https://mirror.test/schedule.json",
+	}
+	if c.Scan.NodeRuntime != want {
+		t.Errorf("NodeRuntime = %+v, want %+v", c.Scan.NodeRuntime, want)
+	}
+}
+
+func TestParse_NodeRuntimeDisabled(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://x.test"
+scan:
+  node_runtime:
+    enabled: false
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.Scan.NodeRuntime.Enabled {
+		t.Error("node_runtime.enabled: false was not honoured")
+	}
+}

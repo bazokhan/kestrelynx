@@ -333,9 +333,13 @@ type Report struct {
 	// Unconfirmed entity this cycle (a projection of Images, kept as its own
 	// field so notify doesn't have to re-derive it). Always nil for Docker.
 	UnconfirmedRefs []string
-	Triage          bool        // priorities were assigned (renderers use ByPriority)
-	Intel           IntelStatus // freshness of the intel behind the priorities
-	GeneratedAt     time.Time
+	// RuntimeUnchecked is the sorted, de-duplicated set of references whose
+	// language runtime (Node.js) was detected but not checked because its
+	// advisory data was unavailable. Scans that failed are not included.
+	RuntimeUnchecked []string
+	Triage           bool        // priorities were assigned (renderers use ByPriority)
+	Intel            IntelStatus // freshness of the intel behind the priorities
+	GeneratedAt      time.Time
 	// Environment identifies the runtime instance this cycle observed. Build
 	// never sets it (it has no scan-derived meaning to interpret); the caller
 	// copies it in from config/composition-root state.
@@ -522,6 +526,7 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 	byStatus := map[scanner.Status]map[imgKey]map[inventory.PackageRef]*pkgAcc{}
 	obs := map[string]*obsAcc{}     // by ref, the inventory backing Report.Images
 	meta := map[imgKey]entityMeta{} // per-entity Subject/Pinned, for buildSection
+	uncheckedSeen := map[string]bool{}
 
 	for _, s := range scans {
 		a := obs[s.Image]
@@ -568,6 +573,11 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 		if s.OSEOSL && !a.seenEOSL {
 			a.seenEOSL = true
 			r.EOSLImages = append(r.EOSLImages, s.Image)
+		}
+
+		if s.RuntimeUnchecked && !uncheckedSeen[s.Image] {
+			uncheckedSeen[s.Image] = true
+			r.RuntimeUnchecked = append(r.RuntimeUnchecked, s.Image)
 		}
 
 		k := imgKey{ref: s.Image, key: s.Subject.Key}
@@ -625,6 +635,7 @@ func Build(scans []scanner.ImageScan, containers []inventory.Container, tr Triag
 	}
 
 	sort.Strings(r.EOSLImages)
+	sort.Strings(r.RuntimeUnchecked)
 	byKey, byRef := indexContainers(containers)
 	r.Actionable = buildSection(byStatus[scanner.StatusFixed], tr, byKey, meta)
 	r.Watch = buildSection(byStatus[scanner.StatusAffected], tr, byKey, meta)

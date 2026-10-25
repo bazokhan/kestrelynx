@@ -306,6 +306,9 @@ func (v *chView) unresolvedNotes(tail bool) {
 	if line := unconfirmedRefsLine(v.r, v.msg); line != "" {
 		v.l.note(v.rd.lim, unconfirmedNoteHead(v.msg), trimNL(line), tail)
 	}
+	if line := runtimeUncheckedLine(v.r, v.msg); line != "" {
+		v.l.note(v.rd.lim, "", trimNL(line), tail)
+	}
 }
 
 // nonTriageSegments are the fallback segments of the triage-off view: the

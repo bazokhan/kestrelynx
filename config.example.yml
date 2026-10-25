@@ -11,6 +11,18 @@ schedule:
 scan:
   # Severities to report on. Defaults to HIGH and CRITICAL only.
   severity: [HIGH, CRITICAL]
+  # Check the Node.js binary of official node images against Node.js's own
+  # security advisories (Trivy does not report it). Downloads public advisory
+  # data from nodejs.org and raw.githubusercontent.com and sends nothing
+  # about your images; set enabled: false to opt out.
+  node_runtime:
+    enabled: true
+    # Mirror URLs for air-gapped environments. Empty = the official sources.
+    security_wg_url: ""
+    blog_feed_url: ""
+    blog_post_base_url: ""
+    releases_url: ""
+    schedule_url: ""
 
 notify:
   # Slack Incoming Webhook (sends a preformatted message).

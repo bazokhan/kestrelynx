@@ -41,6 +41,11 @@ type Trivy struct {
 	// read local images from, so Trivy reads the same engine KestreLynx
 	// lists containers from. Empty leaves Trivy's own default.
 	DockerHost string
+	// Runtime, when set, adds findings for language runtimes Trivy does not
+	// report to every successful image scan (not to fs scans). Every scan of
+	// a cycle must see the same advisory data, so the same Runtime is shared
+	// by the cycle's scanners.
+	Runtime RuntimeAdvisor
 }
 
 // New returns a Trivy with KestreLynx defaults (HIGH/CRITICAL, trivy on PATH).
@@ -335,5 +340,17 @@ func (t Trivy) Scan(ctx context.Context, target ScanTarget) (result ImageScan) {
 			Err:     fmt.Errorf("trivy scan %s: %w", scanArg, err),
 		}
 	}
-	return reconcileTarget(scan, target)
+	return t.augment(reconcileTarget(scan, target))
+}
+
+// augment adds t.Runtime's findings and package lists to a successful scan.
+func (t Trivy) augment(scan ImageScan) ImageScan {
+	if t.Runtime == nil || scan.Err != nil {
+		return scan
+	}
+	a := t.Runtime.Augment(scan, normalizeSeverities(strings.Split(t.severity(), ",")))
+	scan.Findings = append(scan.Findings, a.Findings...)
+	scan.Packages = append(scan.Packages, a.Packages...)
+	scan.RuntimeUnchecked = a.Unchecked
+	return scan
 }

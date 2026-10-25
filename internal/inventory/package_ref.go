@@ -99,6 +99,18 @@ const (
 	EcosystemJulia          Ecosystem = "julia"
 )
 
+// EcosystemNodeRuntime is the Node.js runtime itself as installed outside a
+// package manager (the official node images unpack nodejs.org's tarball into
+// /usr/local). Trivy never reports it: KestreLynx adds these findings itself,
+// so this value never appears as a Trivy Result.Type.
+const EcosystemNodeRuntime Ecosystem = "node-runtime"
+
+// NodeRuntimePackage is the package name of EcosystemNodeRuntime findings. It
+// cannot be an npm package name (npm rejects upper case) and differs from the
+// distro package name "nodejs", so it never shares an aggregation or state
+// key with either.
+const NodeRuntimePackage = "Node.js"
+
 // knownEcosystems is the allowlist ParseEcosystem checks against.
 var knownEcosystems = map[Ecosystem]bool{
 	EcosystemActiveState:        true,
@@ -164,6 +176,7 @@ var knownEcosystems = map[Ecosystem]bool{
 	EcosystemHex:            true,
 	EcosystemBitnami:        true,
 	EcosystemJulia:          true,
+	EcosystemNodeRuntime:    true,
 }
 
 // ParseEcosystem maps a raw Trivy Result.Type to an Ecosystem, falling back

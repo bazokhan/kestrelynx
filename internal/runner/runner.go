@@ -69,6 +69,12 @@ type IntelSource interface {
 	Discussions(ctx context.Context, ids []string) map[string]intel.Discussion
 }
 
+// NodeRuntimeRefresher loads the advisory data the image scanners use to
+// check the Node.js runtime of an image (implemented by nodecore.Refresher).
+type NodeRuntimeRefresher interface {
+	Refresh(ctx context.Context) error
+}
+
 // Runner holds the collaborators for one scan cycle.
 type Runner struct {
 	Lister          ContainerLister
@@ -128,6 +134,12 @@ type Runner struct {
 	// true for this deployment.
 	GenericWebhookConfigured bool
 
+	// NodeRuntime loads, once per cycle before any image is scanned, the
+	// data the scanners use to check the Node.js runtime. A failure is
+	// logged and the cycle goes on, with that runtime left unchecked. nil
+	// (the default) means the feature is off and the cycle is unchanged.
+	NodeRuntime NodeRuntimeRefresher
+
 	// Plan enables the read-only fix plan. nil (the default) means the plan
 	// is off: no database preparation, no comparison-mode scans, no registry
 	// access, no plan or delivery records, and every scan, state change and
@@ -173,6 +185,12 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	}
 	images := inventory.DistinctImages(containers)
 	log.Info("scanning images", "count", len(images))
+
+	if r.NodeRuntime != nil {
+		if err := r.NodeRuntime.Refresh(ctx); err != nil {
+			log.Warn("node.js advisory data unavailable; the Node.js runtime of images is not checked this cycle", "err", err)
+		}
+	}
 
 	// With the plan on, prepared databases put every scan of the cycle, and
 	// the plan's candidate scans, on the same database content. Without them
@@ -434,7 +452,7 @@ func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOu
 	log := r.log()
 	// The vulnerability message and the fix plan message are due on their own
 	// terms; the generic webhook gets both together whenever either is sent.
-	reportDue := report.HasIssues() || r.NotifyOnClean
+	reportDue := report.HasIssues() || r.NotifyOnClean || len(report.RuntimeUnchecked) > 0
 	m := plan.message(notify.Message{Report: report, SkipReport: !reportDue})
 	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() {
 		log.Info("no issues found; skipping notification")
@@ -480,7 +498,10 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 	holding := holdingUnconfirmed(prev, report)
 	// The vulnerability message and the fix plan message are due on their own
 	// terms; the generic webhook gets both together whenever either is sent.
-	reportDue := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding
+	// An unchecked Node.js runtime also makes the cycle due: its findings
+	// are held, so a quiet report would otherwise hide that they were not
+	// re-checked.
+	reportDue := report.HasIssues() || diff.HasChanges() || r.NotifyOnClean || holding || len(report.RuntimeUnchecked) > 0
 
 	res := &notify.ThreadResult{}
 	m := plan.message(notify.Message{

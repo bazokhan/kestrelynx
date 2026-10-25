@@ -516,3 +516,20 @@ func TestBuild_MediumDoesNotRankAsHigh(t *testing.T) {
 		t.Errorf("image order = %s first; the HIGH image must come first", r2.Actionable[0].Image)
 	}
 }
+
+func TestBuild_RuntimeUnchecked(t *testing.T) {
+	scans := []scanner.ImageScan{
+		{Image: "b:1", RuntimeUnchecked: true},
+		{Image: "a:1", RuntimeUnchecked: true},
+		{Image: "a:1", RuntimeUnchecked: true}, // second entity of the same ref
+		{Image: "c:1"},
+		{Image: "d:1", RuntimeUnchecked: true, Err: errString("scan failed")},
+	}
+	r := Build(scans, nil, Triage{}, fixedTime)
+	if got := r.RuntimeUnchecked; len(got) != 2 || got[0] != "a:1" || got[1] != "b:1" {
+		t.Errorf("RuntimeUnchecked = %v, want [a:1 b:1]", got)
+	}
+	if r := Build([]scanner.ImageScan{{Image: "c:1"}}, nil, Triage{}, fixedTime); r.RuntimeUnchecked != nil {
+		t.Errorf("RuntimeUnchecked = %v, want nil", r.RuntimeUnchecked)
+	}
+}

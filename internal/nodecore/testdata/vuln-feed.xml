@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+    <channel>
+        <title>Node.js Blog: Vulnerability Reports</title>
+        <link>https://nodejs.org/en</link>
+        <description></description>
+        <lastBuildDate>Sun, 25 Oct 2026 00:23:58 GMT</lastBuildDate>
+        <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+        <generator>https://github.com/jpmonette/feed</generator>
+        <language>en</language>
+        <item>
+            <title><![CDATA[Wednesday, October 21, 2026 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/october-2026-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/october-2026-security-releases?1792620000000</guid>
+            <pubDate>Wed, 21 Oct 2026 22:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday, July 29, 2026 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2026-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2026-security-releases?1785283200000</guid>
+            <pubDate>Wed, 29 Jul 2026 00:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Thursday, June 18, 2026 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/june-2026-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/june-2026-security-releases?1781755200000</guid>
+            <pubDate>Thu, 18 Jun 2026 04:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Developing a minimally HashDoS resistant, yet quickly reversible integer hash for V8]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/march-2026-hashdos</link>
+            <guid isPermaLink="false">/blog/vulnerability/march-2026-hashdos?1774385400000</guid>
+            <pubDate>Tue, 24 Mar 2026 20:50:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Tuesday, March 24, 2026 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/march-2026-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/march-2026-security-releases?1774321200000</guid>
+            <pubDate>Tue, 24 Mar 2026 03:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL Security Advisory Assessment, January 2026]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-fixes-in-regular-releases-jan2026</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-fixes-in-regular-releases-jan2026?1769619600000</guid>
+            <pubDate>Wed, 28 Jan 2026 17:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Mitigating Denial-of-Service Vulnerability from Unrecoverable Stack Space Exhaustion for React, Next.js, and APM Users]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/january-2026-dos-mitigation-async-hooks</link>
+            <guid isPermaLink="false">/blog/vulnerability/january-2026-dos-mitigation-async-hooks?1768323600000</guid>
+            <pubDate>Tue, 13 Jan 2026 17:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Tuesday, January 13, 2026 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/december-2025-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/december-2025-security-releases?1768262400000</guid>
+            <pubDate>Tue, 13 Jan 2026 00:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Tuesday, July 15, 2025 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2025-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2025-security-releases?1752537600000</guid>
+            <pubDate>Tue, 15 Jul 2025 00:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday, May 14, 2025 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/may-2025-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/may-2025-security-releases?1747191600000</guid>
+            <pubDate>Wed, 14 May 2025 03:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Node.js Test CI Security Incident]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/march-2025-ci-incident</link>
+            <guid isPermaLink="false">/blog/vulnerability/march-2025-ci-incident?1745425800617</guid>
+            <pubDate>Wed, 23 Apr 2025 16:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Updates on CVE for End-of-Life Versions]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/updates-cve-for-end-of-life</link>
+            <guid isPermaLink="false">/blog/vulnerability/updates-cve-for-end-of-life</guid>
+            <pubDate>Fri, 07 Mar 2025 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Tuesday, January 21, 2025 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/january-2025-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/january-2025-security-releases</guid>
+            <pubDate>Tue, 21 Jan 2025 03:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Upcoming CVE for End-of-Life Node.js Versions]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/upcoming-cve-for-eol-versions</link>
+            <guid isPermaLink="false">/blog/vulnerability/upcoming-cve-for-eol-versions</guid>
+            <pubDate>Mon, 06 Jan 2025 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Monday, July 8, 2024 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2024-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2024-security-releases</guid>
+            <pubDate>Mon, 08 Jul 2024 03:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday, April 10, 2024 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/april-2024-security-releases-2</link>
+            <guid isPermaLink="false">/blog/vulnerability/april-2024-security-releases-2</guid>
+            <pubDate>Wed, 10 Apr 2024 00:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday, April 3, 2024 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/april-2024-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/april-2024-security-releases</guid>
+            <pubDate>Wed, 03 Apr 2024 03:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday February 14 2024 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2024-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2024-security-releases</guid>
+            <pubDate>Wed, 14 Feb 2024 15:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL Recent Security Patches]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-fixes-in-regular-releases-oct2023</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-fixes-in-regular-releases-oct2023</guid>
+            <pubDate>Thu, 26 Oct 2023 17:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Friday October 13 2023 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/october-2023-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/october-2023-security-releases</guid>
+            <pubDate>Fri, 13 Oct 2023 13:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Wednesday August 9th 2023 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/august-2023-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/august-2023-security-releases</guid>
+            <pubDate>Wed, 09 Aug 2023 14:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Tuesday June 20 2023 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/june-2023-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/june-2023-security-releases</guid>
+            <pubDate>Tue, 20 Jun 2023 14:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Thursday February 16 2023 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2023-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2023-security-releases</guid>
+            <pubDate>Thu, 16 Feb 2023 21:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL 3.0.7 update assessment]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-fixes-in-regular-releases-dec2022</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-fixes-in-regular-releases-dec2022</guid>
+            <pubDate>Fri, 16 Dec 2022 17:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Nov 3 2022 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/november-2022-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/november-2022-security-releases</guid>
+            <pubDate>Tue, 01 Nov 2022 21:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL November Security Release]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-november-2022</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-november-2022</guid>
+            <pubDate>Fri, 28 Oct 2022 19:00:01 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL and zlib update assessment, and Node.js Assessment workflow]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-and-zlib-vulnerability-assessment</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-and-zlib-vulnerability-assessment</guid>
+            <pubDate>Mon, 24 Oct 2022 20:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[September 23rd 2022 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2022-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2022-security-releases</guid>
+            <pubDate>Thu, 15 Sep 2022 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[July 7th 2022 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2022-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2022-security-releases</guid>
+            <pubDate>Thu, 07 Jul 2022 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL update assessment, and Node.js project plans]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-fixes-in-regular-releases-jun2022</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-fixes-in-regular-releases-jun2022</guid>
+            <pubDate>Tue, 21 Jun 2022 17:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL update assessment, and Node.js project plans]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-fixes-in-regular-releases-may2022</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-fixes-in-regular-releases-may2022</guid>
+            <pubDate>Thu, 05 May 2022 17:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL security releases require Node.js security releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/mar-2022-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/mar-2022-security-releases</guid>
+            <pubDate>Fri, 18 Mar 2022 01:52:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[January 10th 2022 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/jan-2022-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/jan-2022-security-releases</guid>
+            <pubDate>Tue, 11 Jan 2022 00:50:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[October 12th 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/oct-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/oct-2021-security-releases</guid>
+            <pubDate>Tue, 12 Oct 2021 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[August 31 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/aug-2021-security-releases2</link>
+            <guid isPermaLink="false">/blog/vulnerability/aug-2021-security-releases2</guid>
+            <pubDate>Tue, 31 Aug 2021 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[August 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/aug-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/aug-2021-security-releases</guid>
+            <pubDate>Wed, 11 Aug 2021 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[July 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2021-security-releases-2</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2021-security-releases-2</guid>
+            <pubDate>Thu, 29 Jul 2021 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[July 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2021-security-releases</guid>
+            <pubDate>Thu, 01 Jul 2021 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[April 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/april-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/april-2021-security-releases</guid>
+            <pubDate>Tue, 06 Apr 2021 20:51:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[February 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2021-security-releases</guid>
+            <pubDate>Tue, 23 Feb 2021 13:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[January 2021 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/january-2021-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/january-2021-security-releases</guid>
+            <pubDate>Mon, 04 Jan 2021 19:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[November 2020 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/november-2020-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/november-2020-security-releases</guid>
+            <pubDate>Mon, 16 Nov 2020 16:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[September 2020 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2020-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2020-security-releases</guid>
+            <pubDate>Tue, 15 Sep 2020 21:50:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[June 2020 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/june-2020-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/june-2020-security-releases</guid>
+            <pubDate>Tue, 02 Jun 2020 12:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL security releases do not require Node.js security releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/april-2020-openssl-updates</link>
+            <guid isPermaLink="false">/blog/vulnerability/april-2020-openssl-updates</guid>
+            <pubDate>Tue, 21 Apr 2020 12:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[February 2020 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2020-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2020-security-releases</guid>
+            <pubDate>Thu, 06 Feb 2020 12:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[December 2019 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/december-2019-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/december-2019-security-releases</guid>
+            <pubDate>Wed, 18 Dec 2019 00:23:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL security releases do not require Node.js security releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2019-openssl-no-updates</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2019-openssl-no-updates</guid>
+            <pubDate>Thu, 12 Sep 2019 17:00:15 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL security releases may require Node.js security releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2019-openssl-updates</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2019-openssl-updates</guid>
+            <pubDate>Thu, 05 Sep 2019 15:34:35 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[August 2019 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/aug-2019-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/aug-2019-security-releases</guid>
+            <pubDate>Fri, 16 Aug 2019 14:58:40 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[February 2019 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2019-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2019-security-releases</guid>
+            <pubDate>Thu, 28 Feb 2019 12:53:26 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[November 2018 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/november-2018-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/november-2018-security-releases</guid>
+            <pubDate>Wed, 28 Nov 2018 00:55:46 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[August 2018 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/august-2018-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/august-2018-security-releases</guid>
+            <pubDate>Sat, 11 Aug 2018 11:07:51 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[June 2018 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/june-2018-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/june-2018-security-releases</guid>
+            <pubDate>Tue, 12 Jun 2018 23:00:59 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[March 2018 Security Releases]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/march-2018-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/march-2018-security-releases</guid>
+            <pubDate>Wed, 21 Mar 2018 23:49:59 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Meltdown and Spectre - Impact On Node.js]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/jan-2018-spectre-meltdown</link>
+            <guid isPermaLink="false">/blog/vulnerability/jan-2018-spectre-meltdown</guid>
+            <pubDate>Mon, 08 Jan 2018 17:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Data Confidentiality/Integrity Vulnerability, December 2017]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/december-2017-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/december-2017-security-releases</guid>
+            <pubDate>Fri, 08 Dec 2017 16:30:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL update, 1.0.2m]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-november-2017</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-november-2017</guid>
+            <pubDate>Mon, 30 Oct 2017 23:30:01 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[DOS security vulnerability, October 2017]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/oct-2017-dos</link>
+            <guid isPermaLink="false">/blog/vulnerability/oct-2017-dos</guid>
+            <pubDate>Tue, 24 Oct 2017 22:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Path validation vulnerability, September 2017]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2017-path-validation</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2017-path-validation</guid>
+            <pubDate>Fri, 29 Sep 2017 20:09:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Security updates for all active release lines, July 2017]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/july-2017-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/july-2017-security-releases</guid>
+            <pubDate>Tue, 11 Jul 2017 17:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL update, 1.0.2k]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-january-2017</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-january-2017</guid>
+            <pubDate>Fri, 27 Jan 2017 11:49:06 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[October security releases and v6 LTS "Boron" security inclusions]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/october-2016-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/october-2016-security-releases</guid>
+            <pubDate>Sat, 15 Oct 2016 10:36:44 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Security updates for all active release lines, September 2016]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/september-2016-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/september-2016-security-releases</guid>
+            <pubDate>Fri, 23 Sep 2016 10:53:30 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Security updates for all active release lines, June 2016]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/june-2016-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/june-2016-security-releases</guid>
+            <pubDate>Mon, 13 Jun 2016 12:57:51 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL updates, 1.0.1t and 1.0.2h]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-may-2016</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-may-2016</guid>
+            <pubDate>Mon, 02 May 2016 11:16:10 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[npm security updates v2.15.1 and v3.8.3]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/npm-tokens-leak-march-2016</link>
+            <guid isPermaLink="false">/blog/vulnerability/npm-tokens-leak-march-2016</guid>
+            <pubDate>Thu, 31 Mar 2016 10:41:46 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL updates, 1.0.2g and 1.0.1s]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-march-2016</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-march-2016</guid>
+            <pubDate>Mon, 29 Feb 2016 02:08:06 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[February 2016 Security Release Summary]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/february-2016-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/february-2016-security-releases</guid>
+            <pubDate>Tue, 09 Feb 2016 17:40:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL upgrade low-severity Node.js security fixes]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-and-low-severity-fixes-jan-2016</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-and-low-severity-fixes-jan-2016</guid>
+            <pubDate>Wed, 27 Jan 2016 11:34:41 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[December Security Release Summary]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/december-2015-security-releases</link>
+            <guid isPermaLink="false">/blog/vulnerability/december-2015-security-releases</guid>
+            <pubDate>Fri, 04 Dec 2015 03:05:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[December Security Release Schedule Update]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/december-2015-security-release-update</link>
+            <guid isPermaLink="false">/blog/vulnerability/december-2015-security-release-update</guid>
+            <pubDate>Tue, 01 Dec 2015 01:13:57 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[CVE-2015-8027 Denial of Service Vulnerability / CVE-2015-6764 V8 Out-of-bounds Access Vulnerability]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/cve-2015-8027_cve-2015-6764</link>
+            <guid isPermaLink="false">/blog/vulnerability/cve-2015-8027_cve-2015-6764</guid>
+            <pubDate>Wed, 25 Nov 2015 22:06:05 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[V8 Memory Corruption and Stack Overflow (fixed in Node v0.8.28 and v0.10.30)]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/v8-memory-corruption-stack-overflow</link>
+            <guid isPermaLink="false">/blog/vulnerability/v8-memory-corruption-stack-overflow</guid>
+            <pubDate>Thu, 31 Jul 2014 19:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[OpenSSL and Breaking UTF-8 Change (fixed in Node v0.8.27 and v0.10.29)]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/openssl-and-utf8</link>
+            <guid isPermaLink="false">/blog/vulnerability/openssl-and-utf8</guid>
+            <pubDate>Mon, 16 Jun 2014 15:46:10 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[DoS Vulnerability (fixed in Node v0.8.26 and v0.10.21)]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/http-server-pipeline-flood-dos</link>
+            <guid isPermaLink="false">/blog/vulnerability/http-server-pipeline-flood-dos</guid>
+            <pubDate>Tue, 22 Oct 2013 17:42:10 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[HTTP Server Security Vulnerability: Please upgrade to 0.6.17]]></title>
+            <link>https://nodejs.org/en/blog/vulnerability/http-server-security-vulnerability-please-upgrade-to-0-6-17</link>
+            <guid isPermaLink="false">/blog/vulnerability/http-server-security-vulnerability-please-upgrade-to-0-6-17</guid>
+            <pubDate>Mon, 07 May 2012 17:02:01 GMT</pubDate>
+        </item>
+    </channel>
+</rss>
