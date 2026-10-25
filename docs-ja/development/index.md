@@ -4,6 +4,7 @@
 
 開発ログは検討・実装の過程の記録です。現在利用できる機能の導入・運用方法は[ドキュメント](../documentation/index.md)を参照してください。
 
+- 2026年10月25日 — [言語ランタイム本体の修正計画の開発](language-runtime-remediation.md) — Node.js・Python 本体の検出結果を Dockerfile のベース更新と再ビルドの案内につなぐ仕組み(実装済み、本番運用環境で再ビルドの案内、検証用のホストで PR の作成を確認)
 - 2026年10月25日 — [言語ランタイム本体の脆弱性通知の開発](language-runtime-advisories.md) — Trivy の検出範囲外の Node.js・Python 本体を NODE_VERSION / PYTHON_VERSION と各言語の開発元のセキュリティ情報で照合する仕組み(実装済み、Node.js は本番運用環境、Python は検証用のホストで通知を確認)
 - 2026年10月20日 — [Kubernetes での修正 PR の開発](kubernetes-remediation.md) — 修正先を利用者が明示し、言語パッケージの更新をクラスタ内の使い捨ての Pod で動かす仕組み(実装済み、検証用のホストで PR の作成から GitOps による反映まで確認)
 - 2026年10月15日 — [依存元からの再解決の開発](dependent-reresolution.md) — 依存元を指定範囲内で上げて脆弱性を直し、依存関係の位置ごとに脆弱性の増加を確かめる仕組み(実装済み、本番運用環境で PR の作成を確認)

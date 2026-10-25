@@ -5,6 +5,7 @@ This section covers the problems being addressed, approaches tried, lessons lear
 Development logs record how features were explored and implemented.
 For instructions on currently available features, see [Documentation](../documentation/index.md).
 
+- October 25, 2026 — [Development of remediation plans for language runtimes](language-runtime-remediation.md) — connecting Node.js and Python runtime findings to Dockerfile base image updates and rebuild guidance (implemented; rebuild guidance verified in the production environment and PR creation on a validation host)
 - October 25, 2026 — [Development of language runtime vulnerability notifications](language-runtime-advisories.md) — matching Node.js and Python runtimes outside Trivy's detection coverage against security information from their developers using NODE_VERSION / PYTHON_VERSION (implemented; notifications verified for Node.js in the production environment and Python on a validation host)
 - October 20, 2026 — [Kubernetes remediation pull request development](kubernetes-remediation.md) — explicit user mappings of change locations and language package updates in disposable Pods within the cluster (implemented; verified from PR creation through GitOps deployment on a validation host)
 - October 15, 2026 — [Development of re-resolution through dependent packages](dependent-reresolution.md) — updating dependent packages within declared ranges and checking each dependency position for vulnerability increases (implemented; PR creation verified in the production environment)
