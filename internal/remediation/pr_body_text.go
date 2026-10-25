@@ -74,7 +74,7 @@ type prText struct {
 	// Dockerfile bodies.
 	DWhat, DBaseNow, DEdited, DWorkloads, DChange           string
 	DRunning, DCurrentBase, DCandidateBase, DLayer, DVerRec string
-	DTargets, DOther, DScanned, DAttribution                string
+	DTargets, DOther, DScanned                              string
 
 	// Kubernetes bodies.
 	HeadPremises, HeadDeploy                       string
@@ -198,7 +198,6 @@ var enPRText = prText{
 	DTargets:       "- Findings this update targets (fixed findings of the running image in the base image's layers): resolved %[1]d, remaining %[2]d\n",
 	DOther:         "- Other findings of the compared base images that remain in the candidate base image: %[1]d; introduced by the candidate base image: %[2]d\n",
 	DScanned:       "Both base images were scanned by Trivy %s",
-	DAttribution:   "\nTrivy attributes a package to the lowest layer that holds that name and version, so a package installed again by a later instruction of the Dockerfile can still be attributed to a base image layer. A finding listed above is therefore matched to the base image, not proven to come from it.\n",
 
 	HeadPremises:     "What this change relies on",
 	HeadDeploy:       "After merging",
@@ -377,7 +376,6 @@ var jaPRText = prText{
 	DTargets:       "- この更新が対象とする検出結果 (稼働中のイメージの修正可能な検出結果のうち、ベースイメージのレイヤーにあるもの): 解消 %[1]d 件、残存 %[2]d 件\n",
 	DOther:         "- 比較した両ベースイメージのその他の検出結果のうち、候補のベースイメージに残るもの: %[1]d 件、候補のベースイメージで新たに入るもの: %[2]d 件\n",
 	DScanned:       "両方のベースイメージを Trivy %s でスキャンしました",
-	DAttribution:   "\nTrivy は、同じ名前と版のパッケージを、それを含む最も下のレイヤーに割り当てます。そのため、Dockerfile の後ろの命令で再びインストールされたパッケージも、ベースイメージのレイヤーに割り当てられることがあります。上に挙げた検出結果はベースイメージに対応付けたものであり、ベースイメージ由来であると証明したものではありません。\n",
 
 	HeadPremises:     "この変更の前提",
 	HeadDeploy:       "マージ後",

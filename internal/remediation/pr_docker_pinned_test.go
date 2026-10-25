@@ -56,6 +56,6 @@ var pinnedDockerOutput = map[string]string{
 	"dockerfile marker":     `<!-- kestrelynx:{"v":1,"kind":"dockerfile","repo_id":7,"base_branch":"main","path":"compose.yml","locations":["stages[0]"],"current_ref":"nginx:1.25.3","candidate_tag":"1.25.4","candidate_digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111","base_sha":"1111111111111111111111111111111111111111","head_sha":"2222222222222222222222222222222222222222","input_blob_sha":"3333333333333333333333333333333333333333","changes":[{"path":"compose.yml","mode":"100644","blob_sha":"4444444444444444444444444444444444444444"}],"target_key":"5c448b4f278d4a2481a845f965b5ce76a89070ae18d9e6ae83aafaa9b8f3d596","update_key":"b7a920004dd05498aa57899b1f37c3891a91e19dc5a5f6c63af243a6d7fd4edf","attempt_key":"117b981accecc3874dc5415822215efbb4583305a4268668c143808affa1ba0b","fix_targets":[{"location":"services.web.image","vuln_id":"CVE-1","package":{"ecosystem":"debian","class":"os","name":"libc"}}]} -->`,
 	"compose body":          `1f66d81027071db87569e270e5ed340b6ff188ccec53e0d9d04652e139e2d540`,
 	"compose branch":        `kestrelynx/compose/web-and-1-1.25.4-8f0682d96b0d`,
-	"dockerfile body":       `5453ddbb3a2b0d50c470e73ce17df016a4ce1f0c016a9672a78ac3639bde7bb5`,
+	"dockerfile body":       `05fd65beddc1bee99be7aff417ffd67070028ba59ac88aba37e38c51b3c05f7f`,
 	"dockerfile branch":     `kestrelynx/dockerfile/svc-3.12.5-slim-eba10fdf3a60`,
 }

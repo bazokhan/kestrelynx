@@ -85,7 +85,6 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(t.DAttribution)
 	if anyKubernetes(in.Workloads) {
 		writeKubernetesDeploy(t, &b, in.Workloads, in.Management)
 	}
