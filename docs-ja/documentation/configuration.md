@@ -20,11 +20,15 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `scan.severity` | `[HIGH, CRITICAL]` | Node.js本体の検出結果を含め、分析と通知の対象にする深刻度です。 |
+| `scan.severity` | `[HIGH, CRITICAL]` | Node.js・Python本体の検出結果を含め、分析と通知の対象にする深刻度です。 |
 
 指定できる値は`UNKNOWN`、`LOW`、`MEDIUM`、`HIGH`、`CRITICAL`です。
 
-### Node.js本体の脆弱性照合 {#node-runtime}
+### 言語ランタイム本体の脆弱性照合 {#language-runtime}
+
+対象は、KestreLynxが言語パッケージの更新に対応しているNode.jsとPythonのランタイム本体です。
+
+#### Node.js本体の脆弱性照合 {#node-runtime}
 
 KestreLynxは、`NODE_VERSION`に記録されたNode.jsの版をNode.jsのセキュリティ情報と照合します。
 判定規則と制約は、[Node.js本体の検出結果](scan-logic.md#node-runtime)に記載しています。
@@ -40,6 +44,22 @@ KestreLynxは、`NODE_VERSION`に記録されたNode.jsの版をNode.jsのセキ
 
 キャッシュは、`state.path`と同じディレクトリの`nodejs/`配下に保存します。
 取得先は、[Node.jsのセキュリティ情報の取得](outbound-communication.md#node-runtime-download)に記載しています。
+
+#### Python本体の脆弱性照合 {#python-runtime}
+
+KestreLynxは、`PYTHON_VERSION`に記録されたCPythonの版をPythonのセキュリティ情報と照合します。
+判定規則と制約は、[Python本体の検出結果](scan-logic.md#python-runtime)に記載しています。
+
+| 設定項目 | 既定値 | 説明 |
+| --- | --- | --- |
+| `scan.python_runtime.enabled` | `true` | セキュリティ情報の取得とPython本体の照合を有効にします。`false`では両方を停止します。 |
+| `scan.python_runtime.advisory_db_url` | 空 | PSFのアドバイザリーデータベースのアーカイブのミラーURLです。空の場合は`https://codeload.github.com/psf/advisory-database/tar.gz/refs/heads/main`を使います。 |
+| `scan.python_runtime.cve_record_base_url` | 空 | CVEの公式レコードのミラーベースURLです。空の場合は`https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/`を使います。 |
+| `scan.python_runtime.releases_url` | 空 | リリース一覧のミラーURLです。空の場合は`https://www.python.org/api/v2/downloads/release/?is_published=true`を使います。 |
+| `scan.python_runtime.release_cycle_url` | 空 | リリースサイクルのミラーURLです。空の場合は`https://peps.python.org/api/release-cycle.json`を使います。 |
+
+キャッシュは、`state.path`と同じディレクトリの`python/`配下に保存します。
+取得先は、[Pythonのセキュリティ情報の取得](outbound-communication.md#python-runtime-download)に記載しています。
 
 ## 通知先
 

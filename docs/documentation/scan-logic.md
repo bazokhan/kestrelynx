@@ -166,7 +166,11 @@ The distributor treats these CVEs as outside the target release's support scope,
 EOL findings are handled separately from ordinary findings, and both can exist for the same package.
 This classification continues when triage is disabled.
 
-### Node.js runtime findings {#node-runtime}
+### Language runtime findings {#language-runtime}
+
+KestreLynx checks the runtimes of languages whose package updates it supports: Node.js and Python.
+
+#### Node.js runtime findings {#node-runtime}
 
 Official `node` images and their derivatives install the Node.js runtime under `/usr/local` from nodejs.org tarballs.
 Trivy does not report this runtime as a package, so KestreLynx checks it against Node.js security advisories.
@@ -197,6 +201,41 @@ The EOL rule follows Node.js security posts, which state that EOL versions are a
   - Blog advisories do not give the first affected version within a release line, so older versions in that line can also be reported for vulnerabilities introduced later.
 
 Settings are described in [Node.js runtime checks](configuration.md#node-runtime), and data sources in [Node.js advisory downloads](outbound-communication.md#node-runtime-download).
+
+#### Python runtime findings {#python-runtime}
+
+Official `python` images and their derivatives build CPython from source and install it under `/usr/local`.
+Trivy does not report this runtime as a package, so KestreLynx checks it against Python security advisory data.
+
+| Item | Handling |
+| --- | --- |
+| Version | Read `PYTHON_VERSION` in `3.Y.Z` form from the image configuration environment variables; prereleases such as `3.15.0rc3` are not checked. |
+| Notification | Report findings with package name `Python runtime` and type `python-runtime`. |
+| Executable path | Use the official image location `usr/local/bin/python3.Y`. |
+| Runtime usage | When [Runtime usage](runtime-usage.md) is enabled, use Sensor evidence of this executable running to assess whether the runtime is in use. |
+| Severity | Use severity from the official CVE record and exclude CVEs whose severity is not selected by `scan.severity`. |
+| Target OS | Exclude CVEs limited to non-Linux systems such as Windows when checking Linux images; POSIX, Unix, and Linux apply to Linux. |
+| Withdrawals | Exclude `REJECTED` CVEs and withdrawn advisories. |
+
+In official images, `python3` is a symbolic link to `python3.Y`.
+The Sensor records the resolved executable path.
+
+Matching covers only CVEs whose official records contain PSF-authored CPython version ranges, available from mid-2023 onward.
+
+| Fix status | Condition and displayed version |
+| --- | --- |
+| `fixed` | A fix is available in the installed release line; choose the first final release for which that release and every later final release in the line are outside the affected ranges, and display the version that fixes all reported CVEs in the fixed group. |
+| `affected` | The release line is affected, has no fixed version, and is not EOL. |
+| `end_of_life` | The release line is affected, has no fixed version, and is EOL. |
+
+Python runtime checks have the following limitations.
+
+- CVEs from before mid-2023 are not checked because their records lack version ranges.
+- Images without `PYTHON_VERSION` are not checked.
+- If `PYTHON_VERSION` differs from the actual binary, matching uses the version in `PYTHON_VERSION`.
+- Errors in the version ranges or target OS information in CVE records carry through to matching results.
+
+Settings are described in [Python runtime checks](configuration.md#python-runtime), and data sources in [Python advisory downloads](outbound-communication.md#python-runtime-download).
 
 ## Exploitation-based priority {#triage}
 
@@ -252,6 +291,15 @@ Node.js advisory data also uses a 20-hour refresh interval.
 | security-wg core index, blog RSS feed, release index, and release schedule | As with KEV and EPSS, a failed refresh can use cached data for up to 7 days after retrieval. |
 | Storage | `nodejs/` in the same directory as the state file. |
 
+Python advisory data uses the following refresh and cache rules.
+
+| Python cache | Handling |
+| --- | --- |
+| PSF advisory list, release list, and release-cycle data | Refresh after 20 hours. |
+| Official CVE records | Revalidate every 20 hours using ETags. |
+| Failed retrieval | Use a usable cache no older than 7 days. |
+| Storage | `python/` in the same directory as the state file. |
+
 ### Unavailable threat intelligence {#degraded-triage}
 
 The decision method depends on which sources are usable.
@@ -269,19 +317,27 @@ During degraded triage, nothing is classified as Low, and `will_not_fix` does no
 See [Ordinary package changes](diff-logic.md#normal-changes) and [EOL package changes](diff-logic.md#eol-package-changes) for escalation diffs during degraded triage.
 See [Threat intelligence warnings](slack-display.md#intel-warnings) for how unavailable sources and stale caches are displayed.
 
-### Unavailable Node.js advisory data {#node-runtime-unavailable}
+### Unavailable language runtime advisory data {#node-runtime-unavailable}
 
 Node.js runtime matching is skipped for a cycle if any of the four datasets—security-wg, the security blog, release dates, or the release schedule—is unavailable.
-A failed download with no usable cache from the last 7 days leaves the corresponding index or feed unavailable.
+Python runtime matching is skipped for a cycle if any required advisory list, CVE record, release list, or release-cycle data is unavailable.
+
+Node.js and Python are handled independently, so unavailable data for one does not prevent normal matching for the other.
+A failed download with no usable cache from the last 7 days leaves the corresponding data unavailable.
 
 | Situation | Handling |
 | --- | --- |
-| The cycle contains images with `NODE_VERSION` in `X.Y.Z` form | Include the annotation below, with `N` representing the number of unchecked images. |
+| A runtime check is skipped for images with `NODE_VERSION` in `X.Y.Z` form or `PYTHON_VERSION` in `3.Y.Z` form | Include the annotation below, with `N` representing the number of unchecked images. |
 | No findings have changed | Send a notification when there are unchecked images. |
-| An unchecked image has saved `Node.js` records | Retain those records instead of treating them as resolved. |
-| Generic webhook | Include unchecked image references in the top-level `runtime_unchecked` array; omit it when none apply. |
+| An unchecked image has saved records for the unchecked runtime, `Node.js` or `Python runtime` | Retain those records instead of treating them as resolved. |
+| Generic webhook | Include objects with `image` and `package` in the top-level `runtime_unchecked` array; `package` is `Node.js` or `Python runtime`, and the array is omitted when none apply. |
 
-> Node.js advisories could not be fetched, so the Node.js runtime of N image(s) was not checked.
+> Advisories for Node.js, Python runtime could not be fetched, so the runtime of N image(s) was not checked.
+
+The annotation lists only the runtimes whose data is unavailable, and `N` counts distinct images.
+When only Node.js data is unavailable, the annotation is:
+
+> Advisories for Node.js could not be fetched, so the runtime of N image(s) was not checked.
 
 The JSON field is described in [Webhook report fields](webhook-reference.md#top-level).
 

@@ -20,11 +20,15 @@ Use the container's `TZ` environment variable to select the timezone used by
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `scan.severity` | `[HIGH, CRITICAL]` | Severities retained for analysis and notification, including Node.js runtime findings. |
+| `scan.severity` | `[HIGH, CRITICAL]` | Severities retained for analysis and notification, including Node.js and Python runtime findings. |
 
 Allowed severity values are `UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, and `CRITICAL`.
 
-### Node.js runtime checks {#node-runtime}
+### Language runtime checks {#language-runtime}
+
+KestreLynx checks the runtimes of languages whose package updates it supports: Node.js and Python.
+
+#### Node.js runtime checks {#node-runtime}
 
 KestreLynx checks the Node.js version recorded in `NODE_VERSION` against Node.js security advisories.
 Matching rules and limitations are described in [Node.js runtime findings](scan-logic.md#node-runtime).
@@ -40,6 +44,22 @@ Matching rules and limitations are described in [Node.js runtime findings](scan-
 
 The cache is stored under `nodejs/` in the same directory as `state.path`.
 Download destinations are listed in [Node.js advisory downloads](outbound-communication.md#node-runtime-download).
+
+#### Python runtime checks {#python-runtime}
+
+KestreLynx checks the CPython version recorded in `PYTHON_VERSION` against Python security advisory data.
+Matching rules and limitations are described in [Python runtime findings](scan-logic.md#python-runtime).
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `scan.python_runtime.enabled` | `true` | Enable advisory downloads and Python runtime checks; `false` disables both. |
+| `scan.python_runtime.advisory_db_url` | empty | Mirror URL for the PSF advisory database archive; empty uses `https://codeload.github.com/psf/advisory-database/tar.gz/refs/heads/main`. |
+| `scan.python_runtime.cve_record_base_url` | empty | Mirror base URL for official CVE records; empty uses `https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/`. |
+| `scan.python_runtime.releases_url` | empty | Mirror URL for the release list; empty uses `https://www.python.org/api/v2/downloads/release/?is_published=true`. |
+| `scan.python_runtime.release_cycle_url` | empty | Mirror URL for release-cycle data; empty uses `https://peps.python.org/api/release-cycle.json`. |
+
+The cache is stored under `python/` in the same directory as `state.path`.
+Download destinations are listed in [Python advisory downloads](outbound-communication.md#python-runtime-download).
 
 ## Notification destinations
 

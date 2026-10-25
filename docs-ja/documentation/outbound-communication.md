@@ -37,7 +37,21 @@ KestreLynxと、スキャン・依存更新に使用するツールの通信先�
 security-wgの索引更新はリリースから数週間以上遅れることがあるため、セキュリティブログで補います。
 これらの公開データとの照合はローカルで行い、イメージの情報や検出したCVEは取得先へ送信しません。
 
-取得先とミラーの設定は[Node.js本体の脆弱性照合](configuration.md#node-runtime)、更新規則は[脅威情報の更新](scan-logic.md#intel-cache)、取得失敗時の扱いは[Node.jsのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
+取得先とミラーの設定は[Node.js本体の脆弱性照合](configuration.md#node-runtime)、更新規則は[脅威情報の更新](scan-logic.md#intel-cache)、取得失敗時の扱いは[言語ランタイムのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
+
+### Pythonのセキュリティ情報の取得 {#python-runtime-download}
+
+| 通信主体 | 通信先 | 取得・送信する情報 | 発生条件 |
+| --- | --- | --- | --- |
+| KestreLynx | 既定は`codeload.github.com` | アドバイザリーの一覧を含むPSFの`advisory-database`を`tar.gz`で一括取得 | Python本体の照合が有効で、データの取得・更新が必要な場合 |
+| KestreLynx | 既定は`raw.githubusercontent.com` | PSFの一覧にある全CVEの公式レコードを`CVEProject/cvelistV5`から取得し、PSFが書いたCPythonの版の範囲と対象OS、深刻度、`REJECTED`の状態を取得 | Python本体の照合が有効で、レコードの取得・再検証が必要な場合 |
+| KestreLynx | 既定は`www.python.org` | 系列ごとの最終版を含むリリース一覧をAPIで一括取得 | Python本体の照合が有効で、データの取得・更新が必要な場合 |
+| KestreLynx | 既定は`peps.python.org` | 系列ごとのEOLの状態を含むリリースサイクルを一括取得 | Python本体の照合が有効で、データの取得・更新が必要な場合 |
+
+これらの公開データは全件を取得してローカルで照合し、イメージの情報や検出したCVEは取得先へ送信しません。
+CVEレコードの取得対象はPSFの一覧で決まり、イメージの検出結果によって選びません。
+
+取得先とミラーの設定は[Python本体の脆弱性照合](configuration.md#python-runtime)、更新規則は[脅威情報の更新](scan-logic.md#intel-cache)、取得失敗時の扱いは[言語ランタイムのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
 
 ### Hacker Newsの検索 {#hacker-news-search}
 

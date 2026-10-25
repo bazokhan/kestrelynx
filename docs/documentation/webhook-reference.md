@@ -33,7 +33,7 @@ With the default `[HIGH, CRITICAL]`, Slack display, webhook payloads, and logs r
 | `eol_packages` | array of objects | Images containing all `end_of_life` groups; `[]` when none apply. |
 | `scan_errors` | array of objects | [Scan failures](#scan-errors); `[]` when none apply. |
 
-| `runtime_unchecked` | array of strings | Image references whose Node.js runtime was not checked because advisory data was unavailable; omitted when none apply. |
+| `runtime_unchecked` | array of objects | [Unchecked language runtimes](#runtime-unchecked) whose advisory data was unavailable; omitted when none apply. |
 | `diff` | object | [Changes](#diff); omitted in full mode. |
 | `runtime` | object | [Sensor information and usage counts](#runtime); omitted when runtime usage is disabled. |
 | `remediation` | object | [Remediation plans and PR processing results](webhook-remediation-reference.md#remediation-fields); omitted when remediation planning is disabled. |
@@ -67,8 +67,15 @@ With the default `[HIGH, CRITICAL]`, Slack display, webhook payloads, and logs r
 `priority_counts` includes EOL packages only when their priority is Act now.
 Its scope overlaps with `eol_packages`, so the three counts do not necessarily sum to the total number of package groups.
 
-Images whose Node.js runtime could not be checked are listed in the top-level `runtime_unchecked` field.
-Notification and history handling are described in [Unavailable Node.js advisory data](scan-logic.md#node-runtime-unavailable).
+Images whose Node.js or Python runtime could not be checked are listed with the corresponding package name in the top-level `runtime_unchecked` field.
+Notification and history handling are described in [Unavailable language runtime advisory data](scan-logic.md#node-runtime-unavailable).
+
+### Unchecked language runtimes {#runtime-unchecked}
+
+| `runtime_unchecked[]` field | Type | Meaning |
+| --- | --- | --- |
+| `image` | string | Image reference whose runtime was not checked because advisory data was unavailable. |
+| `package` | string | Unchecked runtime package name: `Node.js` or `Python runtime`. |
 
 ### Scan failures {#scan-errors}
 

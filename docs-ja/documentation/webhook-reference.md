@@ -33,7 +33,7 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 | `eol_packages` | objectの配列 | 全`end_of_life`グループのイメージで、該当なしは`[]` |
 | `scan_errors` | objectの配列 | [スキャン失敗](#scan-errors)で、該当なしは`[]` |
 
-| `runtime_unchecked` | stringの配列 | セキュリティ情報を利用できずNode.js本体を照合しなかったイメージ参照で、該当なしは省略 |
+| `runtime_unchecked` | objectの配列 | セキュリティ情報を利用できなかった[未照合の言語ランタイム](#runtime-unchecked)で、該当なしは省略 |
 | `diff` | object | [差分](#diff)で、fullモードでは省略 |
 | `runtime` | object | [Sensorの情報と使用状況の件数](#runtime)で、稼働時の使用状況が無効なら省略 |
 | `remediation` | object | [修正計画とPR処理の結果](webhook-remediation-reference.md#remediation-fields)で、修正計画が無効なら省略 |
@@ -67,8 +67,15 @@ Slackと併用できますが、DiscordやTeams専用のメッセージ形式に
 `priority_counts`には、EOLパッケージをAct nowの場合だけ加算します。
 `eol_packages`と集計対象が重なり、3値の合計は全パッケージグループ数とは限りません。
 
-Node.js本体を照合できなかったイメージは、トップレベルの`runtime_unchecked`に含めます。
-通知と履歴の扱いは、[Node.jsのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
+Node.jsまたはPython本体を照合できなかったイメージは、対応するパッケージ名とともにトップレベルの`runtime_unchecked`に含めます。
+通知と履歴の扱いは、[言語ランタイムのセキュリティ情報の利用不能時の扱い](scan-logic.md#node-runtime-unavailable)に記載しています。
+
+### 未照合の言語ランタイム {#runtime-unchecked}
+
+| `runtime_unchecked[]`のフィールド名 | 型 | 意味 |
+| --- | --- | --- |
+| `image` | string | セキュリティ情報を利用できず本体を照合しなかったイメージ参照 |
+| `package` | string | 未照合の本体のパッケージ名で、`Node.js`または`Python runtime` |
 
 ### スキャン失敗 {#scan-errors}
 
