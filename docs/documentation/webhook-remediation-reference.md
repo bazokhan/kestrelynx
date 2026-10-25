@@ -121,6 +121,7 @@ See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for
 | `dockerfile_items[].base_ref` / `dockerfile_items[].base_kind` | string | Current base-image reference and tag classification; omitted when empty. |
 | `dockerfile_items[].candidate` | object | Candidate [image information](#remediation-image-fields); omitted when there is no candidate. |
 | `dockerfile_items[].counts` | object | Integer counts named `targets`, `resolved`, `remaining`, and `introduced`. |
+| `dockerfile_items[].rebuild_runtimes` | array of objects | Aggregated runtime rebuild estimates when all running images have the `floating_base_unconfirmed` outcome; omitted when empty. |
 | `dockerfile_items[].entities` | array of objects | Matching and comparison results for each running image; omitted when empty. |
 | `dockerfile_items[].final_image_verified` | boolean | Whether the rebuilt application image has been verified; always `false`. |
 | `dockerfile_items[].pull_request` | object | Matching [PR processing](#remediation-pr-fields); omitted when there is no match. |
@@ -136,7 +137,23 @@ See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for
 | `targets` | integer | Number of findings targeted for comparison. |
 | `kev_targets` | integer | Number of comparison targets listed in KEV; omitted when `0`. |
 | `comparison` | object | [Comparison result](#remediation-image-fields); omitted when no result is available. |
+| `rebuild_runtimes` | array of objects | Runtime rebuild estimates for this running image when its outcome is `floating_base_unconfirmed`; omitted when empty. |
 | `scans` | array of objects | [Scan records](#remediation-image-fields); omitted when empty. |
+
+Both `rebuild_runtimes[]` arrays contain estimates based on the current base's runtime version, not comparisons of the final image.
+
+| `rebuild_runtimes[]` field | Type | Meaning and omission conditions |
+| --- | --- | --- |
+| `package` | string | Runtime name, either `Node.js` or `Python runtime`. |
+| `installed` | string | Runtime version in the running image. |
+| `base_version` | string | Runtime version in the current base. |
+| `disappearing` | array of strings | IDs of currently detected CVEs expected to disappear if the rebuild inherits that version; omitted when empty. |
+| `remaining` | array of strings | IDs of currently detected CVEs that remain in that version; omitted when empty. |
+
+- CVE aggregation
+  - CVEs introduced by the new version are excluded
+  - Item-level records are grouped by `package`, `installed`, and `base_version`, with CVE IDs deduplicated and sorted, and IDs remaining in any running image excluded from `disappearing`
+  - Mixed outcomes across running images omit the item-level estimate while preserving individual records in `entities[]`
 
 See [Verification scope by target](remediation-logic.md#verification-scope) for the scope of checks.
 

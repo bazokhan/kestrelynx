@@ -170,6 +170,12 @@ This classification continues when triage is disabled.
 
 KestreLynx checks the runtimes of languages whose package updates it supports: Node.js and Python.
 
+- Handling in remediation plans
+  - Findings attributable to the base are included in base-update comparisons, and an unconfirmed floating-tag base can produce a rebuild estimate from the current base's runtime version
+  - See [Base layer matching](remediation-logic.md#base-layer-matching) for attribution conditions and estimate limitations
+- End-of-life notifications
+  - Runtime findings with status `end_of_life` use the note "end-of-life: no fix will be released for this series, so the series has to be upgraded (manual)"
+
 #### Node.js runtime findings {#node-runtime}
 
 Official `node` images and their derivatives install the Node.js runtime under `/usr/local` from nodejs.org tarballs.

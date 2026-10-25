@@ -184,9 +184,11 @@ It does not mean that running containers have been replaced with that content.
 | --- | --- |
 | `a rebuild is expected to pick up … or later` | The pip dependency range permits a fixed version, so a rebuild is expected to resolve the finding. |
 | `which base the running image was built from cannot be confirmed` | The base behind a floating tag could not be confirmed, so the guidance is to pull the current base and rebuild. |
-| Guidance to run `docker compose build --pull` | Instructions to pull the base again, without a confirmed improvement in vulnerabilities. |
+| Guidance to run `docker compose build --pull` | Instructions to pull the base again and rebuild when the Dockerfile was discovered through Compose `build`. |
+| pull the base again, rebuild the image (for example with `docker build --pull`) and deploy it again | Guidance when the Dockerfile was found only through a configured mapping, including images built in CI. |
+| `Node.js in the current … is …; if the rebuild takes over this version, … of the … findings of the detected Node.js … are expected to disappear (the rebuilt image is not checked)` | The number of currently detected CVEs expected to disappear if the rebuild inherits the current base's runtime version, excluding CVEs introduced by the new version; Python is displayed as `Python runtime`. |
 
-Neither case confirms the version actually installed by a rebuild or resolution in the running image after deployment.
+None of these cases confirms the version actually installed by a rebuild or resolution in the running image after deployment.
 For details, see [Direct dependency version constraints](remediation-logic.md#direct-dependencies) and [Base layer matching](remediation-logic.md#base-layer-matching).
 
 ### Resolved findings in comparisons {#verification-results}

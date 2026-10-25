@@ -193,15 +193,30 @@ KestreLynx checks that the current base image's layer sequence matches the start
 | Empty or unavailable layer information | Treats the images as not comparable. |
 | Match for a floating tag | Determines that no update can be confirmed from the base currently referenced by the tag. |
 
-Base remediation targets are findings that Trivy reports as belonging to the matched base layers.
+Base remediation targets include findings that Trivy reports as belonging to the matched base layers and runtime findings attributed to the base under the conditions below.
 
 - Findings in later layers are excluded from base remediation targets
-- Findings without layer information, or with a layer ID appearing both inside and outside the base, are not attributed to the base
+- Findings without layer information, or with a layer ID appearing both inside and outside the base, are not attributed to the base unless they meet the runtime conditions below
 - If floating-tag content does not match the start of the running image's layers, it is not adopted as a candidate with confirmed improvement
+
+- Runtime attribution and comparison for pinned tags
+  - Runtime findings that could not be attributed to a layer are attributed to the base when the layer sequences match and both the running image and current base image configurations contain the runtime's version variable (`NODE_VERSION` for Node.js or `PYTHON_VERSION` for Python) with the same value
+  - If the same environment variable appears more than once, the last value is used
+  - Comparisons of the current base and candidate also check runtimes, and if a targeted runtime cannot be checked on either side, the result is indeterminate and the candidate is not adopted
+- Rebuild estimates for an unconfirmed floating-tag base
+  - When the running image has runtime findings and that runtime's version can be checked from the current base image configuration, KestreLynx estimates how many findings would disappear if a rebuild inherits that version
+  - The count covers currently detected CVEs for the same runtime and excludes CVEs introduced by the new version
+  - Item-level guidance includes the estimate only when every running image in the item has the `floating_base_unconfirmed` outcome
+  - The category remains `not_comparable` because this is not a comparison of the final image
 
 !!! note "Layer matching and build provenance"
 
     A match establishes correspondence between filesystem layers. Trivy may still attribute a package to a base layer even if a later instruction reinstalls the same name and version.
+
+!!! note "Known runtime limitations"
+
+    - Replacing only the `node` or `python` executable in an upper layer cannot be distinguished if the version environment variable stays the same
+    - Reinstalling the runtime in the Dockerfile or overriding its version with `ENV` can invalidate the rebuild estimate
 
 See [Rebuild guidance](remediation-results.md#rebuild-guidance) for interpreting guidance about floating-tag bases.
 

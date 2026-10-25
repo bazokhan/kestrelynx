@@ -121,6 +121,7 @@
 | `dockerfile_items[].base_ref` / `dockerfile_items[].base_kind` | string | 現在のベースイメージ参照とタグの分類で、空なら省略 |
 | `dockerfile_items[].candidate` | object | 候補の[イメージ情報](#remediation-image-fields)で、候補がなければ省略 |
 | `dockerfile_items[].counts` | object | 整数値の`targets`・`resolved`・`remaining`・`introduced`による集計 |
+| `dockerfile_items[].rebuild_runtimes` | objectの配列 | 全稼働イメージが`floating_base_unconfirmed`の場合にまとめたランタイムの再ビルドの見込みで、空なら省略 |
 | `dockerfile_items[].entities` | objectの配列 | 稼働イメージごとの照合・比較結果で、空なら省略 |
 | `dockerfile_items[].final_image_verified` | boolean | 再ビルド後のアプリケーションイメージの検証有無で、常に`false` |
 | `dockerfile_items[].pull_request` | object | 対応する[PR処理](#remediation-pr-fields)で、対応がなければ省略 |
@@ -136,7 +137,23 @@
 | `targets` | integer | 比較対象の所見数 |
 | `kev_targets` | integer | KEVに掲載された比較対象の所見数で、`0`なら省略 |
 | `comparison` | object | [比較結果](#remediation-image-fields)で、結果がなければ省略 |
+| `rebuild_runtimes` | objectの配列 | この稼働イメージが`floating_base_unconfirmed`の場合のランタイムの再ビルドの見込みで、空なら省略 |
 | `scans` | objectの配列 | [スキャンの記録](#remediation-image-fields)で、空なら省略 |
+
+両方の`rebuild_runtimes[]`は、現在のベースのランタイムの版から求めた見込みで、完成イメージの比較ではありません。
+
+| `rebuild_runtimes[]`のフィールド名 | 型 | 意味・省略条件 |
+| --- | --- | --- |
+| `package` | string | ランタイム名で、`Node.js`または`Python runtime` |
+| `installed` | string | 稼働イメージのランタイムの版 |
+| `base_version` | string | 現在のベースのランタイムの版 |
+| `disappearing` | stringの配列 | 検出中のCVEのうち、その版を引き継げば出なくなる見込みのIDで、空なら省略 |
+| `remaining` | stringの配列 | 検出中のCVEのうち、その版でも残るIDで、空なら省略 |
+
+- CVEの集計
+  - 新しい版で増えるCVEは含めない
+  - 項目全体では`package`・`installed`・`base_version`が同じ記録をまとめ、CVEのIDの重複を除いて並べ、どれかの稼働イメージで残るIDは`disappearing`に含めない
+  - 稼働イメージごとの判定が混在する場合は項目全体の見込みを省略し、`entities[]`には個別の記録を残す
 
 検査の範囲は、[対象別の検証範囲](remediation-logic.md#verification-scope)を参照してください。
 
