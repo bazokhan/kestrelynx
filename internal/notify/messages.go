@@ -115,6 +115,7 @@ type messages struct {
 
 	// --- end-of-life wording ---
 	EOLPackageText   string // "end-of-life: no fix planned for this release"
+	EOLRuntimeText   string // "end-of-life: no fix will be released for this series; upgrade the series (manual)" (a language runtime itself)
 	EOLSectionReason string // "vendor reports these CVEs as out of support for this release"
 
 	// --- triage headline / intel warnings ---
@@ -302,9 +303,10 @@ type messages struct {
 	RiskValueUnknown      string // "⚪ risk unknown"
 
 	// What to do when there is no fix, shown after the fixed-in "none".
-	FixNoteMitigate string // "consider mitigation"
-	FixNoteWontFix  string // "no fix planned for this OS release, consider replacing"
-	FixNoteEOL      string // "end-of-life: no fix planned for this release, consider a supported version"
+	FixNoteMitigate   string // "consider mitigation"
+	FixNoteWontFix    string // "no fix planned for this OS release, consider replacing"
+	FixNoteEOL        string // "end-of-life: no fix planned for this release, consider a supported version"
+	FixNoteEOLRuntime string // the same as EOLRuntimeText, for a language runtime itself
 
 	CardNewCVEs      string // "new CVEs: %s" (linked CVE ids)
 	CardKEVShort     string // "CISA KEV"
@@ -391,50 +393,52 @@ type messages struct {
 	PlanLblManagedBy     string // "Managed by (from markers)"
 
 	// Values.
-	PlanPullRestart       string // "restarting the Pods pulls the new content"
-	PlanPullChangeTag     string // "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed"
-	PlanPullImportToNode  string // "the image has to be brought to the node"
-	PlanPullValue         string // "%[1]s: %[2]s (%[3]s)" (policy, guidance, workloads)
-	PlanOwnerHelm         string // "Helm release %[1]s (%[2]s)" (name, namespace)
-	PlanOwnerArgoCD       string // "Argo CD app %s"
-	PlanOwnerFluxKust     string // "Flux Kustomization %[2]s/%[1]s" (name, namespace)
-	PlanOwnerFluxHelm     string // "Flux HelmRelease %[2]s/%[1]s" (name, namespace)
-	PlanManagedValue      string // "%[1]s: %[2]s" (workload, chain), when several workloads are shown
-	PlanFileValue         string // "%[2]s in %[1]s" (repository, path)
-	PlanPRValue           string // "%[1]s (%[2]s)" (link, status)
-	PlanPRStatusCreated   string // "opened now"
-	PlanPRStatusOpen      string // "open"
-	PlanPRStatusMerged    string // "merged"
-	PlanPRStatusClosed    string // "closed without merging"
-	PlanChange            string // "%[1]s %[2]s → %[3]s" (name, old version, new version)
-	PlanBaseImageValue    string // "base image %[1]s %[2]s → %[3]s" (image, old tag, new tag)
-	PlanListSep           string // ", " (between the items of a value)
-	PlanMore              string // " and %d more" (after a list cut at ten)
-	PlanMajorZero         string // "%s (0.x minor change)" (a package change)
-	PlanMajorEdit         string // "%[1]s specifier %[2]s → %[3]s (%[4]s)" (package, old, new, file)
-	PlanResolves          string // "resolves %d finding(s)"
-	PlanResolvesPartial   string // "resolves %[1]d of %[2]d findings" (resolved, targeted)
-	PlanKEVClause         string // "%d KEV"
-	PlanUndetectedClause  string // "%d not detected on the running image"
-	PlanClauseJoin        string // ", " (between the clauses)
-	PlanClauseWrap        string // " (%s)" (around the joined clauses)
-	PlanPackageReason     string // "%[1]s %[2]s → %[3]s: %[4]s%[5]s" (name, installed, target, reason, the lockfile note)
-	PlanLockfileUnchanged string // " (the lockfile did not change)"
-	PlanLeftOut           string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
-	PlanChangeWith        string // "%[1]s %[2]s → %[3]s (with %[4]s)" (name, old, new, the direct dependencies updated with it)
-	PlanChainNotFixed     string // "%[1]s %[2]s → %[3]s: re-resolving %[4]s ... did not reach the fixed version this time" (name, installed, target, the direct dependencies)
-	PlanChainRejected     string // "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s" (..., why)
-	PlanChainHeld         string // "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s" (..., why)
-	PlanChainWaiting      string // "... a version it brings in is less than 72 hours old, so it is tried again after %[5]s" (..., the time)
-	PlanNotUpdated        string // "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (...)" (name, target, installed, lockfile)
-	PlanNotInFile         string // "packages that are not in %s (...)" (lockfile)
-	PlanWrongVersion      string // "packages whose version in the image differs from %s (...)" (lockfile)
-	PlanBulletVersions    string // "  • %[1]s: the image has %[2]s, %[3]s has %[4]s" (name, image version, lockfile, lockfile versions)
-	PlanBullet            string // "  • %[1]s %[2]s" (name, installed)
-	PlanRebuildValue      string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later" (name, installed, lowest fixed version)
-	PlanDockerfileRebuild string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
-	PlanRuntimeEOL        string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
-	PlanRuntimeEOLNoDate  string // the same for a runtime the table has no date for (runtime name)
+	PlanPullRestart              string // "restarting the Pods pulls the new content"
+	PlanPullChangeTag            string // "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed"
+	PlanPullImportToNode         string // "the image has to be brought to the node"
+	PlanPullValue                string // "%[1]s: %[2]s (%[3]s)" (policy, guidance, workloads)
+	PlanOwnerHelm                string // "Helm release %[1]s (%[2]s)" (name, namespace)
+	PlanOwnerArgoCD              string // "Argo CD app %s"
+	PlanOwnerFluxKust            string // "Flux Kustomization %[2]s/%[1]s" (name, namespace)
+	PlanOwnerFluxHelm            string // "Flux HelmRelease %[2]s/%[1]s" (name, namespace)
+	PlanManagedValue             string // "%[1]s: %[2]s" (workload, chain), when several workloads are shown
+	PlanFileValue                string // "%[2]s in %[1]s" (repository, path)
+	PlanPRValue                  string // "%[1]s (%[2]s)" (link, status)
+	PlanPRStatusCreated          string // "opened now"
+	PlanPRStatusOpen             string // "open"
+	PlanPRStatusMerged           string // "merged"
+	PlanPRStatusClosed           string // "closed without merging"
+	PlanChange                   string // "%[1]s %[2]s → %[3]s" (name, old version, new version)
+	PlanBaseImageValue           string // "base image %[1]s %[2]s → %[3]s" (image, old tag, new tag)
+	PlanListSep                  string // ", " (between the items of a value)
+	PlanMore                     string // " and %d more" (after a list cut at ten)
+	PlanMajorZero                string // "%s (0.x minor change)" (a package change)
+	PlanMajorEdit                string // "%[1]s specifier %[2]s → %[3]s (%[4]s)" (package, old, new, file)
+	PlanResolves                 string // "resolves %d finding(s)"
+	PlanResolvesPartial          string // "resolves %[1]d of %[2]d findings" (resolved, targeted)
+	PlanKEVClause                string // "%d KEV"
+	PlanUndetectedClause         string // "%d not detected on the running image"
+	PlanClauseJoin               string // ", " (between the clauses)
+	PlanClauseWrap               string // " (%s)" (around the joined clauses)
+	PlanPackageReason            string // "%[1]s %[2]s → %[3]s: %[4]s%[5]s" (name, installed, target, reason, the lockfile note)
+	PlanLockfileUnchanged        string // " (the lockfile did not change)"
+	PlanLeftOut                  string // "%[1]s %[2]s → %[3]s left out because %[4]s" (name, old, target, reason)
+	PlanChangeWith               string // "%[1]s %[2]s → %[3]s (with %[4]s)" (name, old, new, the direct dependencies updated with it)
+	PlanChainNotFixed            string // "%[1]s %[2]s → %[3]s: re-resolving %[4]s ... did not reach the fixed version this time" (name, installed, target, the direct dependencies)
+	PlanChainRejected            string // "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s" (..., why)
+	PlanChainHeld                string // "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s" (..., why)
+	PlanChainWaiting             string // "... a version it brings in is less than 72 hours old, so it is tried again after %[5]s" (..., the time)
+	PlanNotUpdated               string // "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (...)" (name, target, installed, lockfile)
+	PlanNotInFile                string // "packages that are not in %s (...)" (lockfile)
+	PlanWrongVersion             string // "packages whose version in the image differs from %s (...)" (lockfile)
+	PlanBulletVersions           string // "  • %[1]s: the image has %[2]s, %[3]s has %[4]s" (name, image version, lockfile, lockfile versions)
+	PlanBullet                   string // "  • %[1]s %[2]s" (name, installed)
+	PlanRebuildValue             string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later" (name, installed, lowest fixed version)
+	PlanDockerfileRebuild        string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
+	PlanDockerfileRebuildMapping string // the same for an image built outside Compose: pull the base again, rebuild and deploy again
+	PlanRebuildRuntime           string // "%[1]s has %[2]s %[3]s now; ... %[5]d of the %[6]d findings of %[2]s %[4]s are expected to disappear ..." (base ref, runtime, base version, installed version, disappearing, total)
+	PlanRuntimeEOL               string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
+	PlanRuntimeEOLNoDate         string // the same for a runtime the table has no date for (runtime name)
 
 	// Conditions that stop pull request writes.
 	PlanPRProblemLine       string // "⚠️ Pull request writes are stopped: %s" (the joined reasons)
@@ -519,6 +523,7 @@ var enMessages = messages{
 	RiskUnknown:      "⚪ upgrade: risk unknown",
 
 	EOLPackageText:   "end-of-life: no fix planned for this release",
+	EOLRuntimeText:   "end-of-life: no fix will be released for this series, so the series has to be upgraded (manual)",
 	EOLSectionReason: "vendor reports these CVEs as out of support for this release",
 
 	SegActNow:            "🚨 %d act now",
@@ -676,9 +681,10 @@ var enMessages = messages{
 	RiskValueCaution:      "🟠 major version bump — needs care",
 	RiskValueUnknown:      "⚪ risk unknown",
 
-	FixNoteMitigate: "consider mitigation",
-	FixNoteWontFix:  "no fix planned for this OS release, consider replacing",
-	FixNoteEOL:      "end-of-life: no fix planned for this release, consider a supported version",
+	FixNoteMitigate:   "consider mitigation",
+	FixNoteWontFix:    "no fix planned for this OS release, consider replacing",
+	FixNoteEOL:        "end-of-life: no fix planned for this release, consider a supported version",
+	FixNoteEOLRuntime: "end-of-life: no fix will be released for this series, so the series has to be upgraded (manual)",
 
 	CardNewCVEs:      "new CVEs: %s",
 	CardKEVShort:     "CISA KEV",
@@ -757,50 +763,52 @@ var enMessages = messages{
 	PlanLblPullPolicy:    "Pull policy",
 	PlanLblManagedBy:     "Managed by (from markers)",
 
-	PlanPullRestart:       "restarting the Pods pulls the new content",
-	PlanPullChangeTag:     "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed",
-	PlanPullImportToNode:  "the image has to be brought to the node",
-	PlanPullValue:         "%[1]s: %[2]s (%[3]s)",
-	PlanOwnerHelm:         "Helm release %[1]s (%[2]s)",
-	PlanOwnerArgoCD:       "Argo CD app %s",
-	PlanOwnerFluxKust:     "Flux Kustomization %[2]s/%[1]s",
-	PlanOwnerFluxHelm:     "Flux HelmRelease %[2]s/%[1]s",
-	PlanManagedValue:      "%[1]s: %[2]s",
-	PlanFileValue:         "%[2]s in %[1]s",
-	PlanPRValue:           "%[1]s (%[2]s)",
-	PlanPRStatusCreated:   "opened now",
-	PlanPRStatusOpen:      "open",
-	PlanPRStatusMerged:    "merged",
-	PlanPRStatusClosed:    "closed without merging",
-	PlanChange:            "%[1]s %[2]s → %[3]s",
-	PlanBaseImageValue:    "base image %[1]s %[2]s → %[3]s",
-	PlanListSep:           ", ",
-	PlanMore:              " and %d more",
-	PlanMajorZero:         "%s (0.x minor change)",
-	PlanMajorEdit:         "%[1]s specifier %[2]s → %[3]s (%[4]s)",
-	PlanResolves:          "resolves %d finding(s)",
-	PlanResolvesPartial:   "resolves %[1]d of %[2]d findings",
-	PlanKEVClause:         "%d KEV",
-	PlanUndetectedClause:  "%d not detected on the running image",
-	PlanClauseJoin:        ", ",
-	PlanClauseWrap:        " (%s)",
-	PlanPackageReason:     "%[1]s %[2]s → %[3]s: %[4]s%[5]s",
-	PlanLockfileUnchanged: " (the lockfile did not change)",
-	PlanLeftOut:           "%[1]s %[2]s → %[3]s left out because %[4]s",
-	PlanChangeWith:        "%[1]s %[2]s → %[3]s (with %[4]s)",
-	PlanChainNotFixed:     "%[1]s %[2]s → %[3]s: re-resolving %[4]s within the project's ranges did not reach the fixed version this time",
-	PlanChainRejected:     "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s",
-	PlanChainHeld:         "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s",
-	PlanChainWaiting:      "%[1]s %[2]s → %[3]s needs %[4]s updated as well; a version it brings in is less than 72 hours old, so it is tried again after %[5]s",
-	PlanNotUpdated:        "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on %[1]s)",
-	PlanNotInFile:         "packages that are not in %s (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)",
-	PlanWrongVersion:      "packages whose version in the image differs from %s (the image may not have been built from the current %[1]s, so rebuild it and check again)",
-	PlanBulletVersions:    "  • %[1]s: the image has %[2]s, %[3]s has %[4]s",
-	PlanBullet:            "  • %[1]s %[2]s",
-	PlanRebuildValue:      "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later",
-	PlanDockerfileRebuild: "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
-	PlanRuntimeEOL:        "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
-	PlanRuntimeEOLNoDate:  "%[1]s is past the end of its support; upgrade the runtime before updating",
+	PlanPullRestart:              "restarting the Pods pulls the new content",
+	PlanPullChangeTag:            "nodes keep the image they have, so a restart does not help; a fixed tag or a digest is needed",
+	PlanPullImportToNode:         "the image has to be brought to the node",
+	PlanPullValue:                "%[1]s: %[2]s (%[3]s)",
+	PlanOwnerHelm:                "Helm release %[1]s (%[2]s)",
+	PlanOwnerArgoCD:              "Argo CD app %s",
+	PlanOwnerFluxKust:            "Flux Kustomization %[2]s/%[1]s",
+	PlanOwnerFluxHelm:            "Flux HelmRelease %[2]s/%[1]s",
+	PlanManagedValue:             "%[1]s: %[2]s",
+	PlanFileValue:                "%[2]s in %[1]s",
+	PlanPRValue:                  "%[1]s (%[2]s)",
+	PlanPRStatusCreated:          "opened now",
+	PlanPRStatusOpen:             "open",
+	PlanPRStatusMerged:           "merged",
+	PlanPRStatusClosed:           "closed without merging",
+	PlanChange:                   "%[1]s %[2]s → %[3]s",
+	PlanBaseImageValue:           "base image %[1]s %[2]s → %[3]s",
+	PlanListSep:                  ", ",
+	PlanMore:                     " and %d more",
+	PlanMajorZero:                "%s (0.x minor change)",
+	PlanMajorEdit:                "%[1]s specifier %[2]s → %[3]s (%[4]s)",
+	PlanResolves:                 "resolves %d finding(s)",
+	PlanResolvesPartial:          "resolves %[1]d of %[2]d findings",
+	PlanKEVClause:                "%d KEV",
+	PlanUndetectedClause:         "%d not detected on the running image",
+	PlanClauseJoin:               ", ",
+	PlanClauseWrap:               " (%s)",
+	PlanPackageReason:            "%[1]s %[2]s → %[3]s: %[4]s%[5]s",
+	PlanLockfileUnchanged:        " (the lockfile did not change)",
+	PlanLeftOut:                  "%[1]s %[2]s → %[3]s left out because %[4]s",
+	PlanChangeWith:               "%[1]s %[2]s → %[3]s (with %[4]s)",
+	PlanChainNotFixed:            "%[1]s %[2]s → %[3]s: re-resolving %[4]s within the project's ranges did not reach the fixed version this time",
+	PlanChainRejected:            "%[1]s %[2]s → %[3]s needs %[4]s updated as well, and that update was not adopted because %[5]s",
+	PlanChainHeld:                "%[1]s %[2]s → %[3]s is held back by %[4]s, and updating %[4]s was not tried because %[5]s",
+	PlanChainWaiting:             "%[1]s %[2]s → %[3]s needs %[4]s updated as well; a version it brings in is less than 72 hours old, so it is tried again after %[5]s",
+	PlanNotUpdated:               "%[1]s could not be raised to %[2]s, which fixes the vulnerability, and stays at %[3]s in %[4]s (KestreLynx did not look into why it cannot be raised, so check the version ranges of the packages that depend on %[1]s)",
+	PlanNotInFile:                "packages that are not in %s (they probably came into the image by a route other than the lockfile, so updating the lockfile cannot fix them)",
+	PlanWrongVersion:             "packages whose version in the image differs from %s (the image may not have been built from the current %[1]s, so rebuild it and check again)",
+	PlanBulletVersions:           "  • %[1]s: the image has %[2]s, %[3]s has %[4]s",
+	PlanBullet:                   "  • %[1]s %[2]s",
+	PlanRebuildValue:             "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later",
+	PlanDockerfileRebuild:        "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
+	PlanDockerfileRebuildMapping: "which base the running image was built from cannot be confirmed; pull the base again, rebuild the image (for example with `docker build --pull`) and deploy it again",
+	PlanRebuildRuntime:           "%[2]s in the current %[1]s is %[3]s; if the rebuild takes over this version, %[5]d of the %[6]d findings of the detected %[2]s %[4]s are expected to disappear (the rebuilt image is not checked)",
+	PlanRuntimeEOL:               "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
+	PlanRuntimeEOLNoDate:         "%[1]s is past the end of its support; upgrade the runtime before updating",
 
 	PlanPRProblemLine:       "⚠️ Pull request writes are stopped: %s",
 	PlanPRProblemJoin:       "; ",
@@ -880,6 +888,7 @@ var jaMessages = messages{
 	RiskUnknown:      "⚪ アップグレード: リスク不明",
 
 	EOLPackageText:   "サポート終了(EOL): このリリースでは修正予定なし",
+	EOLRuntimeText:   "サポート終了(EOL): この系列には修正版が出ないため、系列を上げる必要がある(手動)",
 	EOLSectionReason: "ベンダーがこれらのCVEをこのリリースのサポート対象外と報告",
 
 	SegActNow:            "🚨 今すぐ対応%d件",
@@ -1038,9 +1047,10 @@ var jaMessages = messages{
 	RiskValueCaution:      "🟠 メジャーバージョン更新 — 要注意",
 	RiskValueUnknown:      "⚪ リスク不明",
 
-	FixNoteMitigate: "緩和策を検討",
-	FixNoteWontFix:  "このOSリリースでは修正予定なし、置き換えを検討",
-	FixNoteEOL:      "サポート終了(EOL): このリリースでは修正予定なし、サポート中のバージョンを検討",
+	FixNoteMitigate:   "緩和策を検討",
+	FixNoteWontFix:    "このOSリリースでは修正予定なし、置き換えを検討",
+	FixNoteEOL:        "サポート終了(EOL): このリリースでは修正予定なし、サポート中のバージョンを検討",
+	FixNoteEOLRuntime: "サポート終了(EOL): この系列には修正版が出ないため、系列を上げる必要がある(手動)",
 
 	CardNewCVEs:      "新しいCVE %s",
 	CardKEVShort:     "CISA KEV",
@@ -1119,50 +1129,52 @@ var jaMessages = messages{
 	PlanLblPullPolicy:    "pullポリシー",
 	PlanLblManagedBy:     "管理元(目印による推定)",
 
-	PlanPullRestart:       "Podを再起動すると新しい中身を取得する",
-	PlanPullChangeTag:     "ノードにある古い中身が使われるため再起動では直らない。固定タグへの変更かdigest指定が要る",
-	PlanPullImportToNode:  "ノードへのイメージの取り込みが要る",
-	PlanPullValue:         "%[1]s: %[2]s (%[3]s)",
-	PlanOwnerHelm:         "Helmリリース %[1]s (%[2]s)",
-	PlanOwnerArgoCD:       "Argo CDアプリ %s",
-	PlanOwnerFluxKust:     "Flux Kustomization %[2]s/%[1]s",
-	PlanOwnerFluxHelm:     "Flux HelmRelease %[2]s/%[1]s",
-	PlanManagedValue:      "%[1]s: %[2]s",
-	PlanFileValue:         "%[1]s の %[2]s",
-	PlanPRValue:           "%[1]s (%[2]s)",
-	PlanPRStatusCreated:   "今回作成",
-	PlanPRStatusOpen:      "オープン中",
-	PlanPRStatusMerged:    "マージ済み",
-	PlanPRStatusClosed:    "未マージでクローズ",
-	PlanChange:            "%[1]s %[2]s → %[3]s",
-	PlanBaseImageValue:    "ベースイメージ %[1]s %[2]s → %[3]s",
-	PlanListSep:           "、",
-	PlanMore:              " ほか%d件",
-	PlanMajorZero:         "%s (0.x のマイナー変更)",
-	PlanMajorEdit:         "%[1]s の指定 %[2]s → %[3]s (%[4]s)",
-	PlanResolves:          "所見%d件が解消",
-	PlanResolvesPartial:   "所見%[2]d件中%[1]d件が解消",
-	PlanKEVClause:         "KEV %d件",
-	PlanUndetectedClause:  "稼働中のイメージで未検出 %d件",
-	PlanClauseJoin:        "、",
-	PlanClauseWrap:        " (%s)",
-	PlanPackageReason:     "%[1]s %[2]s → %[3]s は%[4]s%[5]s",
-	PlanLockfileUnchanged: " (lockfile は変わらず)",
-	PlanLeftOut:           "%[1]s %[2]s → %[3]s は%[4]sため除外",
-	PlanChangeWith:        "%[1]s %[2]s → %[3]s（%[4]s も更新）",
-	PlanChainNotFixed:     "%[1]s %[2]s → %[3]s: %[4]s をプロジェクトの範囲内で解決し直したが、今回の再解決では修正版に届かなかった",
-	PlanChainRejected:     "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、%[5]sため採用しない",
-	PlanChainHeld:         "%[1]s %[2]s → %[3]s は %[4]s に止められていて、%[5]sため %[4]s の更新を試していない",
-	PlanChainWaiting:      "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、入る版の公開から72時間経っていないため %[5]s 以降に再試行する",
-	PlanNotUpdated:        "%[1]s は脆弱性が直る %[2]s に上げられず、%[4]s では %[3]s のまま（上げられない原因は KestreLynx では調べていないため、%[1]s に依存しているパッケージの版の指定を確認してください）",
-	PlanNotInFile:         "%s に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）",
-	PlanWrongVersion:      "イメージに入っている版が %s と違うパッケージ（イメージが今の %[1]s から作られていない可能性があるため、作り直してから確認してください）",
-	PlanBulletVersions:    "  • %[1]s: イメージは %[2]s、%[3]s は %[4]s",
-	PlanBullet:            "  • %[1]s %[2]s",
-	PlanRebuildValue:      "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み",
-	PlanDockerfileRebuild: "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
-	PlanRuntimeEOL:        "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
-	PlanRuntimeEOLNoDate:  "%[1]s はサポート終了。実行環境を上げてから更新してください",
+	PlanPullRestart:              "Podを再起動すると新しい中身を取得する",
+	PlanPullChangeTag:            "ノードにある古い中身が使われるため再起動では直らない。固定タグへの変更かdigest指定が要る",
+	PlanPullImportToNode:         "ノードへのイメージの取り込みが要る",
+	PlanPullValue:                "%[1]s: %[2]s (%[3]s)",
+	PlanOwnerHelm:                "Helmリリース %[1]s (%[2]s)",
+	PlanOwnerArgoCD:              "Argo CDアプリ %s",
+	PlanOwnerFluxKust:            "Flux Kustomization %[2]s/%[1]s",
+	PlanOwnerFluxHelm:            "Flux HelmRelease %[2]s/%[1]s",
+	PlanManagedValue:             "%[1]s: %[2]s",
+	PlanFileValue:                "%[1]s の %[2]s",
+	PlanPRValue:                  "%[1]s (%[2]s)",
+	PlanPRStatusCreated:          "今回作成",
+	PlanPRStatusOpen:             "オープン中",
+	PlanPRStatusMerged:           "マージ済み",
+	PlanPRStatusClosed:           "未マージでクローズ",
+	PlanChange:                   "%[1]s %[2]s → %[3]s",
+	PlanBaseImageValue:           "ベースイメージ %[1]s %[2]s → %[3]s",
+	PlanListSep:                  "、",
+	PlanMore:                     " ほか%d件",
+	PlanMajorZero:                "%s (0.x のマイナー変更)",
+	PlanMajorEdit:                "%[1]s の指定 %[2]s → %[3]s (%[4]s)",
+	PlanResolves:                 "所見%d件が解消",
+	PlanResolvesPartial:          "所見%[2]d件中%[1]d件が解消",
+	PlanKEVClause:                "KEV %d件",
+	PlanUndetectedClause:         "稼働中のイメージで未検出 %d件",
+	PlanClauseJoin:               "、",
+	PlanClauseWrap:               " (%s)",
+	PlanPackageReason:            "%[1]s %[2]s → %[3]s は%[4]s%[5]s",
+	PlanLockfileUnchanged:        " (lockfile は変わらず)",
+	PlanLeftOut:                  "%[1]s %[2]s → %[3]s は%[4]sため除外",
+	PlanChangeWith:               "%[1]s %[2]s → %[3]s（%[4]s も更新）",
+	PlanChainNotFixed:            "%[1]s %[2]s → %[3]s: %[4]s をプロジェクトの範囲内で解決し直したが、今回の再解決では修正版に届かなかった",
+	PlanChainRejected:            "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、%[5]sため採用しない",
+	PlanChainHeld:                "%[1]s %[2]s → %[3]s は %[4]s に止められていて、%[5]sため %[4]s の更新を試していない",
+	PlanChainWaiting:             "%[1]s %[2]s → %[3]s には %[4]s の更新も必要だが、入る版の公開から72時間経っていないため %[5]s 以降に再試行する",
+	PlanNotUpdated:               "%[1]s は脆弱性が直る %[2]s に上げられず、%[4]s では %[3]s のまま（上げられない原因は KestreLynx では調べていないため、%[1]s に依存しているパッケージの版の指定を確認してください）",
+	PlanNotInFile:                "%s に無いパッケージ（lockfile 以外の経路でイメージに入ったものとみられ、lockfile の更新では直せない）",
+	PlanWrongVersion:             "イメージに入っている版が %s と違うパッケージ（イメージが今の %[1]s から作られていない可能性があるため、作り直してから確認してください）",
+	PlanBulletVersions:           "  • %[1]s: イメージは %[2]s、%[3]s は %[4]s",
+	PlanBullet:                   "  • %[1]s %[2]s",
+	PlanRebuildValue:             "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み",
+	PlanDockerfileRebuild:        "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
+	PlanDockerfileRebuildMapping: "稼働中のイメージの作成元のベースを確認できない。ベースを取り直して再ビルドし(`docker build --pull` など)、デプロイし直す",
+	PlanRebuildRuntime:           "現在の %[1]s の %[2]s は %[3]s。この版を引き継げば、検出中の %[2]s %[4]s の %[6]d 件のうち %[5]d 件は出なくなる見込み(再ビルド後のイメージは未確認)",
+	PlanRuntimeEOL:               "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
+	PlanRuntimeEOLNoDate:         "%[1]s はサポート終了。実行環境を上げてから更新してください",
 
 	PlanPRProblemLine:       "⚠️ Pull Requestの作成を停止中: %s",
 	PlanPRProblemJoin:       "、",

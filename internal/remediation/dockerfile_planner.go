@@ -657,6 +657,7 @@ func (r *run) dockerfileEntity(in ImageInput, base DockerfileBase, sel *dfSelect
 		return outcome(CategoryNotComparable, ReasonBaseLayersUnusable, "the layers cannot be compared: "+bl.Detail)
 	case BaseLayersMismatch:
 		if !pinned {
+			ent.RebuildRuntimes = r.runtimeRebuilds(in, curRes.Env)
 			return outcome(CategoryNotComparable, ReasonFloatingBaseUnconfirmed,
 				"the tag no longer points at the layers the running image starts with ("+bl.Detail+"); which base the build used, why it changed and what a rebuild improves are unknown")
 		}
@@ -669,6 +670,7 @@ func (r *run) dockerfileEntity(in ImageInput, base DockerfileBase, sel *dfSelect
 	}
 
 	cl := ClassifyFindingsByLayer(in.Scan.DiffIDs, bl.Count, in.Scan.Findings)
+	moveRuntimeFindings(&cl, in.Scan.ConfigEnv, curRes.Env)
 	ent.Findings = LayerCounts{Base: len(cl.Base), Upper: len(cl.Upper), Unknown: len(cl.Unknown)}
 	targets := SelectTargets(cl.Base, r.p.cfg.Intel)
 	attachLayers(targets, cl.Base)
@@ -858,6 +860,13 @@ func (r *run) settleDockerfileItem(it *DockerfileItem) {
 	if len(it.Entities) == 0 {
 		set0(it, CategoryNoCandidate, ReasonNoBaseFindings, "no running image")
 		return
+	}
+	floating := true
+	for _, e := range it.Entities {
+		floating = floating && e.Reason == ReasonFloatingBaseUnconfirmed
+	}
+	if floating {
+		it.RebuildRuntimes = mergeRuntimeRebuilds(it.Entities)
 	}
 
 	adopted := 0

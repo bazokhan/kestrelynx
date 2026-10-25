@@ -724,7 +724,17 @@ func (b *planBuilder) dockerfileItem(it remediation.DockerfileItem) planEntry {
 		e.line(tagDecide, kv(b.msg.PlanLblDecide, b.reason(it.Reason)))
 	case it.Category == remediation.CategoryNotComparable && it.Reason == remediation.ReasonFloatingBaseUnconfirmed:
 		e.plain(file)
-		e.line(tagRebuild, kv(b.msg.PlanLblRebuild, b.msg.PlanDockerfileRebuild))
+		guide := b.msg.PlanDockerfileRebuild
+		if it.Source.Origin == remediation.DockerfileFromMapping {
+			guide = b.msg.PlanDockerfileRebuildMapping
+		}
+		e.line(tagRebuild, kv(b.msg.PlanLblRebuild, guide))
+		for _, rr := range it.RebuildRuntimes {
+			if total := len(rr.Disappearing) + len(rr.Remaining); total > 0 {
+				e.plain(fmt.Sprintf(b.msg.PlanRebuildRuntime, litMrkdwn(it.BaseRef), litMrkdwn(rr.Package), litMrkdwn(rr.BaseVersion),
+					litMrkdwn(rr.Installed), len(rr.Disappearing), total))
+			}
+		}
 	default:
 		if label, tag, ok := b.outcome(it.Category); ok {
 			e.plain(file)

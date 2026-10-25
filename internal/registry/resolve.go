@@ -52,6 +52,9 @@ type Resolution struct {
 	// OnBuild is true when the config's config.OnBuild lists any trigger
 	// instruction.
 	OnBuild bool
+	// Env is the verified config's config.Env verbatim ("NAME=value"); empty
+	// when the config carries none or it cannot be read as a list of strings.
+	Env []string
 }
 
 type manifestDoc struct {
@@ -164,7 +167,7 @@ func (c *Client) Resolve(ctx context.Context, repo, tagOrDigest string, platform
 	res.ManifestDigest = img.digest
 	res.ConfigDigest = m.Config.Digest
 	res.PlatformVerified = true
-	res.RootFSType, res.DiffIDs, res.OnBuild = info.rootFSType, info.diffIDs, info.onBuild
+	res.RootFSType, res.DiffIDs, res.OnBuild, res.Env = info.rootFSType, info.diffIDs, info.onBuild, info.env
 	return res, nil
 }
 
@@ -174,11 +177,13 @@ type configInfo struct {
 	rootFSType string
 	diffIDs    []string
 	onBuild    bool
+	env        []string
 }
 
 // verifyConfig fetches the config blob, checks that it hashes to digest and
 // that its platform is the requested one with no variant. It returns the
-// config's rootfs and ONBUILD triggers from the same verified body.
+// config's rootfs, ONBUILD triggers and environment from the same verified
+// body.
 func (c *Client) verifyConfig(ctx context.Context, t target, digest string, platform inventory.Platform) (configInfo, error) {
 	r, err := c.get(ctx, t, t.base()+"/blobs/"+digest, "", c.opts.MaxConfigBytes)
 	if err != nil {
@@ -206,7 +211,7 @@ func (c *Client) verifyConfig(ctx context.Context, t target, digest string, plat
 	if cfg.Variant != "" {
 		return configInfo{}, &VariantError{Observed: cfg.Variant}
 	}
-	info := configInfo{onBuild: configHasOnBuild(cfg.Config)}
+	info := configInfo{onBuild: configHasOnBuild(cfg.Config), env: configEnv(cfg.Config)}
 	var rootfs struct {
 		Type    string   `json:"type"`
 		DiffIDs []string `json:"diff_ids"`
@@ -239,6 +244,21 @@ func configHasOnBuild(raw json.RawMessage) bool {
 		return true
 	}
 	return len(triggers) > 0
+}
+
+// configEnv returns the config object's Env list. An absent or null config or
+// Env, or a value that is not a list of strings, gives nil.
+func configEnv(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var c struct {
+		Env []string `json:"Env"`
+	}
+	if json.Unmarshal(raw, &c) != nil {
+		return nil
+	}
+	return c.Env
 }
 
 func contains(s []string, v string) bool {

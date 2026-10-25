@@ -12,6 +12,7 @@ import (
 
 	"github.com/kitsunetrail/kestrelynx/internal/analyze"
 	rtevidence "github.com/kitsunetrail/kestrelynx/internal/evidence"
+	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 	"github.com/kitsunetrail/kestrelynx/internal/state"
 )
@@ -209,6 +210,13 @@ func newPkgCard(r analyze.Report, image string, g analyze.PackageGroup, o cardOp
 		c.FixNote = msg.EOLPackageText
 		if o.notes {
 			c.FixNote = msg.FixNoteEOL
+		}
+		// No fix will come for a runtime's series, so only the series can move.
+		if inventory.RuntimeVersionEnv(g.Ecosystem) != "" {
+			c.FixNote = msg.EOLRuntimeText
+			if o.notes {
+				c.FixNote = msg.FixNoteEOLRuntime
+			}
 		}
 	case o.notes && g.Status == scanner.StatusAffected:
 		c.FixNote = msg.FixNoteMitigate

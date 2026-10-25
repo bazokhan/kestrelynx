@@ -121,6 +121,19 @@ const EcosystemPythonRuntime Ecosystem = "python-runtime"
 // distro package name can, so it never shares a key with either.
 const PythonRuntimePackage = "Python runtime"
 
+// RuntimeVersionEnv returns the name of the image environment variable that
+// carries the version of the language runtime of ecosystem e, or "" when e is
+// not a language runtime KestreLynx checks itself.
+func RuntimeVersionEnv(e Ecosystem) string {
+	switch e {
+	case EcosystemNodeRuntime:
+		return "NODE_VERSION"
+	case EcosystemPythonRuntime:
+		return "PYTHON_VERSION"
+	}
+	return ""
+}
+
 // knownEcosystems is the allowlist ParseEcosystem checks against.
 var knownEcosystems = map[Ecosystem]bool{
 	EcosystemActiveState:        true,

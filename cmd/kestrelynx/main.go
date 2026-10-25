@@ -144,6 +144,7 @@ func main() {
 		}
 		r.Plan = buildPlanConfig(cfg)
 		r.Plan.Scanner = withRuntimes(r.Plan.Scanner.(scanner.Trivy), runtimeAdvisors)
+		r.Plan.Runtimes = runtimeAdvisors
 		if cfg.Remediation.PullRequests.Enabled && len(r.Plan.Dependencies) > 0 {
 			if cfg.Kubernetes.Enabled {
 				r.Plan.Language = kubernetesLanguageConfig(cfg, log)

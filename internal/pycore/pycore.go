@@ -119,15 +119,16 @@ func (a *Advisor) Augment(scan scanner.ImageScan, severities []string) scanner.R
 	}
 }
 
-// detectVersion reads PYTHON_VERSION from the image's Env (the last
+// detectVersion reads the version variable from the image's Env (the last
 // occurrence wins, as in a container runtime). Only a plain 3.Y.Z decimal
 // version counts: a pre-release such as 3.15.0rc3 is not a version this
 // package can match.
 func detectVersion(env []string) (version, bool) {
+	versionEnv := inventory.RuntimeVersionEnv(inventory.EcosystemPythonRuntime)
 	val := ""
 	found := false
 	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, "PYTHON_VERSION="); ok {
+		if v, ok := strings.CutPrefix(e, versionEnv+"="); ok {
 			val, found = v, true
 		}
 	}

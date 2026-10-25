@@ -122,14 +122,15 @@ func (a *Advisor) Augment(scan scanner.ImageScan, severities []string) scanner.R
 	}
 }
 
-// detectVersion reads NODE_VERSION from the image's Env (the last
+// detectVersion reads the version variable from the image's Env (the last
 // occurrence wins, as in a container runtime). Only a plain X.Y.Z decimal
 // version counts: anything else is not a version this package can match.
 func detectVersion(env []string) (string, bool) {
+	versionEnv := inventory.RuntimeVersionEnv(inventory.EcosystemNodeRuntime)
 	val := ""
 	found := false
 	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, "NODE_VERSION="); ok {
+		if v, ok := strings.CutPrefix(e, versionEnv+"="); ok {
 			val, found = v, true
 		}
 	}

@@ -146,6 +146,11 @@ type DockerfileEntity struct {
 	CandidateScan string              `json:"candidate_scan,omitempty"`
 	Comparison    *VerificationResult `json:"comparison,omitempty"`
 	Decision      *Decision           `json:"decision,omitempty"`
+
+	// RebuildRuntimes is set when the tag no longer points at the running
+	// image's base: what the current base's runtime versions would do to the
+	// running image's runtime findings.
+	RebuildRuntimes []RuntimeRebuild `json:"rebuild_runtimes,omitempty"`
 }
 
 // DockerfileCounts summarizes an item's comparison across its running
@@ -178,6 +183,9 @@ type DockerfileItem struct {
 
 	Entities []DockerfileEntity `json:"entities,omitempty"`
 	Counts   DockerfileCounts   `json:"counts"`
+	// RebuildRuntimes is the entities' records grouped by runtime and
+	// versions; set only when every entity is floating_base_unconfirmed.
+	RebuildRuntimes []RuntimeRebuild `json:"rebuild_runtimes,omitempty"`
 
 	// FinalImageVerified is always false: the image rebuilt from the candidate
 	// base is not built or scanned, and the instructions after the FROM can

@@ -8,7 +8,7 @@ TEXT: KestreLynx 2026-06-24 09:00 fix plan — 3 update candidate(s) · 1 re-pul
 *Image: web:latest*
 Re-pull: resolves 3 of 4 findings (2 KEV)
 File to change: docker/Dockerfile in ex/app
-Rebuild: which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base
+Rebuild: which base the running image was built from cannot be confirmed; pull the base again, rebuild the image (for example with `docker build --pull`) and deploy it again
 --- divider ---
 --- section ---
 *Image: api:2.0.1*

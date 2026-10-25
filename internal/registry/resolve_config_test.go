@@ -79,3 +79,32 @@ func TestResolve_RootFSNotReadFromUnverifiedConfig(t *testing.T) {
 		t.Errorf("got %+v, err %v; want ErrDigestMismatch and no layers", got, err)
 	}
 }
+
+func TestResolve_Env(t *testing.T) {
+	head := `{"os":"linux","architecture":"amd64"`
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"env", head + `,"config":{"Env":["PATH=/usr/bin","NODE_VERSION=22.23.4"]}}`, []string{"PATH=/usr/bin", "NODE_VERSION=22.23.4"}},
+		{"repeated", head + `,"config":{"Env":["A=1","A=2"]}}`, []string{"A=1", "A=2"}},
+		{"no env", head + `,"config":{"Cmd":["x"]}}`, nil},
+		{"null env", head + `,"config":{"Env":null}}`, nil},
+		{"no config", head + `}`, nil},
+		{"unreadable env", head + `,"config":{"Env":"A=1"}}`, nil},
+		{"unreadable config", head + `,"config":[1]}`, nil},
+	}
+	for _, tc := range cases {
+		f := newFakeRegistry(t)
+		serveCustomConfig(f, tc.body)
+		got, err := f.client(Options{}).Resolve(context.Background(), f.repo("team/app"), "v1", linuxAMD64)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if !reflect.DeepEqual(got.Env, tc.want) {
+			t.Errorf("%s: Env = %v, want %v", tc.name, got.Env, tc.want)
+		}
+	}
+}

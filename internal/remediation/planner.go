@@ -79,6 +79,11 @@ type Config struct {
 	// the Dockerfile part is skipped when GitHub is nil or both are empty.
 	Dockerfiles []DockerfileMapping
 	Composes    []ComposeMapping
+	// Runtimes are the advisors of the language runtimes the scanner checks
+	// itself; the planner reads the runtimes of a base image from its config
+	// with them. The same advisors as the scanner's, so both see the same
+	// advisory data.
+	Runtimes []scanner.RuntimeAdvisor
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }

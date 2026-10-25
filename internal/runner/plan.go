@@ -145,8 +145,11 @@ type PlanConfig struct {
 	// reads both through the GitHub client.
 	Dockerfiles []remediation.DockerfileMapping
 	Composes    []remediation.ComposeMapping
-	Plans       PlanStore
-	Delivered   DeliveredStore
+	// Runtimes are the language runtime advisors the Scanner uses; the plan
+	// matches the runtimes of base images with them.
+	Runtimes  []scanner.RuntimeAdvisor
+	Plans     PlanStore
+	Delivered DeliveredStore
 	// PullRequests, when set, opens and tracks pull requests for the
 	// update candidates of the plan; nil leaves the plan read-only.
 	PullRequests *PullRequestConfig
@@ -322,6 +325,7 @@ func (r Runner) buildPlan(ctx context.Context, cyc planCycle, report analyze.Rep
 		Dependencies: pc.Dependencies,
 		Dockerfiles:  pc.Dockerfiles,
 		Composes:     pc.Composes,
+		Runtimes:     pc.Runtimes,
 		Now:          r.now,
 	})
 	if err != nil {

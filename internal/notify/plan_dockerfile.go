@@ -88,9 +88,13 @@ type dockerfileItemPayload struct {
 
 	// Counts are over the findings the running images have in the base's
 	// layers.
-	Counts      remediation.DockerfileCounts `json:"counts"`
-	Entities    []dockerfileEntityPayload    `json:"entities,omitempty"`
-	PullRequest *dockerfilePRPayload         `json:"pull_request,omitempty"`
+	Counts remediation.DockerfileCounts `json:"counts"`
+	// RebuildRuntimes is what a rebuild on the current base would do to the
+	// running image's language runtime findings, as read from the base's
+	// version; set only when the tag no longer points at the running base.
+	RebuildRuntimes []remediation.RuntimeRebuild `json:"rebuild_runtimes,omitempty"`
+	Entities        []dockerfileEntityPayload    `json:"entities,omitempty"`
+	PullRequest     *dockerfilePRPayload         `json:"pull_request,omitempty"`
 }
 
 // dockerfileEntityPayload is one running image of an item, with the three
@@ -109,10 +113,11 @@ type dockerfileEntityPayload struct {
 	Reason   string `json:"reason,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 
-	Targets    int                    `json:"targets"`
-	KEVTargets int                    `json:"kev_targets,omitempty"`
-	Comparison *comparisonPayload     `json:"comparison,omitempty"`
-	Scans      []remediationScanEntry `json:"scans,omitempty"`
+	Targets         int                          `json:"targets"`
+	KEVTargets      int                          `json:"kev_targets,omitempty"`
+	Comparison      *comparisonPayload           `json:"comparison,omitempty"`
+	RebuildRuntimes []remediation.RuntimeRebuild `json:"rebuild_runtimes,omitempty"`
+	Scans           []remediationScanEntry       `json:"scans,omitempty"`
 }
 
 // dockerfilePRPayload is the state of the pull request unit for an item.
@@ -130,6 +135,7 @@ func dockerfileItemPayloadOf(it remediation.DockerfileItem, scans map[string]rem
 		FinalImageVerified: it.FinalImageVerified,
 		Category:           string(it.Category), Reason: string(it.Reason), Detail: it.Detail, Priority: string(it.Priority),
 		Workloads: it.Workloads, Source: it.Source, BaseRef: it.BaseRef, BaseKind: string(it.BaseKind), Counts: it.Counts,
+		RebuildRuntimes: it.RebuildRuntimes,
 	}
 	if out.Workloads == nil {
 		out.Workloads = []string{}
@@ -143,6 +149,7 @@ func dockerfileItemPayloadOf(it remediation.DockerfileItem, scans map[string]rem
 			Services: e.Services, Running: imageStatePayloadOf(e.Running, true),
 			LayerConfirmation: e.Layers, FindingsByLayer: e.Findings,
 			Category: string(e.Category), Reason: string(e.Reason), Detail: e.Detail, Targets: len(e.Targets),
+			RebuildRuntimes: e.RebuildRuntimes,
 		}
 		if e.CurrentBase != nil {
 			b := imageStatePayloadOf(*e.CurrentBase, false)
