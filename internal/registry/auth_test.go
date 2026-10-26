@@ -247,6 +247,10 @@ func TestBasicChallengeWithWrongCredentials(t *testing.T) {
 	if !errors.Is(err, ErrAuthRequired) || !strings.Contains(err.Error(), "configured credentials") {
 		t.Errorf("err = %v", err)
 	}
+	var anonymous *AnonymousDeniedError
+	if errors.As(err, &anonymous) {
+		t.Errorf("a refusal of configured credentials is reported as anonymous: %v", err)
+	}
 	for _, leak := range []string{"not-the-password", authUser, authPass} {
 		if strings.Contains(err.Error(), leak) {
 			t.Errorf("error shows %q: %v", leak, err)

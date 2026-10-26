@@ -77,6 +77,23 @@ func (e *RateLimitedError) Error() string {
 
 func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
 
+// AnonymousDeniedError is the ErrAuthRequired of a 401 the registry itself
+// (not a location it redirected to) gave to an anonymous token, for a
+// repository that has not answered any request of this client with a
+// success. Docker Hub answers this way both for a private repository and for
+// one that does not exist. A 403, a refusal after a redirect and a refusal
+// for a repository that answered before are plain ErrAuthRequired errors.
+type AnonymousDeniedError struct {
+	Host string
+	Path string
+}
+
+func (e *AnonymousDeniedError) Error() string {
+	return fmt.Sprintf("%v: %s refused anonymous access to %s and no credentials are configured for it", ErrAuthRequired, e.Host, e.Path)
+}
+
+func (e *AnonymousDeniedError) Unwrap() error { return ErrAuthRequired }
+
 // StatusError is an unexpected HTTP status that has no more specific type.
 type StatusError struct {
 	Host   string

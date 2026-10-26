@@ -158,11 +158,14 @@ In addition to the Compose definition, the following information can identify a 
 
 - The image and container have matching Compose project and service values, and the image name matches the name Compose generates
 - The image reference has no registry host, and the scan did not obtain a registry digest
+- The image reference names a Docker Official Image repository (`docker.io/library/<name>`), and Docker Hub denies anonymous access during the initial repository lookup with no credentials configured
 
 Identification based on Compose labels and generated names is not used when the mapped service is confirmed to have no `build:`.
 
 - If the mapped Compose file cannot be read and other information does not establish a local build, KestreLynx does not proceed with a tag search based on a guess
 - Base images are examined separately as Dockerfile updates
+- Because Docker Official Images are publicly accessible, this refusal is treated as evidence that the repository does not exist, and the same rule applies to Dockerfile base images
+- Refusals for namespaces other than `library`, other registries, or lookups with configured credentials are not used because they cannot be distinguished from refusals for private repositories
 
 ### Base image selection {#base-image-selection}
 

@@ -94,7 +94,7 @@ func TestRegistryFailureSeparatesRequestTimeoutFromCycleDeadline(t *testing.T) {
 	timeout := fmt.Errorf("%w: GET https://x/v2/a/tags/list", registry.ErrTimeout)
 	live := &run{ctx: context.Background()}
 	var it Item
-	live.registryFailure(&it, timeout)
+	live.registryFailure(&it, "a", timeout)
 	if it.Category != CategoryDeferred || it.Reason != ReasonRegistryTimeout || live.halted != nil {
 		t.Errorf("request timeout: %s/%s halted=%v; want deferred/registry_timeout without halting the pass", it.Category, it.Reason, live.halted)
 	}
@@ -108,7 +108,7 @@ func TestRegistryFailureSeparatesRequestTimeoutFromCycleDeadline(t *testing.T) {
 	} {
 		r := &run{ctx: dead}
 		it = Item{}
-		r.registryFailure(&it, err)
+		r.registryFailure(&it, "a", err)
 		if it.Category != CategoryDeferred || it.Reason != ReasonCycleDeadline || r.halted == nil {
 			t.Errorf("%s: %s/%s halted=%v; want deferred/cycle_deadline and a halt", name, it.Category, it.Reason, r.halted)
 		}

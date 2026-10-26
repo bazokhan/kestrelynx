@@ -827,6 +827,17 @@ func TestDockerfileCandidateSelection(t *testing.T) {
 			t.Errorf("item = %s/%s", it.Category, it.Reason)
 		}
 	})
+	// The refusal stands for a base named like a Docker Official Image that
+	// Docker Hub does not have: a base image built on the host.
+	t.Run("anonymous refusal of an official base name is a host build", func(t *testing.T) {
+		e := newDFEnv()
+		e.standard()
+		e.reg.resErr["python:3.12.3-slim"] = &registry.AnonymousDeniedError{Host: "registry-1.docker.io", Path: "library/python"}
+		if it := onlyDockerfile(t, e.plan(t, bigLimits, []DockerfileMapping{dfMapping("compose/p/app", "Dockerfile", "")}, nil,
+			dfInput("myapp:1", 'a', "app", appLayers, standardFindings()...))); it.Category != CategoryExcluded || it.Reason != ReasonLocallyBuilt {
+			t.Errorf("item = %s/%s", it.Category, it.Reason)
+		}
+	})
 }
 
 func TestDockerfileCountAllAndFingerprint(t *testing.T) {

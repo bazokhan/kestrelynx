@@ -2,6 +2,7 @@ package remediation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -86,6 +87,49 @@ func TestPlanRegistryAnswersAreNotEvidenceOfALocalBuild(t *testing.T) {
 		}
 		if e.reg.resolveCnt["p-web:latest"] != 1 {
 			t.Errorf("%s: the registry was asked %d times, want once as for any floating image", name, e.reg.resolveCnt["p-web:latest"])
+		}
+	}
+}
+
+// Docker Hub serves Docker Official Images to anyone, so its anonymous refusal
+// of an official name says the repository does not exist: the image can only
+// be one built or loaded on the host. A refusal of any other name, or one made
+// with credentials, says nothing about where the image came from.
+func TestPlanOfficialNameDockerHubRefusesAnonymously(t *testing.T) {
+	anonymous := func(path string) error {
+		return &registry.AnonymousDeniedError{Host: "registry-1.docker.io", Path: path}
+	}
+	cases := []struct {
+		name   string
+		ref    string
+		resKey string // floating: the resolve that fails
+		tagKey string // pinned: the listing that fails
+		err    error
+		local  bool
+	}{
+		{"floating official name", "kl-web", "kl-web:latest", "", anonymous("library/kl-web"), true},
+		{"written with docker.io/library", "docker.io/library/kl-web:latest", "docker.io/library/kl-web:latest", "", anonymous("library/kl-web"), true},
+		{"pinned official name", "kl-web:1.2.3", "", "kl-web", anonymous("library/kl-web"), true},
+		{"name under a namespace may be private", "myteam/web:latest", "myteam/web:latest", "", anonymous("myteam/web"), false},
+		{"another registry", "ghcr.io/kl-web:latest", "ghcr.io/kl-web:latest", "", anonymous("kl-web"), false},
+		{"refused with credentials", "kl-web", "kl-web:latest", "", fmt.Errorf("%w: registry-1.docker.io refused access to library/kl-web with the configured credentials", registry.ErrAuthRequired), false},
+		{"not found", "kl-web", "kl-web:latest", "", registry.ErrNotFound, false},
+	}
+	for _, c := range cases {
+		e := newEnv()
+		if c.resKey != "" {
+			e.reg.resErr[c.resKey] = c.err
+		}
+		if c.tagKey != "" {
+			e.reg.tagErr[c.tagKey] = c.err
+		}
+		in := localBuildInput(c.ref, containerdDigests(c.ref), "p", "web")
+		it := item(t, e.planner(t, bigLimits, registry.NewBudget(100)).Plan(context.Background(), []ImageInput{in}), 0)
+		if got := it.Category == CategoryExcluded && it.Reason == ReasonLocallyBuilt; got != c.local {
+			t.Errorf("%s: %s/%s, locally built = %v, want %v", c.name, it.Category, it.Reason, got, c.local)
+		}
+		if !c.local && it.Reason == ReasonLocallyBuilt {
+			t.Errorf("%s: called locally built", c.name)
 		}
 	}
 }

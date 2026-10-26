@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/kitsunetrail/kestrelynx/internal/inventory"
@@ -563,7 +564,7 @@ func (r *run) pinnedCandidate(ref ImageRef, it *Item, candTag *string) bool {
 		r.plan.Usage.TagPages += list.Pages
 	}
 	if e.err != nil {
-		r.registryFailure(it, e.err)
+		r.registryFailure(it, ref.Repository, e.err)
 		return false
 	}
 	sel := SelectPinned(ref.Version, e.list)
@@ -600,7 +601,7 @@ func (r *run) resolve(repo, tag string, platform inventory.Platform, it *Item) (
 		r.resolved[key] = e
 	}
 	if e.err != nil {
-		r.registryFailure(it, e.err)
+		r.registryFailure(it, repo, e.err)
 		return registry.Resolution{}, false
 	}
 	return e.res, true
@@ -610,10 +611,12 @@ func (r *run) resolve(repo, tag string, platform inventory.Platform, it *Item) (
 // an exhausted budget and a dead context stop further registry work in the
 // pass. A request that merely ran out of its own time, while the cycle's
 // context is live, defers only the image it was for: the cycle deadline and
-// one slow registry are different conditions.
-func (r *run) registryFailure(it *Item, err error) {
+// one slow registry are different conditions. repo is the repository the
+// failed request was for.
+func (r *run) registryFailure(it *Item, repo string, err error) {
 	var variant *registry.VariantError
 	var limited *registry.RateLimitedError
+	var anonymous *registry.AnonymousDeniedError
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, registry.ErrTimeout) && r.ctx.Err() != nil:
@@ -630,6 +633,13 @@ func (r *run) registryFailure(it *Item, err error) {
 		defer0(it, r.halted.reason, r.halted.detail)
 	case errors.As(err, &variant):
 		set(it, CategoryNotComparable, ReasonVariantUnsupported, err.Error())
+	case errors.As(err, &anonymous) && isOfficialImage(repo):
+		// Docker Hub serves every Docker Official Image to anyone, so an
+		// anonymous refusal means the repository does not exist there and the
+		// image exists only on its host. The containerd image store gives a
+		// registry digest to an image built on the host too, so locallyBuilt
+		// does not always catch such an image first.
+		set(it, CategoryExcluded, ReasonLocallyBuilt, repo+" names a Docker Official Image repository, which Docker Hub refuses to anonymous requests only when it does not exist, so no registry holds this image and it was built or loaded on its host")
 	case errors.Is(err, registry.ErrAuthRequired):
 		set(it, CategoryNotComparable, ReasonAuthRequired, err.Error())
 	case errors.Is(err, registry.ErrPlatformNotFound):
@@ -641,6 +651,14 @@ func (r *run) registryFailure(it *Item, err error) {
 	default:
 		set(it, CategoryFailed, ReasonRegistryError, err.Error())
 	}
+}
+
+// isOfficialImage reports whether repo is a Docker Official Image repository,
+// docker.io/library/<name>, however the host and the library/ namespace are
+// written.
+func isOfficialImage(repo string) bool {
+	key, ok := inventory.RepositoryKey(repo)
+	return ok && strings.HasPrefix(key, "docker.io/library/")
 }
 
 // compare scans the baseline (when needed) and the candidate under the

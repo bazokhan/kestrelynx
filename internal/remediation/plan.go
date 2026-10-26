@@ -60,7 +60,8 @@ const (
 	// time limit. Only the images it was for are deferred; the cycle goes on.
 	ReasonRegistryTimeout Reason = "registry_timeout"
 	// ReasonLocallyBuilt: the image was built on its host (no registry digest
-	// and a reference that names no registry), so no registry copy exists.
+	// and a reference that names no registry, or a Docker Official Image name
+	// that Docker Hub does not have), so no registry copy exists.
 	ReasonLocallyBuilt       Reason = "locally_built"
 	ReasonPartialImprovement Reason = "partial_improvement"
 	ReasonIntroducedFindings Reason = "introduced_findings"

@@ -90,6 +90,10 @@ type Client struct {
 	// basic holds the hosts that answered a Basic challenge, so later
 	// requests carry the credential at once.
 	basic map[string]bool
+	// answered holds the targets (host and repository) that have answered a
+	// request with a success, so a later refusal is known not to mean that
+	// the repository does not exist.
+	answered map[string]bool
 }
 
 type cachedToken struct {
@@ -129,7 +133,7 @@ func New(o Options) *Client {
 	}
 	// The per-request deadline is a context, so Client.Timeout stays off.
 	hc.Timeout = 0
-	c := &Client{budget: o.Budget, opts: o, tokens: map[string]cachedToken{}, basic: map[string]bool{}}
+	c := &Client{budget: o.Budget, opts: o, tokens: map[string]cachedToken{}, basic: map[string]bool{}, answered: map[string]bool{}}
 	hc.CheckRedirect = c.checkRedirect
 	// Every connection goes through dialContext so addresses are validated
 	// where they are resolved. A caller-supplied transport is cloned for its
@@ -261,6 +265,9 @@ type response struct {
 	status int
 	header http.Header
 	body   []byte
+	// redirected is set when the response came from another URL than the
+	// one requested (a blob served from a CDN, for example).
+	redirected bool
 }
 
 // once sends one GET (one budget unit), reads the body within limit and
@@ -325,7 +332,8 @@ func (c *Client) send(parent context.Context, rawURL, accept, authz string, limi
 		}
 		body = body[:max]
 	}
-	return &response{status: resp.StatusCode, header: resp.Header, body: body}, nil
+	redirected := resp.Request != nil && resp.Request.URL.String() != req.URL.String()
+	return &response{status: resp.StatusCode, header: resp.Header, body: body, redirected: redirected}, nil
 }
 
 // statusErr converts a non-success status that is not an authentication
@@ -399,6 +407,9 @@ func (c *Client) getSent(ctx context.Context, t target, rawURL, accept string, l
 		}
 		switch {
 		case r.status >= 200 && r.status < 300:
+			c.mu.Lock()
+			c.answered[t.key()] = true
+			c.mu.Unlock()
 			return r, sent, nil
 		case r.status == http.StatusUnauthorized && !fresh && !strings.HasPrefix(authz, "Basic "):
 			ch := parseChallenge(r.header.Values("Www-Authenticate"))
@@ -422,6 +433,12 @@ func (c *Client) getSent(ctx context.Context, t target, rawURL, accept string, l
 		case r.status == http.StatusUnauthorized, r.status == http.StatusForbidden:
 			if hasCred {
 				return nil, sent, fmt.Errorf("%w: %s refused access to %s with the configured credentials", ErrAuthRequired, t.host, t.path)
+			}
+			c.mu.Lock()
+			answered := c.answered[t.key()]
+			c.mu.Unlock()
+			if r.status == http.StatusUnauthorized && !r.redirected && !answered {
+				return nil, sent, &AnonymousDeniedError{Host: t.host, Path: t.path}
 			}
 			return nil, sent, fmt.Errorf("%w: %s refused anonymous access to %s and no credentials are configured for it", ErrAuthRequired, t.host, t.path)
 		default:

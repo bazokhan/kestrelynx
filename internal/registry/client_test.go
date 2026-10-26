@@ -267,6 +267,10 @@ func TestAuthRequiredAfterToken_NoTokenInError(t *testing.T) {
 	if !errors.Is(err, ErrAuthRequired) {
 		t.Fatalf("err = %v, want ErrAuthRequired", err)
 	}
+	var anonymous *AnonymousDeniedError
+	if !errors.As(err, &anonymous) || anonymous.Path != "team/private" {
+		t.Errorf("err = %v, want an AnonymousDeniedError for team/private", err)
+	}
 	if strings.Contains(err.Error(), testToken) {
 		t.Errorf("error leaks the token: %v", err)
 	}
@@ -290,6 +294,43 @@ func TestAuthRequired_ForbiddenAndNonBearer(t *testing.T) {
 	}
 	if g.tokenHits != 0 {
 		t.Error("a Basic challenge must not trigger a token request")
+	}
+}
+
+// Only a 401 the registry itself gives to an anonymous token, for a
+// repository that never answered, is reported as an AnonymousDeniedError.
+func TestAnonymousDeniedOnlyForAnUnansweredRepository(t *testing.T) {
+	var anonymous *AnonymousDeniedError
+
+	f := newFakeRegistry(t)
+	f.noAuth = true
+	f.route("/v2/team/app/tags/list", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	if _, err := f.client(Options{}).ListTags(context.Background(), f.repo("team/app")); !errors.Is(err, ErrAuthRequired) || errors.As(err, &anonymous) {
+		t.Errorf("403: err = %v, want a plain ErrAuthRequired", err)
+	}
+
+	g := newFakeRegistry(t)
+	g.route("/v2/team/app/tags/list", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"tags":["a"]}`) })
+	c := g.client(Options{})
+	if _, err := c.ListTags(context.Background(), g.repo("team/app")); err != nil {
+		t.Fatal(err)
+	}
+	g.rejectToken = true
+	if _, err := c.ListTags(context.Background(), g.repo("team/app")); !errors.Is(err, ErrAuthRequired) || errors.As(err, &anonymous) {
+		t.Errorf("after a success: err = %v, want a plain ErrAuthRequired", err)
+	}
+
+	h := newFakeRegistry(t)
+	h.route("/v2/team/app/blobs/x", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/cdn/x", http.StatusTemporaryRedirect)
+	})
+	h.route("/cdn/x", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
+	ht, err := newTarget(h.repo("team/app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.client(Options{}).get(context.Background(), ht, ht.base()+"/blobs/x", "", 1024); !errors.Is(err, ErrAuthRequired) || errors.As(err, &anonymous) {
+		t.Errorf("after a redirect: err = %v, want a plain ErrAuthRequired", err)
 	}
 }
 
