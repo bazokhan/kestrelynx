@@ -14,14 +14,14 @@
       "id": "node22",
       "kind": "node",
       "series": "22",
-      "version": "22.23.3",
+      "version": "22.23.4",
       "image": "node",
       "tag": "22-trixie-slim",
-      "exact_tag": "22.23.3-trixie-slim",
-      "index_digest": "sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa",
+      "exact_tag": "22.23.4-trixie-slim",
+      "index_digest": "sha256:8eb619e402eaede1748a3c8173bffab391592812e85136452f781741c7242ddf",
       "platforms": {
-        "linux/amd64": "sha256:6b25e0bf3aaee33c18ba3c5d1b71646df1ba485a2a5500fd8376a3be3d110812",
-        "linux/arm64": "sha256:f22490670fc15c203cd0c22f60743087edd81ae53a19fd428fdccb277586c300"
+        "linux/amd64": "sha256:93c4ef18bd9f668c013e8800677f6709fe426db3f29fe758d34dd72600018a7e",
+        "linux/arm64": "sha256:2513e81b703f084f2fd6ba663ca2f9843eb7ff23a60fa446df9ddf4f9d49f52d"
       },
       "covered_paths": [
         "/tmp",
@@ -33,23 +33,23 @@
       "support": "maintenance",
       "eol": "2027-04-30",
       "lts_from": "2024-10-29",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:6b25e0bf3aaee33c18ba3c5d1b71646df1ba485a2a5500fd8376a3be3d110812"
+        "linux/amd64": "sha256:93c4ef18bd9f668c013e8800677f6709fe426db3f29fe758d34dd72600018a7e"
       }
     },
     {
       "id": "node24",
       "kind": "node",
       "series": "24",
-      "version": "24.22.0",
+      "version": "24.22.1",
       "image": "node",
       "tag": "24-trixie-slim",
-      "exact_tag": "24.22.0-trixie-slim",
-      "index_digest": "sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315",
+      "exact_tag": "24.22.1-trixie-slim",
+      "index_digest": "sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea",
       "platforms": {
-        "linux/amd64": "sha256:27526714fd6b7dc938f8cb1665bf1fe749efadadf0145d5bcc07f0fbd0370b60",
-        "linux/arm64": "sha256:74a6ed1058beb23dfb49fa05531f35421dc5d2b49b22972bbbb8041ab20588ad"
+        "linux/amd64": "sha256:e79437bb05061f860be420634f676f4394619028df216d4b9361966d7fcc7a14",
+        "linux/arm64": "sha256:401346cb1fc12bb388a82ed58ea72eeed2fe8530804d2964bcddce63a4eda4d8"
       },
       "covered_paths": [
         "/tmp",
@@ -58,26 +58,26 @@
       ],
       "volumes_empty": true,
       "healthcheck": false,
-      "support": "lts",
+      "support": "maintenance",
       "eol": "2028-04-30",
       "lts_from": "2025-10-28",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:27526714fd6b7dc938f8cb1665bf1fe749efadadf0145d5bcc07f0fbd0370b60"
+        "linux/amd64": "sha256:e79437bb05061f860be420634f676f4394619028df216d4b9361966d7fcc7a14"
       }
     },
     {
       "id": "node26",
       "kind": "node",
       "series": "26",
-      "version": "26.12.0",
+      "version": "26.12.1",
       "image": "node",
       "tag": "26-trixie-slim",
-      "exact_tag": "26.12.0-trixie-slim",
-      "index_digest": "sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4",
+      "exact_tag": "26.12.1-trixie-slim",
+      "index_digest": "sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec",
       "platforms": {
-        "linux/amd64": "sha256:d62f13676d530f7edf97782729df69713c8ccfe6631e7f62f9ccab65968719a8",
-        "linux/arm64": "sha256:f6e55fb0e92f7f115549278ab36f68f0659790f5d4fd7cb4446486d8ed70d842"
+        "linux/amd64": "sha256:80eccfd7e3fa8663c84881efb6b28c7411672a337aec1769f0fb9e3adc4a4d8b",
+        "linux/arm64": "sha256:c652ebe5a5c44d31bb870bcd59d604b18061f22b8cbebc02db425574113739bc"
       },
       "covered_paths": [
         "/tmp",
@@ -89,9 +89,9 @@
       "support": "current",
       "eol": "2029-04-30",
       "lts_from": "2026-10-28",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:d62f13676d530f7edf97782729df69713c8ccfe6631e7f62f9ccab65968719a8"
+        "linux/amd64": "sha256:80eccfd7e3fa8663c84881efb6b28c7411672a337aec1769f0fb9e3adc4a4d8b"
       }
     },
     {
@@ -119,10 +119,10 @@
       "image": "python",
       "tag": "3.11-slim-trixie",
       "exact_tag": "3.11.17-slim-trixie",
-      "index_digest": "sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce",
+      "index_digest": "sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377",
       "platforms": {
-        "linux/amd64": "sha256:e529028263dbe6910a2d96f7d2b8f5266385e917fd45d286ef166977c094a51e",
-        "linux/arm64": "sha256:1847ca1d1bc792b4b58fff39c82c67942112e3e1ebc0ee1d06b9014873152ce7"
+        "linux/amd64": "sha256:b95327ce1439e687237841b0210677aeadd62d55a060a5f6bcb9c15bf6251dd3",
+        "linux/arm64": "sha256:a03d3aeb81ae3061d2e23874bf1a8ed418e919dcfe89f2ad4167bd58de639573"
       },
       "covered_paths": [
         "/tmp",
@@ -133,9 +133,9 @@
       "healthcheck": false,
       "support": "security",
       "eol": "2027-10-31",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:e529028263dbe6910a2d96f7d2b8f5266385e917fd45d286ef166977c094a51e"
+        "linux/amd64": "sha256:b95327ce1439e687237841b0210677aeadd62d55a060a5f6bcb9c15bf6251dd3"
       }
     },
     {
@@ -147,10 +147,10 @@
       "image": "python",
       "tag": "3.12-slim-trixie",
       "exact_tag": "3.12.15-slim-trixie",
-      "index_digest": "sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "index_digest": "sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704",
       "platforms": {
-        "linux/amd64": "sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
-        "linux/arm64": "sha256:16bf2b5c59a08523519d3c8589deca849285dee1d62a3653e124c3dba340f15e"
+        "linux/amd64": "sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c",
+        "linux/arm64": "sha256:6c6ae3622772575c3ac02ecb2b02a06d05f19e1713a0cbff476ef37bca79e90f"
       },
       "covered_paths": [
         "/tmp",
@@ -161,24 +161,24 @@
       "healthcheck": false,
       "support": "security",
       "eol": "2028-10-31",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe"
+        "linux/amd64": "sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c"
       }
     },
     {
       "id": "python3.13",
       "kind": "python",
       "series": "3.13",
-      "version": "3.13.16",
-      "pip": "26.2.1",
+      "version": "3.13.17",
+      "pip": "26.2.2",
       "image": "python",
       "tag": "3.13-slim-trixie",
-      "exact_tag": "3.13.16-slim-trixie",
-      "index_digest": "sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f",
+      "exact_tag": "3.13.17-slim-trixie",
+      "index_digest": "sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962",
       "platforms": {
-        "linux/amd64": "sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024",
-        "linux/arm64": "sha256:cf97c3b79da1c706532c7042f851654d97d3b88c8ca6520acda9cf4479ea9b14"
+        "linux/amd64": "sha256:d879ed88565a7a3c614b980b369d4a5025a9d057b71f93d09fc6d0b2ca823a18",
+        "linux/arm64": "sha256:fdc02ec63f6f10b14a31159fbccb15b7b85a990ec27d7bf120e725a70fb256d7"
       },
       "covered_paths": [
         "/tmp",
@@ -189,24 +189,24 @@
       "healthcheck": false,
       "support": "security",
       "eol": "2029-10-31",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024"
+        "linux/amd64": "sha256:d879ed88565a7a3c614b980b369d4a5025a9d057b71f93d09fc6d0b2ca823a18"
       }
     },
     {
       "id": "python3.14",
       "kind": "python",
       "series": "3.14",
-      "version": "3.14.8",
-      "pip": "26.2.1",
+      "version": "3.14.9",
+      "pip": "26.2.2",
       "image": "python",
       "tag": "3.14-slim-trixie",
-      "exact_tag": "3.14.8-slim-trixie",
-      "index_digest": "sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170",
+      "exact_tag": "3.14.9-slim-trixie",
+      "index_digest": "sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8",
       "platforms": {
-        "linux/amd64": "sha256:cfe2e24a75302a15934d37c2d86412893c0aa934dc3a97cbb439d04c01890ca9",
-        "linux/arm64": "sha256:7f47c8ffd4e70e88f7326b68e7df95109597ef66023a1052b7d1ec18390d2604"
+        "linux/amd64": "sha256:0214bda9af2652a418f2bf34373a4d3ca00a5f4784081e040049433ac9cc79d5",
+        "linux/arm64": "sha256:9c91bb40b4da9deb3ca7bd28bb593a5be44bc279fe4ccf59a50a564a679b04fb"
       },
       "covered_paths": [
         "/tmp",
@@ -217,24 +217,24 @@
       "healthcheck": false,
       "support": "bugfix",
       "eol": "2030-10-31",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:cfe2e24a75302a15934d37c2d86412893c0aa934dc3a97cbb439d04c01890ca9"
+        "linux/amd64": "sha256:0214bda9af2652a418f2bf34373a4d3ca00a5f4784081e040049433ac9cc79d5"
       }
     },
     {
       "id": "python3.15",
       "kind": "python",
       "series": "3.15",
-      "version": "3.15.0",
-      "pip": "26.2.1",
+      "version": "3.15.1",
+      "pip": "26.2.2",
       "image": "python",
       "tag": "3.15-slim-trixie",
-      "exact_tag": "3.15.0-slim-trixie",
-      "index_digest": "sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce",
+      "exact_tag": "3.15.1-slim-trixie",
+      "index_digest": "sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51",
       "platforms": {
-        "linux/amd64": "sha256:a83d68dc3d8f1048ff5628bc6f8c9f859938eb5add44ca947b70105b0383e961",
-        "linux/arm64": "sha256:6387eaccc0ee752d8fd750c3d78da05145cc14eaa520800536aadbd9a7ef7efd"
+        "linux/amd64": "sha256:b23bb42e5298783f81e7e6f09e1175f68eb46000a789b3ee272ac231c212c4cf",
+        "linux/arm64": "sha256:6412e02069a5a3fb7784c530f2ab4ec9565c2b0694f216a731fd79865762eb9d"
       },
       "covered_paths": [
         "/tmp",
@@ -245,9 +245,9 @@
       "healthcheck": false,
       "support": "bugfix",
       "eol": "2031-10-31",
-      "checked": "2026-10-19",
+      "checked": "2026-10-26",
       "tested": {
-        "linux/amd64": "sha256:a83d68dc3d8f1048ff5628bc6f8c9f859938eb5add44ca947b70105b0383e961"
+        "linux/amd64": "sha256:b23bb42e5298783f81e7e6f09e1175f68eb46000a789b3ee272ac231c212c4cf"
       }
     }
   ]
