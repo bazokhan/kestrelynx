@@ -1,8 +1,8 @@
 # Development of remediation plans for language runtimes
 
-- **Status:** Implemented (rebuild guidance verified in the production environment and PR creation on a validation host)
+- **Status:** Implemented (verified in the production environment and on a validation host)
 - **Started:** October 25, 2026
-- **Last updated:** October 25, 2026
+- **Last updated:** October 26, 2026
 
 ## Purpose
 
@@ -85,6 +85,16 @@ Comparison with the candidate `node:22.23.4-alpine` produced the following resul
 A PR changing `FROM` to `node:22.23.4-alpine` was created, and its “Resolved” section listed the three Node.js findings.
 The generic webhook also reported PR creation.
 
+### Additional checks on the validation host
+
+| Check | Result |
+| --- | --- |
+| Pinned Python tag | `FROM` update PR created with three Python runtime findings resolved |
+| Floating Python tag | Three of four findings expected to disappear |
+| End-of-life release lines (Node.js 18/20, Python 3.8/3.9) | Annotation to upgrade the release line |
+| Tag updates in Compose `image:` and Kubernetes manifests | PRs created with three runtime findings resolved for each of Node.js and Python |
+| Images built on the host (named as Docker Official Images, with Docker Hub refusing the initial anonymous lookup) | Excluded as local builds, including Dockerfile bases |
+
 ## Known limitations
 
 - **Differences between image configuration and executables**
@@ -92,15 +102,21 @@ The generic webhook also reported PR creation.
     - Reinstalling the runtime in the Dockerfile or overriding its version with `ENV` can invalidate the expected rebuild outcome
 - **Verification after rebuilding**
     - Floating-tag estimates are not results from checking the rebuilt image
+- **Docker Hub credentials and local-build identification**
+    - With Docker Hub credentials configured, images built on the host still appear as requiring a registry login because they cannot be distinguished from private repositories
 
 ## Unverified areas and next steps
 
-- **Python and end-of-life release lines**
-    - PRs for pinned Python tags, expected Python rebuild outcomes, and annotations for end-of-life release lines have been checked only in unit tests
+- **Refusals excluded from local-build identification**
+    - Exclusion of HTTP 403 responses, refusals after redirects, and refusals after a successful response is verified only by unit tests
 - **Other languages**
     - Support for runtimes such as PHP, Ruby, and Java remains a future consideration
 
 ## Update history
+
+### October 26, 2026
+
+- Additional checks on the validation host
 
 ### October 25, 2026
 
