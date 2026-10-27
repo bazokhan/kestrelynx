@@ -46,6 +46,9 @@ func TestWorkloadParts(t *testing.T) {
 		"deployment/shop/web/app": {"", "", true},
 		"cronjob/shop/report/job": {"", "", true},
 		"deployment/shop/web":     {"", "", false},
+		"container/shop-api":      {"", "", true},
+		"container/a":             {"", "", false},
+		"container/a/b":           {"", "", false},
 		"not-a-key":               {"", "", false},
 	} {
 		p, s, ok := workloadParts(key)

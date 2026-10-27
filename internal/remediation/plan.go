@@ -3,6 +3,7 @@ package remediation
 import (
 	"time"
 
+	"github.com/kitsunetrail/kestrelynx/internal/inventory"
 	"github.com/kitsunetrail/kestrelynx/internal/scanner"
 )
 
@@ -82,12 +83,16 @@ type ServiceRef struct {
 }
 
 // WorkloadKey is the key of the workload the reference names: the Kubernetes
-// key, or compose/<project>/<service>; "" when it names neither.
+// key, compose/<project>/<service>, or container/<name> for a container that
+// belongs to no Compose project; "" when it names none of them.
 func (s ServiceRef) WorkloadKey() string {
 	if s.Workload != "" {
 		return s.Workload
 	}
 	if s.Project == "" || s.Service == "" {
+		if inventory.ValidContainerName(s.Container) {
+			return inventory.ContainerKeyPrefix + s.Container
+		}
 		return ""
 	}
 	return "compose/" + s.Project + "/" + s.Service

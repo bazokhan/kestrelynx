@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -293,9 +294,16 @@ func (b *planBuilder) build() {
 
 func (b *planBuilder) add(e planEntry) { b.entries = append(b.entries, e) }
 
-// imagesOf resolves workloads (compose/<project>/<service>, or the Kubernetes
-// key) to the running images of their services; without any, the service
-// names are returned: the Compose service, or the whole Kubernetes key.
+// isContainerKey reports whether a workload key is container/<name>, the key of
+// a container started outside Compose.
+func isContainerKey(key string) bool {
+	return strings.HasPrefix(key, "container/") && strings.Count(key, "/") == 1
+}
+
+// imagesOf resolves workloads (compose/<project>/<service>, container/<name>,
+// or the Kubernetes key) to the running images of their services; without any,
+// the service names are returned: the Compose service, the container name, or
+// the whole Kubernetes key.
 func (b *planBuilder) imagesOf(e *planEntry, workloads []string) {
 	var services []string
 	for _, w := range workloads {
@@ -303,8 +311,11 @@ func (b *planBuilder) imagesOf(e *planEntry, workloads []string) {
 			e.images = appendOnce(e.images, ref)
 		}
 		name := w
-		if strings.HasPrefix(w, "compose/") {
+		switch {
+		case strings.HasPrefix(w, "compose/"):
 			name = workloadService(w)
+		case isContainerKey(w):
+			name = strings.TrimPrefix(w, "container/")
 		}
 		services = appendOnce(services, name)
 	}
@@ -725,8 +736,11 @@ func (b *planBuilder) dockerfileItem(it remediation.DockerfileItem) planEntry {
 	case it.Category == remediation.CategoryNotComparable && it.Reason == remediation.ReasonFloatingBaseUnconfirmed:
 		e.plain(file)
 		guide := b.msg.PlanDockerfileRebuild
-		if it.Source.Origin == remediation.DockerfileFromMapping {
+		switch {
+		case it.Source.Origin == remediation.DockerfileFromMapping:
 			guide = b.msg.PlanDockerfileRebuildMapping
+		case it.Source.Origin == remediation.DockerfileFromBoth && slices.ContainsFunc(it.Workloads, isContainerKey):
+			guide = b.msg.PlanDockerfileRebuildMixed
 		}
 		e.line(tagRebuild, kv(b.msg.PlanLblRebuild, guide))
 		for _, rr := range it.RebuildRuntimes {

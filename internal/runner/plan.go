@@ -157,6 +157,10 @@ type PlanConfig struct {
 	// candidates in work containers and checks the result, so that they can
 	// become pull requests; nil leaves them as candidates that were not run.
 	Language *LanguageUpdateConfig
+
+	// composeNames is what warnComposeNames has already reported; it lives as
+	// long as the process.
+	composeNames *composeNameWarnings
 }
 
 // planCycle is the plan state of one cycle.

@@ -59,8 +59,10 @@ const (
 // DockerfileMapping ties a running Compose workload to the Dockerfile that
 // builds its image.
 type DockerfileMapping struct {
-	// Workload is the Compose workload key, compose/<project>/<service>;
-	// Project and Service are its parts.
+	// Workload is the Compose workload key, compose/<project>/<service>, with
+	// Project and Service as its parts; or the Kubernetes key, or
+	// container/<name> for a container started outside Compose, with both
+	// parts empty.
 	Workload   string
 	Project    string
 	Service    string

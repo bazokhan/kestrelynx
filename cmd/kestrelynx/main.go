@@ -194,13 +194,17 @@ func main() {
 const gitHubRequestsPerCycle = 200
 
 // workloadParts splits a mapping's workload key: the project and service of a
-// Compose key, nothing for a Kubernetes key, which is used whole. ok is false
+// Compose key, nothing for a Kubernetes key or a container/<name> key, which
+// are used whole. ok is false
 // for a key of neither form, which config validation has already refused.
 func workloadParts(key string) (project, service string, ok bool) {
 	if p, s, err := config.ParseWorkloadKey(key); err == nil {
 		return p, s, true
 	}
 	if _, err := config.ParseKubernetesWorkloadKey(key); err == nil {
+		return "", "", true
+	}
+	if _, err := inventory.ParseContainerKey(key); err == nil {
 		return "", "", true
 	}
 	return "", "", false

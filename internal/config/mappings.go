@@ -27,6 +27,20 @@ func ParseWorkloadKey(key string) (project, service string, err error) {
 	return parts[1], parts[2], nil
 }
 
+// parseDockerWorkloadKey checks a workload key in Docker mode: a Compose
+// service, compose/<project>/<service>, or a container that belongs to no
+// Compose project, container/<name>.
+func parseDockerWorkloadKey(key string) error {
+	if strings.HasPrefix(key, inventory.ContainerKeyPrefix) {
+		_, err := inventory.ParseContainerKey(key)
+		return err
+	}
+	if _, _, err := ParseWorkloadKey(key); err != nil {
+		return fmt.Errorf("%v or container/<name>", err)
+	}
+	return nil
+}
+
 // manifestObjectKinds are the Kind spellings of the objects that define each
 // kind of workload in a manifest.
 var manifestObjectKinds = map[inventory.WorkloadKind]string{
@@ -88,7 +102,7 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 		if kubernetes {
 			kw, keyErr = ParseKubernetesWorkloadKey(m.Workload)
 		} else {
-			_, _, keyErr = ParseWorkloadKey(m.Workload)
+			keyErr = parseDockerWorkloadKey(m.Workload)
 		}
 		if keyErr != nil {
 			return fmt.Errorf("config: %s.workload %q %v", at, m.Workload, keyErr)
@@ -124,6 +138,9 @@ func validateMappings(ms []RemediationMapping, kubernetes bool) error {
 		repoKey := strings.ToLower(repo.String())
 		switch {
 		case m.Compose != nil:
+			if strings.HasPrefix(m.Workload, inventory.ContainerKeyPrefix) {
+				return fmt.Errorf("config: %s sets a compose mapping for workload %q, a container that does not belong to a Compose project and so has no Compose file; for a Compose service use its compose/<project>/<service> key", at, m.Workload)
+			}
 			if !github.ValidPath(m.Compose.Path, false) {
 				return fmt.Errorf("config: %s.compose.path %q must be a normalized path inside the repository (no leading /, no ./ or .., no backslashes)", at, m.Compose.Path)
 			}

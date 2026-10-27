@@ -65,6 +65,10 @@ type prText struct {
 	Locations    string
 	DigestNote   string
 
+	// SourceNote follows the workloads in Dockerfile and language bodies that
+	// name a container started outside Compose.
+	SourceNote string
+
 	// Compose bodies.
 	CWhat, CRunning, CServices, CWorkloads, CAlso, CChange string
 	CVerRunning, CCandidate, CScanned                      string
@@ -189,6 +193,7 @@ var enPRText = prText{
 	DBaseNow:       "- Base image now: %s\n",
 	DEdited:        "- Edited: the FROM of stage %[1]d, line %[2]d\n",
 	DWorkloads:     "- Workloads built from it: %s\n",
+	SourceNote:     "- Source of a `container/` workload: the link between that container and the repository and file named above comes from the mappings in the KestreLynx configuration and was not checked by KestreLynx; a match of the base image layers or of the package names and versions does not show that the container was built from this repository\n",
 	DChange:        "- FROM on line %[1]d: %[2]s to %[3]s\n",
 	DRunning:       "- Running image: %s",
 	DCurrentBase:   "- Current base image: %[1]s, tag digest %[2]s, platform manifest %[3]s, config digest %[4]s, platform %[5]s\n",
@@ -367,6 +372,7 @@ var jaPRText = prText{
 	DBaseNow:       "- 現在のベースイメージ: %s\n",
 	DEdited:        "- 編集した箇所: ステージ %[1]d の FROM (%[2]d 行目)\n",
 	DWorkloads:     "- このイメージから作られるワークロード: %s\n",
+	SourceNote:     "- `container/` のワークロードのソース: そのコンテナと上記のリポジトリ・ファイルとの対応は KestreLynx の設定の対応付けによるもので、KestreLynx は確かめていない。ベースイメージのレイヤーやパッケージの名前と版が一致しても、コンテナがこのリポジトリからビルドされたことを示さない\n",
 	DChange:        "- %[1]d 行目の FROM: %[2]s から %[3]s へ\n",
 	DRunning:       "- 稼働中のイメージ: %s",
 	DCurrentBase:   "- 現在のベースイメージ: %[1]s、タグの digest %[2]s、プラットフォームの manifest %[3]s、config digest %[4]s、プラットフォーム %[5]s\n",

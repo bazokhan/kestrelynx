@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -196,4 +197,38 @@ func (c Container) WorkloadKey() string {
 		}
 		return "container/" + c.Name
 	}
+}
+
+// ContainerKeyPrefix starts the workload key of a container that belongs to no
+// known workload.
+const ContainerKeyPrefix = "container/"
+
+// ValidContainerName reports whether v is a container name Docker accepts:
+// [a-zA-Z0-9][a-zA-Z0-9_.-]+ (so at least two characters, and no slash), no
+// more than 253 bytes. Case is significant.
+func ValidContainerName(v string) bool {
+	if len(v) < 2 || len(v) > maxComposeNameBytes {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		alnum := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+		if !alnum && (i == 0 || c != '_' && c != '.' && c != '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// ParseContainerKey splits a container/<name> workload key into the container
+// name.
+func ParseContainerKey(key string) (name string, err error) {
+	name, ok := strings.CutPrefix(key, ContainerKeyPrefix)
+	if !ok {
+		return "", fmt.Errorf("must be container/<name>")
+	}
+	if !ValidContainerName(name) {
+		return "", fmt.Errorf("has an invalid container name (Docker allows [a-zA-Z0-9][a-zA-Z0-9_.-]+, up to %d bytes)", maxComposeNameBytes)
+	}
+	return name, nil
 }

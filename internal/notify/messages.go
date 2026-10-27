@@ -436,6 +436,7 @@ type messages struct {
 	PlanRebuildValue             string // "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later" (name, installed, lowest fixed version)
 	PlanDockerfileRebuild        string // "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base"
 	PlanDockerfileRebuildMapping string // the same for an image built outside Compose: pull the base again, rebuild and deploy again
+	PlanDockerfileRebuildMixed   string // the same for a Dockerfile shared by Compose services and containers started with docker run
 	PlanRebuildRuntime           string // "%[1]s has %[2]s %[3]s now; ... %[5]d of the %[6]d findings of %[2]s %[4]s are expected to disappear ..." (base ref, runtime, base version, installed version, disappearing, total)
 	PlanRuntimeEOL               string // "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating" (runtime name, date)
 	PlanRuntimeEOLNoDate         string // the same for a runtime the table has no date for (runtime name)
@@ -806,6 +807,7 @@ var enMessages = messages{
 	PlanRebuildValue:             "%[1]s %[2]s: a rebuild is expected to pick up %[3]s or later",
 	PlanDockerfileRebuild:        "which base the running image was built from cannot be confirmed; rebuilding with `docker compose build --pull` picks up the current base",
 	PlanDockerfileRebuildMapping: "which base the running image was built from cannot be confirmed; pull the base again, rebuild the image (for example with `docker build --pull`) and deploy it again",
+	PlanDockerfileRebuildMixed:   "which base the running image was built from cannot be confirmed; rebuild with `docker compose build --pull` for the Compose services and with `docker build --pull` or the like for the `docker run` containers, then recreate the containers",
 	PlanRebuildRuntime:           "%[2]s in the current %[1]s is %[3]s; if the rebuild takes over this version, %[5]d of the %[6]d findings of the detected %[2]s %[4]s are expected to disappear (the rebuilt image is not checked)",
 	PlanRuntimeEOL:               "%[1]s reached the end of its support on %[2]s; upgrade the runtime before updating",
 	PlanRuntimeEOLNoDate:         "%[1]s is past the end of its support; upgrade the runtime before updating",
@@ -1172,6 +1174,7 @@ var jaMessages = messages{
 	PlanRebuildValue:             "%[1]s %[2]s: 再ビルドで %[3]s 以上が入る見込み",
 	PlanDockerfileRebuild:        "稼働中のイメージの作成元のベースを確認できない。`docker compose build --pull` で再ビルドすると現在のベースが入る",
 	PlanDockerfileRebuildMapping: "稼働中のイメージの作成元のベースを確認できない。ベースを取り直して再ビルドし(`docker build --pull` など)、デプロイし直す",
+	PlanDockerfileRebuildMixed:   "稼働中のイメージの作成元のベースを確認できない。Compose のサービスは `docker compose build --pull` で、`docker run` のコンテナは `docker build --pull` などで再ビルドし、それぞれコンテナを作り直す",
 	PlanRebuildRuntime:           "現在の %[1]s の %[2]s は %[3]s。この版を引き継げば、検出中の %[2]s %[4]s の %[6]d 件のうち %[5]d 件は出なくなる見込み(再ビルド後のイメージは未確認)",
 	PlanRuntimeEOL:               "%[1]s は %[2]s にサポート終了。実行環境を上げてから更新してください",
 	PlanRuntimeEOLNoDate:         "%[1]s はサポート終了。実行環境を上げてから更新してください",

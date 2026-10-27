@@ -22,6 +22,10 @@ const (
 
 var errMarkerTooLarge = errors.New("the marker does not fit in a pull request body")
 
+// errBodyHeadTooLarge is returned when the part of a body that must not be cut
+// does not fit in what the marker leaves of the length limit.
+var errBodyHeadTooLarge = errors.New("the marker leaves no room in the pull request body for the note on the source of a container, which must not be cut")
+
 // prBodyInput is what a pull request body describes.
 type prBodyInput struct {
 	Repo, BaseBranch, BaseSHA, Path string
@@ -199,6 +203,13 @@ func assembleBody(text, marker string) (string, error) {
 
 // assembleBodyText is assembleBody with the note that tells the text was cut.
 func assembleBodyText(text, marker, cutNote string) (string, error) {
+	return assembleBodyKeeping(text, marker, cutNote, 0)
+}
+
+// assembleBodyKeeping is assembleBodyText for a text whose first keep runes
+// must stay: when the text has to be cut and the room the marker leaves is
+// smaller than that, no body is made.
+func assembleBodyKeeping(text, marker, cutNote string, keep int) (string, error) {
 	markerLen := utf8.RuneCountInString(marker)
 	if markerLen+len("\n\n")+utf8.RuneCountInString(cutNote) > maxPRBodyChars {
 		return "", errMarkerTooLarge
@@ -207,6 +218,9 @@ func assembleBodyText(text, marker, cutNote string) (string, error) {
 		return text + "\n" + marker, nil
 	}
 	room := maxPRBodyChars - markerLen - len("\n\n") - utf8.RuneCountInString(cutNote)
+	if room < keep {
+		return "", errBodyHeadTooLarge
+	}
 	rs := []rune(text)
 	cut := string(rs[:room])
 	if i := strings.LastIndexByte(cut, '\n'); i > 0 {

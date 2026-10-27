@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // maxListedEntries caps the lists of lockfile entries in the body.
@@ -61,6 +62,11 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 	fmt.Fprintf(&b, t.LDir, mdCode(in.Root))
 	fmt.Fprintf(&b, t.LManager, mdCode(string(it.Manager)))
 	fmt.Fprintf(&b, t.LWorkloads, codeListIn(t, in.Workloads, maxListedNames))
+	keep := 0
+	if anyStandalone(in.Workloads) {
+		b.WriteString(t.SourceNote)
+		keep = utf8.RuneCountInString(b.String())
+	}
 	var paths []string
 	for _, f := range in.Files {
 		paths = append(paths, f.Path)
@@ -270,7 +276,7 @@ func buildLanguagePRBody(in languageBodyInput) (string, error) {
 	}
 	fmt.Fprintf(&b, t.LInstallCheck, mdCode(installCheck(it.Manager)))
 
-	return assembleBodyText(b.String(), in.Marker, t.CutNote)
+	return assembleBodyKeeping(b.String(), in.Marker, t.CutNote, keep)
 }
 
 // entryWord is the word for n lockfile entries.

@@ -103,8 +103,10 @@ func (m DependencyManager) scheme() scheme {
 // DependencyMapping ties running Compose workloads to the directory of a
 // repository whose dependency files resolve their language packages.
 type DependencyMapping struct {
-	// Workload is the Compose workload key, compose/<project>/<service>;
-	// Project and Service are its parts.
+	// Workload is the Compose workload key, compose/<project>/<service>, with
+	// Project and Service as its parts; or the Kubernetes key, or
+	// container/<name> for a container started outside Compose, with both
+	// parts empty.
 	Workload   string
 	Project    string
 	Service    string

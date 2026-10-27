@@ -148,6 +148,22 @@ func kubernetesOwnerText(t *prText, o ChainOwner) string {
 // <kind>/<namespace>/<name>/<container>.
 func isKubernetesKey(key string) bool { return strings.Count(key, "/") == 3 }
 
+// isStandaloneKey reports whether a workload key is container/<name>, a
+// container started outside Compose.
+func isStandaloneKey(key string) bool {
+	return strings.HasPrefix(key, "container/") && strings.Count(key, "/") == 1
+}
+
+// anyStandalone reports whether some workload key is a container/<name> key.
+func anyStandalone(workloads []string) bool {
+	for _, w := range workloads {
+		if isStandaloneKey(w) {
+			return true
+		}
+	}
+	return false
+}
+
 // anyKubernetes reports whether some workload key is a Kubernetes key.
 func anyKubernetes(workloads []string) bool {
 	for _, w := range workloads {

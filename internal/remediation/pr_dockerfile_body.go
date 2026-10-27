@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // dockerfileBodyInput is what the body of a base image pull request
@@ -37,6 +38,11 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 	fmt.Fprintf(&b, t.DBaseNow, mdCode(in.Current))
 	fmt.Fprintf(&b, t.DEdited, in.Stage, in.Change.Line)
 	fmt.Fprintf(&b, t.DWorkloads, codeListIn(t, in.Workloads, maxListedNames))
+	keep := 0
+	if anyStandalone(in.Workloads) {
+		b.WriteString(t.SourceNote)
+		keep = utf8.RuneCountInString(b.String())
+	}
 
 	b.WriteString("\n## " + t.HeadChange + "\n\n")
 	fmt.Fprintf(&b, t.DChange, in.Change.Line, mdCode(in.Change.Old), mdCode(in.Change.New))
@@ -89,5 +95,5 @@ func buildDockerfilePRBody(in dockerfileBodyInput) (string, error) {
 		writeKubernetesDeploy(t, &b, in.Workloads, in.Management)
 	}
 
-	return assembleBodyText(b.String(), in.Marker, t.CutNote)
+	return assembleBodyKeeping(b.String(), in.Marker, t.CutNote, keep)
 }

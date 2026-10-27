@@ -185,6 +185,7 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list running containers: %w", err)
 	}
+	r.warnComposeNames(containers)
 	images := inventory.DistinctImages(containers)
 	log.Info("scanning images", "count", len(images))
 
