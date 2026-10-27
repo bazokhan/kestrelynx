@@ -2,7 +2,7 @@
 
 KestreLynxはDockerホストごとに1つのコンテナとして、またはKubernetesクラスタ内で
 レプリカ数1のDeploymentとして動作します。  
-実行中のコンテナが使用しているイメージを特定してスキャンし、その結果をSlackまたは
+実行中のコンテナが使用しているイメージを特定してスキャンし、その結果をSlack、メール、または
 Webhookへ送信します。
 
 ## 必要なもの
@@ -13,6 +13,7 @@ Webhookへ送信します。
     - Slack Incoming Webhook
     - Slack Bot Tokenとチャンネル
     - Webhook URL
+    - TLS必須のSMTPメール
 
 ## Docker Composeで実行
 

@@ -9,8 +9,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"math/big"
+	"mime/quotedprintable"
 	"net"
 	"strings"
 	"sync"
@@ -49,6 +52,15 @@ func TestEmailBodyContainsPackage(t *testing.T) {
 	if !strings.Contains(subj, "KestreLynx") {
 		t.Errorf("subject = %q", subj)
 	}
+	if !strings.Contains(body, "Everything currently open.") {
+		t.Fatalf("body missing the summary line:\n%s", body)
+	}
+	for _, line := range strings.Split(body, "\n") {
+		trim := strings.TrimSpace(line)
+		if len(trim) > 1 && strings.HasPrefix(trim, "_") && strings.HasSuffix(trim, "_") {
+			t.Errorf("Slack italics left on a line: %q", trim)
+		}
+	}
 }
 
 func TestEmailNotifier_STARTTLS(t *testing.T) {
@@ -77,8 +89,12 @@ func TestEmailNotifier_STARTTLS(t *testing.T) {
 	if !strings.Contains(got.Data, "Subject:") {
 		t.Errorf("missing Subject:\n%s", got.Data)
 	}
-	if !strings.Contains(got.Data, "libc-bin") {
-		t.Errorf("message body missing package libc-bin:\n%s", got.Data)
+	if !strings.Contains(got.Data, "Content-Transfer-Encoding: quoted-printable") {
+		t.Errorf("missing quoted-printable header:\n%s", got.Data)
+	}
+	decoded := decodeQuotedBody(t, got.Data)
+	if !strings.Contains(decoded, "libc-bin") {
+		t.Errorf("decoded body missing package libc-bin:\n%s", decoded)
 	}
 	if got.From != "kestrelynx@example.com" {
 		t.Errorf("MAIL FROM = %q", got.From)
@@ -91,6 +107,39 @@ func TestEmailNotifier_STARTTLS(t *testing.T) {
 	}
 	if !got.Authed {
 		t.Error("expected AUTH")
+	}
+	if got.AuthBeforeTLS {
+		t.Error("AUTH ran before TLS")
+	}
+	if got.AuthUser != "user" || got.AuthPass != "pass" {
+		t.Errorf("AUTH credentials = %q / %q", got.AuthUser, got.AuthPass)
+	}
+}
+
+func TestEmailNotifier_Japanese(t *testing.T) {
+	srv := startTestSMTP(t, smtpModeSTARTTLS)
+	defer srv.Close()
+
+	n := EmailNotifier{
+		Host: "127.0.0.1", Port: srv.Port, TLS: "starttls",
+		From: "kestrelynx@example.com", To: []string{"ops@example.com"},
+		Language:    LanguageJA,
+		DialContext: srv.DialContext,
+		TLSConfig:   srv.ClientTLS,
+	}
+	if err := n.Send(context.Background(), Message{Report: sampleReport()}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	raw := srv.Got().Data
+	if strings.Contains(raw, "スキャン結果") {
+		t.Fatal("Japanese text was sent as raw 8-bit instead of quoted-printable")
+	}
+	decoded := decodeQuotedBody(t, raw)
+	if !strings.Contains(decoded, "スキャン結果") {
+		t.Fatalf("decoded body missing Japanese header:\n%s", decoded)
+	}
+	if strings.Contains(decoded, "scan results for") {
+		t.Fatalf("Japanese message leaked English wording:\n%s", decoded)
 	}
 }
 
@@ -163,17 +212,20 @@ const (
 )
 
 type smtpCapture struct {
-	From           string
-	To             []string
-	Data           string
-	UsedSTARTTLS  bool
+	From            string
+	To              []string
+	Data            string
+	UsedSTARTTLS    bool
 	UsedImplicitTLS bool
-	Authed         bool
+	Authed          bool
+	AuthBeforeTLS   bool
+	AuthUser        string
+	AuthPass        string
 }
 
 type testSMTP struct {
-	Port      int
-	ClientTLS *tls.Config
+	Port        int
+	ClientTLS   *tls.Config
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	ln     net.Listener
@@ -282,9 +334,23 @@ func (s *testSMTP) handle(c net.Conn) {
 			s.cap.UsedSTARTTLS = true
 			s.mu.Unlock()
 		case strings.HasPrefix(cmd, "AUTH"):
+			if s.mode == smtpModeSTARTTLS && !startTLS {
+				s.mu.Lock()
+				s.cap.AuthBeforeTLS = true
+				s.mu.Unlock()
+				write("538 encryption required")
+				continue
+			}
+			user, pass, ok := parseAuthPlain(line)
 			s.mu.Lock()
 			s.cap.Authed = true
+			s.cap.AuthUser = user
+			s.cap.AuthPass = pass
 			s.mu.Unlock()
+			if !ok {
+				write("535 denied")
+				continue
+			}
 			write("235 ok")
 		case strings.HasPrefix(cmd, "MAIL FROM:"):
 			addr := extractSMTPAddr(line)
@@ -326,6 +392,36 @@ func (s *testSMTP) handle(c net.Conn) {
 			write("502 unimplemented")
 		}
 	}
+}
+
+func decodeQuotedBody(t *testing.T, msg string) string {
+	t.Helper()
+	idx := strings.Index(msg, "\r\n\r\n")
+	if idx < 0 {
+		t.Fatalf("message has no header separator:\n%s", msg)
+	}
+	r := quotedprintable.NewReader(strings.NewReader(msg[idx+4:]))
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("quoted-printable: %v", err)
+	}
+	return string(b)
+}
+
+func parseAuthPlain(line string) (user, pass string, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 || !strings.EqualFold(fields[0], "AUTH") || !strings.EqualFold(fields[1], "PLAIN") {
+		return "", "", false
+	}
+	raw, err := base64.StdEncoding.DecodeString(fields[2])
+	if err != nil {
+		return "", "", false
+	}
+	parts := strings.Split(string(raw), "\x00")
+	if len(parts) != 3 {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
 }
 
 func extractSMTPAddr(line string) string {

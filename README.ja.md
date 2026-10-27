@@ -223,7 +223,7 @@ kubectl logs -n kestrelynx deployment/kestrelynx -f
 | `schedule.daily_at` | 毎日の実行時刻（設定例：`09:00`、省略・空文字列：24時間間隔） |
 | `schedule.run_on_start` | 起動直後のスキャン（既定：`true`） |
 | `scan.severity` | 対象の深刻度（既定：`[HIGH, CRITICAL]`） |
-| `notify.language` | Slack通知とPR本文の言語：`en`（既定）または`ja`、それ以外は設定エラーで、汎用Webhookは英語のまま |
+| `notify.language` | Slackおよびメール通知とPR本文の言語：`en`（既定）または`ja`、それ以外は設定エラーで、汎用Webhookは英語のまま |
 | `notify.mode` | `diff`：差分通知（既定）、`full`：毎回全体レポート |
 | `notify.full_report_day` | diffモードの週次レポートの曜日（既定：`monday`、無効化：`never`） |
 | `notify.notify_on_clean` | 問題・変更のない場合の通知（既定：`false`） |

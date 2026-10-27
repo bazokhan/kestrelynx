@@ -4,11 +4,13 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -70,6 +72,12 @@ func emailSubject(msgs []SlackMessage) string {
 		s = s[:i]
 	}
 	s = strings.TrimSpace(mrkdwnToPlain(s))
+	s = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, s)
 	if s == "" {
 		s = "KestreLynx"
 	}
@@ -115,14 +123,19 @@ func (n EmailNotifier) deliver(ctx context.Context, subject, body string) error 
 		return fmt.Errorf("email from: invalid address")
 	}
 	toAddrs := make([]string, 0, len(n.To))
+	toHeaders := make([]string, 0, len(n.To))
 	for i, raw := range n.To {
 		a, err := mail.ParseAddress(raw)
 		if err != nil {
 			return fmt.Errorf("email to[%d]: invalid address", i)
 		}
 		toAddrs = append(toAddrs, a.Address)
+		toHeaders = append(toHeaders, formatMailbox(a))
 	}
-	msg := buildMIME(formatMailbox(from), n.To, encodeSubject(subject), body)
+	msg, err := buildMIME(formatMailbox(from), toHeaders, encodeSubject(subject), body)
+	if err != nil {
+		return fmt.Errorf("email: build message: %w", err)
+	}
 	addr := net.JoinHostPort(n.Host, fmt.Sprintf("%d", n.Port))
 	if err := n.smtpSend(ctx, addr, from.Address, toAddrs, msg); err != nil {
 		return fmt.Errorf("email: %w", redactEmailErr(err, n.Password))
@@ -137,7 +150,15 @@ func formatMailbox(a *mail.Address) string {
 	return a.String()
 }
 
-func buildMIME(from string, to []string, subject, body string) []byte {
+func buildMIME(from string, to []string, subject, body string) ([]byte, error) {
+	var encoded bytes.Buffer
+	w := quotedprintable.NewWriter(&encoded)
+	if _, err := w.Write([]byte(body)); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 	var b strings.Builder
 	b.WriteString("From: ")
 	b.WriteString(from)
@@ -150,13 +171,10 @@ func buildMIME(from string, to []string, subject, body string) []byte {
 	b.WriteString("\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-	b.WriteString("Content-Transfer-Encoding: 8bit\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(strings.ReplaceAll(body, "\n", "\r\n"))
-	if !strings.HasSuffix(body, "\n") {
-		b.WriteString("\r\n")
-	}
-	return []byte(b.String())
+	b.Write(encoded.Bytes())
+	return []byte(b.String()), nil
 }
 
 func (n EmailNotifier) smtpSend(ctx context.Context, addr, from string, to []string, msg []byte) error {
@@ -174,6 +192,9 @@ func (n EmailNotifier) smtpSend(ctx context.Context, addr, from string, to []str
 	if err != nil {
 		return err
 	}
+	// Cancel closes the connection. SMTP itself has no context.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
@@ -218,7 +239,10 @@ func (n EmailNotifier) smtpSend(ctx context.Context, addr, from string, to []str
 	if err := w.Close(); err != nil {
 		return err
 	}
-	return client.Quit()
+	// DATA already succeeded. A later QUIT failure must not make the runner
+	// send the same report again.
+	_ = client.Quit()
+	return nil
 }
 
 func (n EmailNotifier) dial(ctx context.Context, addr string) (net.Conn, error) {
@@ -255,7 +279,11 @@ func (n EmailNotifier) tlsConfig() *tls.Config {
 	if n.TLSConfig != nil {
 		return n.TLSConfig.Clone()
 	}
-	return &tls.Config{ServerName: n.Host, MinVersion: tls.VersionTLS12}
+	name := n.Host
+	if ip := net.ParseIP(strings.Trim(n.Host, "[]")); ip != nil {
+		name = ip.String()
+	}
+	return &tls.Config{ServerName: name, MinVersion: tls.VersionTLS12}
 }
 
 // redactEmailErr hides transport details that may include the password and

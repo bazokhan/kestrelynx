@@ -187,7 +187,7 @@ Keeping the observed file, evidence granularity, and observation window with a m
 
 ---
 
-KestreLynx is open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends changes since the last scan and priorities based on severity, CISA KEV, and EPSS to Slack or a webhook.
+KestreLynx is open-source software that regularly scans images used by running Docker and Kubernetes containers with Trivy and sends changes since the last scan and priorities based on severity, CISA KEV, and EPSS to Slack, email, or a webhook.
 
 Remediation plans and pull requests (experimental) for Docker, Compose, and Kubernetes support remediation from comparing update candidates to creating GitHub pull requests, with both features disabled by default. Users handle merging, rebuilding, and deployment.
 

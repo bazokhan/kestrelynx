@@ -223,7 +223,7 @@ See [config.example.yml](config.example.yml) for all configuration options and t
 | `schedule.daily_at` | Daily scan time (`09:00` in the example; 24-hour interval if omitted or empty) |
 | `schedule.run_on_start` | Startup scan (default: `true`) |
 | `scan.severity` | Included severities (default: `[HIGH, CRITICAL]`) |
-| `notify.language` | Language for Slack notifications and PR bodies: `en` (default) or `ja`; other values are configuration errors, and the generic webhook remains in English |
+| `notify.language` | Language for Slack and email notifications and PR bodies: `en` (default) or `ja`; other values are configuration errors, and the generic webhook remains in English |
 | `notify.mode` | `diff`: change notifications (default); `full`: full report every scan |
 | `notify.full_report_day` | Weekly report day in diff mode (default: `monday`; disabled: `never`) |
 | `notify.notify_on_clean` | Notifications with no issues or changes (default: `false`) |

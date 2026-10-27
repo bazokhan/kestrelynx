@@ -5,7 +5,7 @@
 KestreLynx scans images used by running containers with Trivy and groups findings by package.
 It uses exploitation intelligence to assign priorities and compares results with saved history to identify changes such as new and resolved findings.
 
-Slack shows changes and current findings, while the generic webhook provides structured findings and diffs.
+Slack and email show changes and current findings, while the generic webhook provides structured findings and diffs.
 Notification conditions and explanations of notification displays and fields are documented on separate pages.
 
 KestreLynx can also send remediation plans for Docker, Compose, and Kubernetes and create remediation PRs on GitHub (experimental, disabled by default).

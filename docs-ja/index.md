@@ -14,7 +14,7 @@ Docker · Kubernetes · Trivy · CISA KEV · EPSS
 
 # コンテナイメージの脆弱性スキャン・通知・修正
 
-KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンするOSSです。前回からの変化と、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度をSlackやWebhookへ通知します。
+KestreLynxは、Docker・Kubernetesで稼働中のコンテナが使うイメージを[Trivy](https://trivy.dev/)で定期的にスキャンするOSSです。前回からの変化と、深刻度・[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)・[EPSS](https://www.first.org/epss/)に基づく優先度をSlack、メール、またはWebhookへ通知します。
 
 Docker・Compose・Kubernetes向けの[修正計画と修正PR（実験的）](documentation/remediation.md)を備え、同じ条件での再スキャン結果の比較とGitHubへのPR作成を通じて修正を支援します（既定で無効）。
 
@@ -148,7 +148,7 @@ PR #1をマージして稼働中の`proxy`コンテナをnginx 1.27.5に入れ�
 
 ## セットアップ
 
-Docker Composeでの手順です。Docker Composeが使えるDockerホストと、通知先が1つ以上必要です。通知先はSlack Incoming Webhook、Slack Botとチャンネル、汎用Webhookから選べます。Kubernetesでの手順は[セットアップ](documentation/getting-started.md#kubernetes)を参照してください。
+Docker Composeでの手順です。Docker Composeが使えるDockerホストと、通知先が1つ以上必要です。通知先はSlack Incoming Webhook、Slack Botとチャンネル、メール、汎用Webhookから選べます。Kubernetesでの手順は[セットアップ](documentation/getting-started.md#kubernetes)を参照してください。
 
 1. リポジトリを取得してディレクトリへ移動する
 

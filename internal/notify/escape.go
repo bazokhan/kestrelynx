@@ -5,8 +5,8 @@
 // into mrkdwn: Slack's own control syntax (<!channel>, <@user>, <url|label>)
 // is introduced by "<", so "&", "<" and ">" are replaced with their entities.
 // A link is built from a validated URL and an escaped label, never by
-// escaping a finished link. The plain-text renderers keep their historical
-// output and do not use this file.
+// escaping a finished link. The saved plain-text goldens do not use this
+// file. Email does: mrkdwnToPlain turns a finished message into text.
 package notify
 
 import (
@@ -47,7 +47,27 @@ func mrkdwnToPlain(s string) string {
 	})
 	s = mrkdwnBold.ReplaceAllString(s, "$1")
 	s = strings.ReplaceAll(s, "`", "")
-	return unescapeMrkdwn(s)
+	s = unescapeMrkdwn(s)
+	return stripWholeLineItalic(s)
+}
+
+// stripWholeLineItalic removes Slack italics that wrap an entire line
+// (_like this_). Underscores inside a line stay, so versions and package
+// names are unchanged.
+func stripWholeLineItalic(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if len(trim) < 2 || !strings.HasPrefix(trim, "_") || !strings.HasSuffix(trim, "_") {
+			continue
+		}
+		inner := trim[1 : len(trim)-1]
+		if strings.Contains(inner, "_") {
+			continue
+		}
+		lines[i] = strings.Replace(line, trim, inner, 1)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // validLinkURL reports whether raw may be placed inside a Slack link: an

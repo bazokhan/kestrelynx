@@ -18,7 +18,7 @@ KestreLynx is open-source software that regularly scans images used by running
 Docker and Kubernetes containers with [Trivy](https://trivy.dev/).
 It sends changes since the last scan and priorities based on severity,
 [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog), and
-[EPSS](https://www.first.org/epss/) to Slack or a webhook.
+[EPSS](https://www.first.org/epss/) to Slack, email, or a webhook.
 For Docker, Compose, and Kubernetes,
 [remediation plans and pull requests (experimental)](documentation/remediation.md)
 support remediation by comparing rescans under the same conditions and creating
@@ -167,7 +167,7 @@ images your containers are running.
 
 These steps use Docker Compose. You need a Docker host with Docker Compose and
 at least one notification destination: a Slack Incoming Webhook, a Slack bot
-with a destination channel, or a generic webhook. For Kubernetes, see
+with a destination channel, email, or a generic webhook. For Kubernetes, see
 [Setup instructions](documentation/getting-started.md#run-on-kubernetes).
 
 1. Clone the repository and enter its directory

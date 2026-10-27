@@ -2,7 +2,7 @@
 
 KestreLynx runs as one container per Docker host or as a single-replica Deployment
 inside a Kubernetes cluster. It discovers and scans the images used by running
-containers, then sends the results to Slack or a webhook.
+containers, then sends the results to Slack, email, or a webhook.
 
 ## Requirements
 
@@ -12,6 +12,7 @@ containers, then sends the results to Slack or a webhook.
     - Slack Incoming Webhook
     - Slack bot token and channel
     - Webhook URL
+    - Email over TLS-only SMTP
 
 ## Run with Docker Compose
 
