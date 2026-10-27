@@ -48,6 +48,13 @@ See [Source mappings](configuration.md#remediation-mappings) for the mapping con
 Before looking for published-image candidates, KestreLynx checks the image reference in the Pod spec against the running reference.
 It normalizes abbreviated repository names and compares tags and digests.
 
+The running reference normally comes from the Pod's `status.containerStatuses[].image`.
+With containerd, this value can be an image config ID (`sha256:…`) when the node holds the image without a tag, such as after pulling it by digest alone, in which case KestreLynx selects the reference based on the same container's `imageID`.
+
+- If `imageID` is a digest reference with a repository, such as `ghcr.io/example/app@sha256:…`, KestreLynx uses that repository and digest as the running reference
+  - This avoids showing only the config ID in the notification's image field and allows comparison with the spec's digest reference
+- If `imageID` also lacks a repository, KestreLynx keeps the original `image` value
+
 If any container using the same running image reference has a mismatch, items for that reference become `not_comparable`.
 The reason is `declared_ref_mismatch`, or `declared_ref_unavailable` when the spec's image reference cannot be read.
 

@@ -509,12 +509,7 @@ func bindingsOf(l listing, observedAt time.Time) []remediation.DeployBinding {
 // derives a Container's Image: the status-reported image and imageID are
 // the only source, never spec's intent.
 func buildDeployBinding(namespace, pod string, cs containerStatus, platform inventory.Platform, workload inventory.Workload, chains []remediation.OwnerChain) remediation.DeployBinding {
-	img := inventory.RunningImage{Ref: cs.Image, Platform: platform}
-	if cs.ImageID != "" {
-		if ref, ok := parseImageID(cs.ImageID); ok {
-			img.Registry = ref
-		}
-	}
+	img, _ := runningImageOf(cs, platform)
 	key, resolved := inventory.EntityKeyOf(img)
 	return remediation.DeployBinding{
 		Workload:    workload,

@@ -247,6 +247,56 @@ func TestObserve_SpecAndStatusOrderDiffer(t *testing.T) {
 	}
 }
 
+// A Pod whose image is pinned by digest alone: K3s v1.36.5 (containerd 2.3)
+// reports the config ID as status.image and the pulled reference as
+// status.imageID. These are the values a Pod of ghcr.io/kitsunetrail/kestrelynx
+// reported there. The running reference is the imageID's, which names the same
+// image as the spec.
+func TestObserve_DigestPinnedImageIDStatus(t *testing.T) {
+	const (
+		pinned   = "ghcr.io/kitsunetrail/kestrelynx@sha256:4bbb6fa9aae264785a1ee38f6c05769c5e0eb62d30477d2c2ab61e572def0263"
+		configID = "sha256:1e9d6d838697ff30e6cf510ded53c96bff78128d111a6fe511013378636c7bbf"
+	)
+	lists := k3sLists(t)
+	lists["pods"] = editItems(t, lists["pods"], func(items []map[string]any) {
+		pod := itemNamed(t, items, "pinned-54776c966b-mbcs2")
+		pod["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["image"] = pinned
+		st := pod["status"].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)
+		st["image"], st["imageID"] = configID, pinned
+	})
+	f := newFakeServer(t)
+	serveK3s(f, lists)
+	c := newTestClient(t, f.start(), []string{k3sNamespace})
+
+	cs, bindings, err := c.Observe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := containerByName(t, cs, "pinned-54776c966b-mbcs2/app")
+	if app.Image.Ref != pinned {
+		t.Errorf("running ref = %q, want %q", app.Image.Ref, pinned)
+	}
+	if app.Image.Registry.Repository != "ghcr.io/kitsunetrail/kestrelynx" || app.Image.Registry.Digest.String() != pinned[len("ghcr.io/kitsunetrail/kestrelynx@"):] {
+		t.Errorf("registry ref = %+v", app.Image.Registry)
+	}
+	if app.Declared == nil || app.Declared.Ref != pinned {
+		t.Errorf("declared = %+v, want %s", app.Declared, pinned)
+	}
+	n := 0
+	for _, b := range bindings {
+		if b.Container != app.Name {
+			continue
+		}
+		n++
+		if b.Subject.Ref != pinned {
+			t.Errorf("binding subject ref = %q, want %q", b.Subject.Ref, pinned)
+		}
+	}
+	if n != 1 {
+		t.Errorf("bindings of %s = %d, want 1", app.Name, n)
+	}
+}
+
 // A container without a spec entry (or with a duplicated one) has no declared
 // reference; the running one is not put in its place.
 func TestObserve_MissingDeclaredInfoIsEmpty(t *testing.T) {

@@ -29,6 +29,36 @@ var repoComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
 // path segment.
 var repoPortPattern = regexp.MustCompile(`^[0-9]{1,5}$`)
 
+// bareImageIDPattern matches a containerStatus.image that is only an image
+// ID. containerd reports the image's first tag there, and when the node holds
+// the image under no tag (as after a pull by digest alone) it leaves the ID of
+// the image config, which names no repository.
+var bareImageIDPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// runningImageOf builds what one container status says the container runs:
+// status.image as the reference, and status.imageID as the registry reference
+// the runtime resolved. Both are the runtime's own report; the spec's image
+// is never used. When status.image is only an image ID and imageID names a
+// repository, the reference is that repository and digest, under which the
+// runtime holds the same image; an image ID alone cannot be shown, scanned by
+// name or compared with the spec. badImageID reports a non-empty imageID that
+// failed the checks of parseImageID, for the caller to log.
+func runningImageOf(cs containerStatus, platform inventory.Platform) (img inventory.RunningImage, badImageID bool) {
+	img = inventory.RunningImage{Ref: cs.Image, Platform: platform}
+	if cs.ImageID == "" {
+		return img, false
+	}
+	ref, ok := parseImageID(cs.ImageID)
+	if !ok {
+		return img, true
+	}
+	img.Registry = ref
+	if bareImageIDPattern.MatchString(cs.Image) {
+		img.Ref = ref.Repository + "@" + ref.Digest.String()
+	}
+	return img, false
+}
+
 // parseImageID resolves a Kubernetes containerStatus.imageID into a
 // RegistryRef, or reports ok == false when the value can't be trusted as a
 // registry digest reference. The raw value is never returned on failure —

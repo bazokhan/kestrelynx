@@ -168,13 +168,7 @@ func (c *Client) podDescription(pod podRaw, platform inventory.Platform) *invent
 		}
 		if statusCount[name] == 1 {
 			obs.HasStatus = true
-			cs := statusOf[name]
-			obs.Image = inventory.RunningImage{Ref: cs.Image, Platform: platform}
-			if cs.ImageID != "" {
-				if ref, ok := parseImageID(cs.ImageID); ok {
-					obs.Image.Registry = ref
-				}
-			}
+			obs.Image, _ = runningImageOf(statusOf[name], platform)
 		} else if statusCount[name] > 1 {
 			obs.HasStatus = true
 		}
@@ -231,21 +225,17 @@ func declaredOf(specs map[string]specContainer, name string) *inventory.Declared
 }
 
 // buildContainer converts one running container status into the common
-// inventory vocabulary. The running reference is the status-reported image,
-// the only actual observation; the spec's image travels separately in
-// Declared and is never used as Ref.
+// inventory vocabulary. The running reference is what the status reports
+// (runningImageOf), the only actual observation; the spec's image travels
+// separately in Declared and is never used as Ref.
 func (c *Client) buildContainer(namespace, pod string, cs containerStatus, platform inventory.Platform, workload inventory.Workload, declared *inventory.Declared) inventory.Container {
-	img := inventory.RunningImage{Ref: cs.Image, Platform: platform}
-	if cs.ImageID != "" {
-		if ref, ok := parseImageID(cs.ImageID); ok {
-			img.Registry = ref
-		} else {
-			// A non-empty imageID that fails the boundary check is never
-			// normalized or guessed at — the common model has no place for
-			// an unresolved raw value, so it stays a log-only diagnostic.
-			c.log().Warn("image id failed registry digest validation",
-				"ref", cs.Image, "raw_image_id", cs.ImageID)
-		}
+	img, badImageID := runningImageOf(cs, platform)
+	if badImageID {
+		// A non-empty imageID that fails the boundary check is never
+		// normalized or guessed at — the common model has no place for
+		// an unresolved raw value, so it stays a log-only diagnostic.
+		c.log().Warn("image id failed registry digest validation",
+			"ref", cs.Image, "raw_image_id", cs.ImageID)
 	}
 	return inventory.Container{
 		Name:     namespace + "/" + pod + "/" + cs.Name,

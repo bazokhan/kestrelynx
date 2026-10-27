@@ -48,6 +48,13 @@ KestreLynxが更新候補を選び、更新結果を検査し、修正PRを管�
 配布イメージの候補を調べる前に、Podのspecにあるイメージ参照と稼働中の参照を照合します。
 リポジトリ名の省略形を正規化し、タグとdigestを比較します。
 
+稼働中の参照には、通常はPodの`status.containerStatuses[].image`を使います。
+containerdでは、digestだけで指定して取得した場合など、ノードがイメージをタグなしで保持していると、この値がイメージconfigのID(`sha256:…`)になることがあり、その場合は同じコンテナの`imageID`に応じて参照を選びます。
+
+- `imageID`が`ghcr.io/example/app@sha256:…`のようなリポジトリ付きのdigest参照なら、そのリポジトリとdigestを稼働中の参照に使う
+  - これにより、通知のイメージ欄にconfigのIDだけが表示されるのを避け、specのdigest参照と照合できる
+- `imageID`にもリポジトリがない場合は、元の`image`の値をそのまま使う
+
 同じ稼働イメージ参照を使うコンテナのどれかが一致しない場合、その参照の項目は`not_comparable`になります。
 理由は`declared_ref_mismatch`で、specのイメージ参照を読み取れない場合は`declared_ref_unavailable`です。
 
