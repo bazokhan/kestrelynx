@@ -13,6 +13,13 @@ The complete annotated example is available in
 | `schedule.daily_at` | empty | Local time in `HH:MM`. When empty, run every 24 hours from startup. |
 | `schedule.run_on_start` | `true` | Run one scan immediately when KestreLynx starts. |
 
+In Kubernetes mode, when `schedule.run_on_start` is enabled, KestreLynx waits up to 30 seconds before the first scan for all containers in its own Pod to be reported as `Running` by the API.
+This wait prevents its own image from being missed by the scan when its container is not yet reported as `Running` immediately after startup.
+
+- It identifies its own Pod using the ServiceAccount namespace and `HOSTNAME`
+- It skips the wait if it cannot read its own Pod, such as when running outside the cluster, using another cluster's API server, or when `HOSTNAME` is not the Pod name
+- If not all containers are `Running` within 30 seconds, it logs a warning and starts the scan
+
 Use the container's `TZ` environment variable to select the timezone used by
 `daily_at`.
 

@@ -14,6 +14,13 @@ YAML設定ファイルについて説明します。コンテナイメージで�
 | `schedule.daily_at` | 空 | `HH:MM`形式のローカル時刻。空の場合は起動時点から24時間ごとに実行します。 |
 | `schedule.run_on_start` | `true` | KestreLynxの起動直後に1回スキャンします。 |
 
+Kubernetesモードで`schedule.run_on_start`が有効な場合、最初のスキャンの前に、KestreLynx自身のPodの全コンテナがAPI上で`Running`になるまで最長30秒待ちます。
+この待機は、起動直後に自身のコンテナがまだ`Running`として報告されず、自身のイメージがスキャンから抜けるのを防ぐためです。
+
+- 自身のPodは、ServiceAccountのnamespaceと`HOSTNAME`で特定する
+- クラスタ外での実行、別クラスタのAPI serverの指定、`HOSTNAME`がPod名でない場合など、自身のPodを読み取れない場合は待たない
+- 30秒以内に全コンテナが`Running`にならなければ、警告を出してスキャンを始める
+
 `daily_at`で使用するタイムゾーンは、コンテナの`TZ`環境変数で指定します。
 
 ## スキャン

@@ -181,6 +181,10 @@ func main() {
 		"full_report_day", cfg.Notify.FullReportDay,
 		"triage", cfg.Triage.Enabled)
 
+	if kc, ok := lister.(*kubernetes.Client); ok && cfg.Schedule.RunOnStart {
+		waitOwnPodRunning(ctx, kc, cfg.Kubernetes, log)
+	}
+
 	if err := r.Loop(ctx, cfg.Schedule); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("runner loop", "err", err)
 		os.Exit(1)
@@ -514,6 +518,34 @@ func trivyDockerHost(cfg config.Config) string {
 		return ""
 	}
 	return cfg.Docker.Socket
+}
+
+// ownPodWait bounds how long the first cycle waits for this process's own
+// Pod to show as running, and how often it looks.
+const (
+	ownPodWaitTimeout  = 30 * time.Second
+	ownPodWaitInterval = 500 * time.Millisecond
+)
+
+// waitOwnPodRunning holds the cycle run on start until the API shows this
+// process's own containers running. Without it, that cycle can list the
+// cluster before the kubelet has reported them, leave this Pod's image out,
+// and report its findings as resolved, only for the next cycle to report them
+// as new. Outside a Pod, or when the Pod cannot be read (another cluster's
+// API server, a hostname that is not the Pod name), it does not wait.
+func waitOwnPodRunning(ctx context.Context, c *kubernetes.Client, kc config.KubernetesConfig, log *slog.Logger) {
+	ns, pod, err := ownPod(kc)
+	if err != nil {
+		log.Debug("not waiting for this Pod to run", "err", err)
+		return
+	}
+	ok, err := c.WaitPodRunning(ctx, ns, pod, ownPodWaitTimeout, ownPodWaitInterval)
+	switch {
+	case err != nil:
+		log.Info("this Pod could not be read; scanning without waiting for it to show as running", "namespace", ns, "pod", pod, "err", err)
+	case !ok && ctx.Err() == nil:
+		log.Warn("this Pod did not show as running in time; its own image may be left out of the first scan", "namespace", ns, "pod", pod, "waited", ownPodWaitTimeout)
+	}
 }
 
 // buildLister constructs the Runtime Adapter cfg.Kubernetes.Enabled selects

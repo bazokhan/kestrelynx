@@ -170,24 +170,34 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// ownImage finds the image, pinned by digest, that this process's own Pod
-// runs, for the receiving init container to use.
-func ownImage(kc config.KubernetesConfig, log *slog.Logger) (string, error) {
+// ownPod names this process's own Pod: the namespace of its service account
+// and the Pod name the kubelet sets as HOSTNAME.
+func ownPod(kc config.KubernetesConfig) (namespace, pod string, err error) {
 	tokenDir := filepath.Dir(kc.TokenFile)
 	if kc.TokenFile == "" {
 		tokenDir = "/var/run/secrets/kubernetes.io/serviceaccount"
 	}
 	ns, err := os.ReadFile(filepath.Join(tokenDir, "namespace"))
 	if err != nil {
-		return "", fmt.Errorf("read the namespace of this Pod: %w", err)
+		return "", "", fmt.Errorf("read the namespace of this Pod: %w", err)
 	}
-	pod := os.Getenv("HOSTNAME")
+	pod = os.Getenv("HOSTNAME")
 	if pod == "" {
-		return "", errors.New("HOSTNAME does not name this Pod")
+		return "", "", errors.New("HOSTNAME does not name this Pod")
+	}
+	return strings.TrimSpace(string(ns)), pod, nil
+}
+
+// ownImage finds the image, pinned by digest, that this process's own Pod
+// runs, for the receiving init container to use.
+func ownImage(kc config.KubernetesConfig, log *slog.Logger) (string, error) {
+	ns, pod, err := ownPod(kc)
+	if err != nil {
+		return "", err
 	}
 	c, err := kubework.New(kubework.Options{
 		APIServer: kc.APIServer, TokenFile: kc.TokenFile, CAFile: kc.CAFile, TLSServerName: kc.TLSServerName,
-		Namespace: strings.TrimSpace(string(ns)), Log: log,
+		Namespace: ns, Log: log,
 	})
 	if err != nil {
 		return "", err
