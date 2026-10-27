@@ -40,6 +40,7 @@ nav:
       - 稼働時の使用状況（実験的）: documentation/runtime-usage.md
   - 開発ログ:
       - 概要: development/index.md
+      - docker run での修正 PR の開発: development/docker-run-remediation.md
       - 言語ランタイム本体の修正計画の開発: development/language-runtime-remediation.md
       - 言語ランタイム本体の脆弱性通知の開発: development/language-runtime-advisories.md
       - Kubernetes での修正 PR の開発: development/kubernetes-remediation.md
