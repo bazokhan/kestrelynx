@@ -116,7 +116,7 @@
 | `dockerfile_items[].category` | string | 計画の分類値 |
 | `dockerfile_items[].reason` / `dockerfile_items[].detail` | string | 理由と補足で、空なら省略 |
 | `dockerfile_items[].priority` | string | 対象の優先度で、情報なしは省略 |
-| `dockerfile_items[].workloads` | stringの配列 | 対象のWorkloadで、該当なしは`[]` |
+| `dockerfile_items[].workloads` | stringの配列 | 対象のWorkloadで、`container/<名前>`も含み、該当なしは`[]` |
 | `dockerfile_items[].source` | object | Dockerfileのリポジトリ・ブランチ・パスと、取得できたコミット・ステージなどの情報 |
 | `dockerfile_items[].base_ref` / `dockerfile_items[].base_kind` | string | 現在のベースイメージ参照とタグの分類で、空なら省略 |
 | `dockerfile_items[].candidate` | object | 候補の[イメージ情報](#remediation-image-fields)で、候補がなければ省略 |
@@ -167,7 +167,7 @@
 | `language_items[].category` | string | 計画の分類値 |
 | `language_items[].reason` / `language_items[].detail` | string | 理由と補足で、空なら省略 |
 | `language_items[].manager` / `language_items[].priority` | string | パッケージマネージャーと優先度で、空なら省略 |
-| `language_items[].workloads` | stringの配列または`null` | 対象のWorkload |
+| `language_items[].workloads` | stringの配列または`null` | 対象のWorkloadで、`container/<名前>`も含む |
 | `language_items[].source` | object | 依存ファイルのリポジトリ・ブランチ・ディレクトリなどのソース情報 |
 | `language_items[].pull_request` | object | 対応する[PR処理](#remediation-pr-fields)で、対応がなければ省略 |
 | `language_items[].retry_after` | string | 公開後の待機が終わり、再試行できる日時（RFC 3339形式）で、日時がなければ省略 |
@@ -387,7 +387,7 @@
 | `pull_requests[].kind` | string | Kubernetesマニフェストのタグ更新は`kubernetes`、Kustomizeの`newTag`更新は`kustomize`、Helmのvaluesのタグ更新は`helm_values`、ベースイメージ更新は`dockerfile`、言語パッケージ更新は`language`で、Composeのタグ更新では省略 |
 | `pull_requests[].repo` / `pull_requests[].base_branch` / `pull_requests[].path` | string | 対象リポジトリ・ベースブランチ・ファイルパス |
 | `pull_requests[].services` | stringの配列 | `kind: kubernetes`・`kind: kustomize`・`kind: helm_values`では`<kind>/<namespace>/<name>/<container>`形式のワークロードキーで、該当なしは`[]` |
-| `pull_requests[].workloads` | stringの配列 | 対象ワークロードのキーで、空なら省略 |
+| `pull_requests[].workloads` | stringの配列 | 対象ワークロードのキーで、`container/<名前>`も含み、空なら省略 |
 | `pull_requests[].also_running[].workload` | string | 同じイメージで稼働していてマニフェストの対応付けがない、またはKustomize・Helmのvaluesの作用先として列挙した集合に含まれないKubernetesワークロードのキー |
 | `pull_requests[].fix_targets[].location` | string | `kind: kubernetes`では`<Kind>/<namespace>/<name>/<container>`形式の編集位置で、`Kind`と`name`は対応付けたファイル内のオブジェクト、`namespace`はワークロードの名前空間であり、`kind: kustomize`では`images[<name>].newTag`、`kind: helm_values`では設定した`helm_values.key` |
 | `pull_requests[].status` | string | PR処理の状態 |

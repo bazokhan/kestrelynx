@@ -82,6 +82,41 @@ remediation:
 For dependency file and Dockerfile settings and restrictions on multiple mappings, see [Source mappings](configuration.md#remediation-mappings).
 For details on the enablement keys, see [Enablement settings](configuration.md#remediation-enablement).
 
+### Mapping docker run containers {#docker-run-mappings}
+
+In Docker mode, map containers started without Compose by name.
+
+1. Use `docker ps --format '{{.Names}}'` to confirm the running container's name assigned with `docker run --name`
+2. Set `workload` in `remediation.mappings` to `container/<name>` and configure the repository and base branch
+3. Use `dockerfile` for base image updates or `dependencies` for language package updates
+4. Enable remediation plans with PR creation initially disabled
+
+This example maps the Dockerfile and dependency directory for `example-api` in separate entries.
+
+```yaml
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: false
+  mappings:
+    - workload: container/example-api
+      repository: example/application
+      base_branch: main
+      dockerfile:
+        path: Dockerfile
+    - workload: container/example-api
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+- When recreating a container for the same application, specify the same name with `docker run --name`
+- Do not reuse the name for a different application, because KestreLynx does not verify that the container was built from the specified repository
+- Reusing the name may cause PRs based on findings from a different application to be created in the repository still listed in the mapping
+
+See [Source mappings](configuration.md#remediation-mappings) for name and configuration restrictions, and [docker run containers](remediation-reference.md#docker-run-containers) for when containers are included and image store limitations.
+
 ### Authenticating to private image registries {#configure-registry-auth}
 
 This configuration is unnecessary if you use only public images.
@@ -342,6 +377,11 @@ remediation:
 
 For key details, see [Enablement settings](configuration.md#remediation-enablement).
 To adjust PR counts or dependency update processing limits, see [Processing limits](configuration.md#remediation-limits).
+
+!!! note "PR creation across multiple hosts"
+
+    - Duplicate PR prevention operates separately on each host, so assign PR creation for the same Dockerfile or lockfile in the same repository to a single instance
+    - On other hosts, omit that mapping or enable planning only with `remediation.pull_requests.enabled: false`
 
 !!! note "Repository workflows"
 

@@ -82,6 +82,41 @@ remediation:
 依存ファイルやDockerfileの指定方法、複数の対応付けを使う場合の制約は[ソースの対応付け](configuration.md#remediation-mappings)を参照してください。
 有効化キーの詳細は[有効化設定](configuration.md#remediation-enablement)に記載しています。
 
+### docker runのコンテナの対応付け {#docker-run-mappings}
+
+Composeを使わずに起動したコンテナは、Dockerモードで名前から対応付けます。
+
+1. `docker ps --format '{{.Names}}'`で、`docker run --name`で付けた稼働コンテナの名前を確認する
+2. `remediation.mappings`の`workload`に`container/<名前>`を指定し、リポジトリとベースブランチを設定する
+3. ベースイメージの更新には`dockerfile`、言語パッケージの更新には`dependencies`を指定する
+4. 修正計画を有効にし、最初はPR作成を無効にした状態で設定する
+
+`example-api`のDockerfileと依存ディレクトリを、別々の項目で対応付ける例です。
+
+```yaml
+remediation:
+  enabled: true
+  pull_requests:
+    enabled: false
+  mappings:
+    - workload: container/example-api
+      repository: example/application
+      base_branch: main
+      dockerfile:
+        path: Dockerfile
+    - workload: container/example-api
+      repository: example/application
+      base_branch: main
+      dependencies:
+        directory: .
+```
+
+- 同じアプリケーションのコンテナを作り直すときは、`docker run --name`で同じ名前を指定する
+- KestreLynxはコンテナが指定したリポジトリから作られたことを確かめないため、名前を別のアプリケーションに使い回さない
+- 名前を使い回すと、別のアプリケーションの所見に基づくPRが、設定に残ったリポジトリに作られることがある
+
+名前と設定の制約は[ソースの対応付け](configuration.md#remediation-mappings)、対象となる時点とイメージストアの制限は[docker runのコンテナ](remediation-reference.md#docker-run-containers)を参照してください。
+
 ### 非公開イメージの認証 {#configure-registry-auth}
 
 公開イメージだけを扱う場合、この設定は不要です。
@@ -342,6 +377,11 @@ remediation:
 
 キーの詳細は[有効化設定](configuration.md#remediation-enablement)を参照してください。
 PR数や依存更新の処理量を調整する場合は[処理の上限](configuration.md#remediation-limits)を確認してください。
+
+!!! note "複数ホストでのPR作成"
+
+    - PRの重複を防ぐ仕組みはホストごとのため、同じ修正先である同じリポジトリの同じDockerfile・lockfileのPR作成は1つのインスタンスに任せる
+    - 他のホストではその対応付けを設定しないか、`remediation.pull_requests.enabled: false`で計画だけを有効にする
 
 !!! note "リポジトリのワークフロー"
 

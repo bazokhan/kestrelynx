@@ -116,7 +116,7 @@ See [Scan comparison conditions](remediation-logic.md#comparison-conditions) for
 | `dockerfile_items[].category` | string | Plan category value. |
 | `dockerfile_items[].reason` / `dockerfile_items[].detail` | string | Reason and additional details; omitted when empty. |
 | `dockerfile_items[].priority` | string | Target priority; omitted when unavailable. |
-| `dockerfile_items[].workloads` | array of strings | Target workloads; `[]` when none apply. |
+| `dockerfile_items[].workloads` | array of strings | Target workloads, including `container/<name>`; `[]` when none apply. |
 | `dockerfile_items[].source` | object | Dockerfile repository, branch, and path, plus available commit, stage, and other information. |
 | `dockerfile_items[].base_ref` / `dockerfile_items[].base_kind` | string | Current base-image reference and tag classification; omitted when empty. |
 | `dockerfile_items[].candidate` | object | Candidate [image information](#remediation-image-fields); omitted when there is no candidate. |
@@ -167,7 +167,7 @@ See [Verification scope by target](remediation-logic.md#verification-scope) for 
 | `language_items[].category` | string | Plan category value. |
 | `language_items[].reason` / `language_items[].detail` | string | Reason and additional details; omitted when empty. |
 | `language_items[].manager` / `language_items[].priority` | string | Package manager and priority; omitted when empty. |
-| `language_items[].workloads` | array of strings or `null` | Target workloads. |
+| `language_items[].workloads` | array of strings or `null` | Target workloads, including `container/<name>`. |
 | `language_items[].source` | object | Source information such as the dependency files' repository, branch, and directory. |
 | `language_items[].pull_request` | object | Matching [PR processing](#remediation-pr-fields); omitted when there is no match. |
 | `language_items[].retry_after` | string | Date and time when the release waiting period ends and a retry becomes possible, in RFC 3339 format; omitted when unavailable. |
@@ -387,7 +387,7 @@ File contents are excluded.
 | `pull_requests[].kind` | string | `kubernetes` for Kubernetes manifest tag updates, `kustomize` for Kustomize `newTag` updates, `helm_values` for Helm values tag updates, `dockerfile` for base-image updates, or `language` for language-package updates; omitted for Compose tag updates. |
 | `pull_requests[].repo` / `pull_requests[].base_branch` / `pull_requests[].path` | string | Target repository, base branch, and file path. |
 | `pull_requests[].services` | array of strings | For `kind: kubernetes`, `kind: kustomize`, and `kind: helm_values`, workload keys in `<kind>/<namespace>/<name>/<container>` form; `[]` when none apply. |
-| `pull_requests[].workloads` | array of strings | Target workload keys; omitted when empty. |
+| `pull_requests[].workloads` | array of strings | Target workload keys, including `container/<name>`; omitted when empty. |
 | `pull_requests[].also_running[].workload` | string | Key of a Kubernetes workload running the same image without a manifest mapping, or outside the set listed as affected by a Kustomize entry or Helm values key. |
 | `pull_requests[].fix_targets[].location` | string | For `kind: kubernetes`, the edit location in `<Kind>/<namespace>/<name>/<container>` form; `Kind` and `name` identify the mapped object in the file, and `namespace` is the workload namespace; for `kind: kustomize`, `images[<name>].newTag`; for `kind: helm_values`, the configured `helm_values.key`. |
 | `pull_requests[].status` | string | PR processing status. |

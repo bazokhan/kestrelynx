@@ -16,8 +16,12 @@
 | --- | --- | --- |
 | 設定の読み込みで停止する | ログに示された設定項目と、有効化設定の組み合わせを確認する | [起動時の検証](configuration.md#remediation-validation) |
 | 計画に対象の項目がない | 稼働イメージのスキャン結果、対象の深刻度、修正版情報を確認する | [イメージ候補の選定](remediation-logic.md#image-selection)・[言語パッケージの候補選定](remediation-logic.md#package-selection) |
+| `container/<名前>`の項目がない | `docker ps`の`NAMES`と対応付けが一致し、一覧取得時に稼働していたか確認し、改名・作り直し後は次のサイクルの結果を確認する | [docker runのコンテナ](remediation-reference.md#docker-run-containers) |
+| `container/<名前>`がComposeのコンテナを指している | 同じ状態が続く間は1回だけ出るログの警告を確認し、示された`compose/<project>/<service>`に変更する | [Workloadの確認](remediation-setup.md#identify-workload) |
+| 同じタグでビルドし直した後、古いコンテナの項目が出ない | containerdのイメージストアで古いイメージが消えていないか確認し、コンテナを新しいイメージで作り直す | [docker runのコンテナ](remediation-reference.md#docker-run-containers) |
+| 稼働イメージとスキャンしたイメージの実体が一致しない | 計画に項目が出ないことがあるため、ログのスキャン失敗と対象のイメージIDを確認する | [ソースの確認](remediation-logic.md#source-verification) |
 | 計画の記録はあるが通知がない | 通知先、送信条件、配信失敗のログを確認する | [通知を送る条件](notification-conditions.md#notification-conditions)・[修正計画の再送](notification-conditions.md#remediation-redelivery) |
-| ソースを取得できない、対象ファイルが見つからない | ComposeラベルまたはKubernetesのワークロードキー、対応付け、ベースブランチ、パス、GitHubのアクセスを確認する | [ソースの対応付け](configuration.md#remediation-mappings)・[GitHubアクセス](configuration.md#remediation-github) |
+| ソースを取得できない、対象ファイルが見つからない | Composeラベル、Composeを使わないコンテナの名前、またはKubernetesのワークロードキー、対応付け、ベースブランチ、パス、GitHubのアクセスを確認する | [ソースの対応付け](configuration.md#remediation-mappings)・[GitHubアクセス](configuration.md#remediation-github) |
 | 非公開イメージへアクセスできない | レジストリのホスト、認証情報、取得権限、token serviceの許可を確認する | [イメージレジストリの認証](configuration.md#remediation-registries) |
 | 新しいイメージ候補がない | 通知の理由から、新しいタグ・内容・改善の有無を確認する | [イメージ候補の理由](remediation-reference.md#image-reasons) |
 | Kubernetesの項目が`declared_ref_mismatch`または`declared_ref_unavailable`になる | 同じ稼働イメージ参照を使う各コンテナのPodのspecと稼働中の参照を確認する | [Kubernetesのイメージ参照と再取得](remediation-logic.md#kubernetes-image-references) |

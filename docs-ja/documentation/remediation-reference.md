@@ -10,13 +10,30 @@
 | 項目 | 対応範囲 |
 | --- | --- |
 | コンテナ環境 | Docker・Kubernetesモードで修正計画とPR作成に対応 |
-| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、KubernetesのWorkloadにはマニフェスト・Kustomizeの`images`の項目・Helmのvaluesのキー・Dockerfile・依存ディレクトリを指定 |
+| ソースの対応付け | ComposeのWorkloadに対して変更先のソースを指定し、Composeを使わないDockerコンテナにはDockerfile・依存ディレクトリ、KubernetesのWorkloadにはマニフェスト・Kustomizeの`images`の項目・Helmのvaluesのキー・Dockerfile・依存ディレクトリを指定 |
 | ソースホスト | GitHub |
 | 作業用コンテナ | Linuxの`amd64`・`arm64` |
 | 言語更新の実行環境 | [対応する実行環境](#supported-runtimes)に記載した系列 |
 | Sensor | 修正計画と修正PRの利用には不要 |
 | Kubernetesの計画 | 配布イメージ・Dockerfileのベースイメージの更新候補、浮動タグの再取得の案内、言語パッケージの更新候補の提示 |
 | KubernetesのPR | プレーンなマニフェストのイメージタグ、Kustomizeの`images[].newTag`、Helmのvaluesのイメージタグ、Dockerfileのベースイメージの更新に加え、[作業用Podの設定](remediation-setup.md#kubernetes-language-updates)によりnpm・pnpm・pip・uvの更新に対応 |
+
+### docker runのコンテナ {#docker-run-containers}
+
+- `container/<名前>`の対応付けでは、Dockerfileのベースイメージと依存パッケージの更新に対応し、起動時のイメージタグを変更するPRは作らない
+- 対象は各サイクルのコンテナ一覧取得時に稼働していたコンテナで、`--rm`で短時間だけ動くジョブは対象にならないことがある
+- 改名・作り直しは次のサイクルから反映され、改名した場合は対応付けの`workload`も変更する必要がある
+
+同じタグを別のイメージに付け替えた後も動いている古いコンテナは、イメージストアと操作によって扱いが異なります。
+
+| 操作・イメージストア | 古いコンテナの扱い |
+| --- | --- |
+| 同じタグで`docker build`し直す・containerd | 古いイメージが消えるためスキャンできず、修正計画にも出ない |
+| 同じタグで`docker build`し直す・従来のoverlay2 | 古いイメージが残り、スキャン・修正計画の対象になる |
+| `docker tag`でタグを付け替える | どちらのイメージストアでもスキャン・修正計画の対象になる |
+
+containerdで古いイメージが消えた場合は、コンテナを新しいイメージで作り直すと対象になります。
+設定例は[docker runのコンテナの対応付け](remediation-setup.md#docker-run-mappings)を参照してください。
 
 ### 更新対象 {#supported-targets}
 

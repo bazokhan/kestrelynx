@@ -10,13 +10,30 @@ See [Setup steps](remediation-setup.md) to enable them.
 | Item | Support |
 | --- | --- |
 | Container environment | Remediation plans and PR creation are supported in Docker and Kubernetes modes |
-| Source mappings | Specify source edit locations for Compose workloads or manifests, Kustomize `images` entries, Helm values keys, Dockerfiles, and dependency directories for Kubernetes workloads |
+| Source mappings | Specify source edit locations for Compose workloads; Dockerfiles and dependency directories for Docker containers that do not use Compose; or manifests, Kustomize `images` entries, Helm values keys, Dockerfiles, and dependency directories for Kubernetes workloads |
 | Source host | GitHub |
 | Work containers | Linux `amd64` and `arm64` |
 | Language update runtimes | Series listed in [Supported runtimes](#supported-runtimes) |
 | Sensor | Not required for remediation plans or fix pull requests |
 | Kubernetes plans | Published-image and Dockerfile base-image update candidates, guidance for pulling floating tags again, and language-package update candidates |
 | Kubernetes PRs | Image tag updates in plain manifests, Kustomize `images[].newTag` updates, image tag updates in Helm values, and base image updates in Dockerfiles, plus npm / pnpm / pip / uv updates with [work Pods configured](remediation-setup.md#kubernetes-language-updates) |
+
+### docker run containers {#docker-run-containers}
+
+- `container/<name>` mappings support Dockerfile base image and dependency package updates; they do not create PRs that change the image tag used to start the container
+- Only containers running when the container list is retrieved in each cycle are included; short-lived jobs using `--rm` may be missed
+- Renaming or recreating a container takes effect in the next cycle; after renaming a container, also update the mapping's `workload`
+
+When a tag is reassigned to another image, handling of an older container that is still running depends on the image store and the operation.
+
+| Operation and image store | Handling of the older container |
+| --- | --- |
+| Rebuilding with `docker build` using the same tag; containerd | The old image is removed, so it cannot be scanned and does not appear in remediation plans |
+| Rebuilding with `docker build` using the same tag; classic overlay2 | The old image remains and is included in scans and remediation plans |
+| Reassigning the tag with `docker tag` | Included in scans and remediation plans with either image store |
+
+If the old image has been removed from the containerd image store, recreate the container with the new image to include it.
+See [Mapping docker run containers](remediation-setup.md#docker-run-mappings) for a configuration example.
 
 ### Supported targets {#supported-targets}
 

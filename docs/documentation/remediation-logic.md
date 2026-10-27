@@ -29,10 +29,15 @@ For language package updates, it rechecks the file contents and version declarat
 - Language packages are checked by matching names and versions detected in the running image against dependency-file records
 - If the base branch has advanced when a PR is created, the files used for the update and the relevant settings files are checked again
 - If source changes no longer match the planning inputs, writes for that update are deferred
+- For `container/<name>`, KestreLynx verifies that the scanned image matches the running image's ID, then checks base layers for Dockerfiles or detected package names and versions for dependency files
 
 !!! note "Verification limits"
 
     Source mappings and matching package names and versions do not prove that the running image was built from that source.
+
+- KestreLynx trusts the configured mapping between `container/<name>` and the fix target; it does not verify that the container was built from the specified repository
+- PRs whose target workload keys include `container/` contain a note in the body stating that the mapping to the fix target is based on configuration and has not been verified by KestreLynx
+- If the body length limit prevents this note from being retained, the PR is not created
 
 See [Source mappings](configuration.md#remediation-mappings) for the mapping configuration.
 
@@ -222,6 +227,9 @@ Base remediation targets include findings that Trivy reports as belonging to the
     - Reinstalling the runtime in the Dockerfile or overriding its version with `ENV` can invalidate the rebuild estimate
 
 See [Rebuild guidance](remediation-results.md#rebuild-guidance) for interpreting guidance about floating-tag bases.
+
+When Compose `build:` and a `container/<name>` mapping use the same Dockerfile, rebuild guidance includes both `docker compose build --pull` and `docker build --pull`.
+Recreate the containers with their respective rebuilt images.
 
 ## Language package candidate selection {#package-selection}
 

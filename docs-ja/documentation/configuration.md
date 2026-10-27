@@ -169,9 +169,14 @@ tokenの送付先は[認証情報の送付範囲](outbound-communication.md#cred
 
 | 設定項目 | 既定値 | 説明 |
 | --- | --- | --- |
-| `remediation.mappings` | `[]` | 稼働中のCompose・KubernetesワークロードとGitHub上のソースファイルを対応付けます。 |
+| `remediation.mappings` | `[]` | 稼働中のCompose・Kubernetesワークロード、Composeを使わないDockerコンテナとGitHub上のソースファイルを対応付けます。 |
 
 各項目に`workload`、`repository`、`base_branch`と、ちょうど1種類のソースを設定します。
+
+- `container/<名前>`はDockerモード専用で、`dockerfile`または`dependencies`の対応付けだけに使う
+- 名前は`docker run --name`で指定した`docker ps`の`NAMES`の値で、`[a-zA-Z0-9][a-zA-Z0-9_.-]+`に一致する2〜253バイトとし、大文字・小文字を区別する
+- `container/<名前>`と`compose`の対応付けを組み合わせると、`compose/<project>/<service>`を案内する設定エラーになる
+- Kubernetesモードで`container/<名前>`を指定すると設定エラーになる
 
 Kubernetesモードでは`manifest`・`kustomize`・`helm_values`・`dockerfile`・`dependencies`を指定できます。
 `compose`はDockerモード専用で、`manifest`・`kustomize`・`helm_values`はKubernetesモード専用です。
@@ -179,7 +184,7 @@ Kubernetesモードでは`manifest`・`kustomize`・`helm_values`・`dockerfile`
 
 | 対応付け内のフィールド | 必須条件・形式 |
 | --- | --- |
-| `workload` | 必須で、Dockerモードでは稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`、Kubernetesモードでは`<kind>/<namespace>/<name>/<container>`です。`kind`は`deployment`・`statefulset`・`daemonset`・`job`・`cronjob`・`pod`です。 |
+| `workload` | 必須で、Dockerモードでは稼働中ワークロードのComposeラベルと一致する`compose/<project>/<service>`、またはComposeを使わないコンテナの`container/<名前>`、Kubernetesモードでは`<kind>/<namespace>/<name>/<container>`です。`kind`は`deployment`・`statefulset`・`daemonset`・`job`・`cronjob`・`pod`です。 |
 | `repository` | 必須で、`owner/name`形式のGitHubリポジトリです。 |
 | `base_branch` | 必須で、ソースの取得元とPRの宛先に使う有効なGitブランチ名です。 |
 | `compose.path` / `compose.service` | Composeの対応付けで必須の、リポジトリ相対のComposeファイルとサービス名です。 |

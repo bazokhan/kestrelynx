@@ -244,7 +244,8 @@ runtime:
 #   # repository-relative and normalized; "." is the repository root. Example
 #   # names only.
 #   #
-#   # Docker workload keys use compose/<project>/<service>. Kubernetes keys use
+#   # Docker workload keys use compose/<project>/<service> or container/<name>
+#   # for containers started outside Compose. Kubernetes keys use
 #   # <kind>/<namespace>/<name>/<container>, where kind is deployment,
 #   # statefulset, daemonset, job, cronjob or pod.
 #   # Kubernetes accepts manifest, kustomize, helm_values, dockerfile and dependencies mappings; compose
@@ -377,7 +378,8 @@ runtime:
 #   # dockerfile mapping for the same workload must then agree with it. A base
 #   # with a floating tag (for example python:3.12) gets no pull request; the
 #   # plan says whether the tag still points at the base the image was built from
-#   # and suggests rebuilding with `docker compose build --pull` if it does not.
+#   # and suggests rebuilding with `docker compose build --pull` for Compose or
+#   # `docker build --pull` for container/ mappings, showing both when shared.
 #   #
 #   # A dependencies mapping selects npm, pnpm, pip or uv files in one source
 #   # directory.
@@ -455,6 +457,24 @@ runtime:
 #       dockerfile:
 #         path: docker/Dockerfile
 #         target: runtime
+#   # For docker run, use the --name value shown in docker ps (NAMES).
+#   # Names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+ and be 2-253 bytes.
+#   #
+#   # container/ accepts only dockerfile and dependencies in Docker mode.
+#   # With compose it is a configuration error; use compose/<project>/<service>.
+#   #
+#   # KestreLynx trusts this mapping and does not verify the source repository.
+#   # Do not reuse the name for another application: PRs may target the wrong repository.
+#     - workload: container/example-api
+#       repository: example/application
+#       base_branch: main
+#       dockerfile:
+#         path: Dockerfile
+#     - workload: container/example-api
+#       repository: example/application
+#       base_branch: main
+#       dependencies:
+#         directory: .
 #   # Processing limits. Every value must be positive; work beyond a limit is
 #   # deferred, not counted as having no candidate. Candidate scans and
 #   # baseline rescans have separate per-cycle budgets. Registry requests

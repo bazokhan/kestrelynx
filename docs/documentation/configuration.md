@@ -169,9 +169,14 @@ See [Credential destinations](outbound-communication.md#credential-destinations)
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `remediation.mappings` | `[]` | Map running Compose or Kubernetes workloads to their GitHub source files. |
+| `remediation.mappings` | `[]` | Map running Compose or Kubernetes workloads, or Docker containers that do not use Compose, to their GitHub source files. |
 
 Each entry sets `workload`, `repository`, and `base_branch`, plus exactly one source type.
+
+- `container/<name>` is available only in Docker mode and only for `dockerfile` or `dependencies` mappings
+- The name is the `NAMES` value shown by `docker ps`, assigned with `docker run --name`; it is case-sensitive and must be 2–253 bytes matching `[a-zA-Z0-9][a-zA-Z0-9_.-]+`
+- Combining `container/<name>` with a `compose` mapping causes a configuration error that directs you to use `compose/<project>/<service>`
+- Specifying `container/<name>` in Kubernetes mode causes a configuration error
 
 Kubernetes mode accepts `manifest`, `kustomize`, `helm_values`, `dockerfile`, and `dependencies` mappings.
 `compose` is available only in Docker mode, and `manifest`, `kustomize`, and `helm_values` only in Kubernetes mode.
@@ -179,7 +184,7 @@ When remediation plans are enabled and a mapping's namespace is outside `kuberne
 
 | Field within a mapping | Requirements and format |
 | --- | --- |
-| `workload` | Required; in Docker mode, `compose/<project>/<service>`, matching the running workload's Compose labels; in Kubernetes mode, `<kind>/<namespace>/<name>/<container>`, where `kind` is `deployment`, `statefulset`, `daemonset`, `job`, `cronjob`, or `pod`. |
+| `workload` | Required; in Docker mode, `compose/<project>/<service>`, matching the running workload's Compose labels, or `container/<name>` for a container that does not use Compose; in Kubernetes mode, `<kind>/<namespace>/<name>/<container>`, where `kind` is `deployment`, `statefulset`, `daemonset`, `job`, `cronjob`, or `pod`. |
 | `repository` | Required; GitHub repository in `owner/name` form. |
 | `base_branch` | Required; valid Git branch name used to read sources and as the PR base. |
 | `compose.path` / `compose.service` | Required for Compose mappings; repository-relative Compose file and service name. |
