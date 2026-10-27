@@ -555,6 +555,14 @@ func buildNotifier(c config.NotifyConfig) runner.Notifier {
 	if c.GenericWebhookURL != "" {
 		notifiers = append(notifiers, notify.WebhookNotifier{URL: c.GenericWebhookURL})
 	}
+	if c.Email.Configured() {
+		notifiers = append(notifiers, notify.EmailNotifier{
+			Host: c.Email.Host, Port: c.Email.Port, TLS: c.Email.TLS,
+			Username: c.Email.Username, Password: c.Email.Password.Value(),
+			From: c.Email.From, To: append([]string(nil), c.Email.To...),
+			Language: lang,
+		})
+	}
 	if len(notifiers) == 0 {
 		return nil
 	}

@@ -135,7 +135,9 @@ See [Re-resolution support and limits](remediation-reference.md#dependent-rereso
 
 | Sender | Destination | Information retrieved or sent | When |
 | --- | --- | --- | --- |
-| KestreLynx | Configured Slack and generic webhook destinations | Send findings, plans, reasons, PR links, and operation results | The delivery conditions for each notification are met. |
+| KestreLynx | Configured Slack, generic webhook, and email destinations | Send findings, plans, reasons, PR links, and operation results | The delivery conditions for each notification are met. |
+
+Email uses SMTP with required TLS (`starttls` or implicit `tls`) to the configured host and port.
 
 Notifications may contain image references and digests, workload names, repository names, and source paths.
 They may also contain package names and versions, vulnerability IDs, and comparison results, so configure destinations according to the information you can share.

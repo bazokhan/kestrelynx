@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -92,6 +95,12 @@ type PythonRuntimeConfig struct {
 	ReleaseCycleURL  string
 }
 
+// Email TLS modes. Unencrypted SMTP is not accepted.
+const (
+	EmailTLSStartTLS = "starttls" // connect plain, then STARTTLS
+	EmailTLSImplicit = "tls"      // implicit TLS (typically port 465)
+)
+
 type NotifyConfig struct {
 	SlackWebhookURL string
 	// Slack Web API delivery: a bot token (chat:write) plus destination
@@ -100,14 +109,34 @@ type NotifyConfig struct {
 	SlackBotToken     string
 	SlackChannel      string
 	GenericWebhookURL string
-	NotifyOnClean     bool   // also notify when nothing was found
-	Mode              string // "diff" (default) or "full"
-	FullReportDay     string // diff mode: weekday of the weekly full report; "never" disables
-	// Language selects the wording dictionary the Slack channel message and
-	// thread report render from ("en" or "ja"). Never affects the generic
-	// webhook payload, which is always English (it's consumed
-	// programmatically, not read in Slack). Defaults to "en".
+	// Email is the optional SMTP destination. Zero value means unset.
+	Email         EmailConfig
+	NotifyOnClean bool   // also notify when nothing was found
+	Mode          string // "diff" (default) or "full"
+	FullReportDay string // diff mode: weekday of the weekly full report; "never" disables
+	// Language selects the wording dictionary Slack and email messages
+	// render from ("en" or "ja"). Never affects the generic webhook
+	// payload, which is always English (it's consumed programmatically,
+	// not read in Slack). Defaults to "en".
 	Language string
+}
+
+// EmailConfig is the SMTP destination under notify.email. Every required
+// field must be set together; a partial block is a configuration error.
+type EmailConfig struct {
+	Host     string
+	Port     int
+	TLS      string // EmailTLSStartTLS or EmailTLSImplicit
+	Username string
+	Password Secret
+	From     string
+	To       []string
+}
+
+// Configured reports whether any email field is set, which makes the whole
+// block required and validated.
+func (e EmailConfig) Configured() bool {
+	return e.Host != "" || e.Port != 0 || e.TLS != "" || e.Username != "" || e.Password != "" || e.From != "" || len(e.To) > 0
 }
 
 // FullReportWeekday parses FullReportDay into a time.Weekday. ok is false when
@@ -460,14 +489,15 @@ type rawConfig struct {
 		} `yaml:"python_runtime"`
 	} `yaml:"scan"`
 	Notify struct {
-		SlackWebhookURL   string `yaml:"slack_webhook_url"`
-		SlackBotToken     string `yaml:"slack_bot_token"`
-		SlackChannel      string `yaml:"slack_channel"`
-		GenericWebhookURL string `yaml:"generic_webhook_url"`
-		NotifyOnClean     bool   `yaml:"notify_on_clean"`
-		Mode              string `yaml:"mode"`
-		FullReportDay     string `yaml:"full_report_day"`
-		Language          string `yaml:"language"`
+		SlackWebhookURL   string      `yaml:"slack_webhook_url"`
+		SlackBotToken     string      `yaml:"slack_bot_token"`
+		SlackChannel      string      `yaml:"slack_channel"`
+		GenericWebhookURL string      `yaml:"generic_webhook_url"`
+		Email             EmailConfig `yaml:"email"`
+		NotifyOnClean     bool        `yaml:"notify_on_clean"`
+		Mode              string      `yaml:"mode"`
+		FullReportDay     string      `yaml:"full_report_day"`
+		Language          string      `yaml:"language"`
 	} `yaml:"notify"`
 	Docker struct {
 		// Socket is a pointer so validate can tell "explicitly set" (including
@@ -836,6 +866,99 @@ func applyDefaults(c *Config) {
 // own regexp since it validates an unrelated config key.
 var namespacePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// validateEmail checks notify.email. An all-empty block is allowed (email
+// unset). Any set field requires a complete, TLS-only SMTP destination.
+func validateEmail(e *EmailConfig) error {
+	if e == nil || !e.Configured() {
+		return nil
+	}
+	if e.Host == "" {
+		return fmt.Errorf("config: notify.email.host is required when email is configured")
+	}
+	if err := validateSMTPHost(e.Host); err != nil {
+		return fmt.Errorf("config: notify.email.host: %w", err)
+	}
+	if e.Port < 1 || e.Port > 65535 {
+		return fmt.Errorf("config: notify.email.port must be 1–65535")
+	}
+	tlsMode := strings.ToLower(strings.TrimSpace(e.TLS))
+	if tlsMode != EmailTLSStartTLS && tlsMode != EmailTLSImplicit {
+		return fmt.Errorf("config: notify.email.tls must be %q or %q", EmailTLSStartTLS, EmailTLSImplicit)
+	}
+	e.TLS = tlsMode
+	if (e.Username == "") != (e.Password == "") {
+		return fmt.Errorf("config: notify.email.username and notify.email.password must be set together")
+	}
+	if e.Username != "" {
+		if err := regauth.ValidateSecretText(e.Username); err != nil {
+			return fmt.Errorf("config: notify.email.username: %v", err)
+		}
+		if err := regauth.ValidateSecretText(e.Password.Value()); err != nil {
+			return fmt.Errorf("config: notify.email.password: %v", err)
+		}
+	}
+	if e.From == "" {
+		return fmt.Errorf("config: notify.email.from is required when email is configured")
+	}
+	if _, err := mail.ParseAddress(e.From); err != nil {
+		return fmt.Errorf("config: notify.email.from is not a valid address")
+	}
+	if len(e.To) == 0 {
+		return fmt.Errorf("config: notify.email.to must list at least one recipient")
+	}
+	for i, addr := range e.To {
+		if strings.TrimSpace(addr) == "" {
+			return fmt.Errorf("config: notify.email.to[%d] is empty", i)
+		}
+		if _, err := mail.ParseAddress(addr); err != nil {
+			return fmt.Errorf("config: notify.email.to[%d] is not a valid address", i)
+		}
+	}
+	return nil
+}
+
+// validateSMTPHost checks that host is a bare hostname or IP for SMTP, with
+// no scheme, user information, path, or port (the port is notify.email.port).
+func validateSMTPHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	if strings.Contains(host, "://") {
+		return fmt.Errorf("%q must be a host name without a scheme", host)
+	}
+	if strings.ContainsAny(host, "/@?# \t") {
+		return fmt.Errorf("%q must be a host name only, without a path or user information", host)
+	}
+	u, err := url.Parse("smtp://" + host)
+	if err != nil || u.Hostname() == "" {
+		return fmt.Errorf("%q is not a valid host name", host)
+	}
+	if u.Port() != "" {
+		return fmt.Errorf("%q must not include a port; set notify.email.port", host)
+	}
+	name := u.Hostname()
+	if ip := net.ParseIP(name); ip != nil {
+		return nil
+	}
+	// Reject a lone trailing dot and require at least one label character.
+	name = strings.TrimSuffix(name, ".")
+	if name == "" || strings.Contains(name, "..") {
+		return fmt.Errorf("%q is not a valid host name", host)
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || len(label) > 63 {
+			return fmt.Errorf("%q is not a valid host name", host)
+		}
+		for i, r := range label {
+			ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (r == '-' && i > 0 && i < len(label)-1)
+			if !ok {
+				return fmt.Errorf("%q is not a valid host name", host)
+			}
+		}
+	}
+	return nil
+}
+
 func validate(c *Config, dockerSocketExplicit bool) error {
 	if c.Kubernetes.Enabled && dockerSocketExplicit {
 		return fmt.Errorf("config: configure either docker.socket or kubernetes.enabled, not both")
@@ -854,8 +977,11 @@ func validate(c *Config, dockerSocketExplicit bool) error {
 	if c.Notify.SlackBotToken != "" && c.Notify.SlackWebhookURL != "" {
 		return fmt.Errorf("config: configure either slack_webhook_url or slack_bot_token, not both")
 	}
-	if c.Notify.SlackWebhookURL == "" && c.Notify.SlackBotToken == "" && c.Notify.GenericWebhookURL == "" {
-		return fmt.Errorf("config: at least one notify target (slack_webhook_url, slack_bot_token, or generic_webhook_url) is required")
+	if err := validateEmail(&c.Notify.Email); err != nil {
+		return err
+	}
+	if c.Notify.SlackWebhookURL == "" && c.Notify.SlackBotToken == "" && c.Notify.GenericWebhookURL == "" && !c.Notify.Email.Configured() {
+		return fmt.Errorf("config: at least one notify target (slack_webhook_url, slack_bot_token, generic_webhook_url, or email) is required")
 	}
 	for i, s := range c.Scan.Severity {
 		up := strings.ToUpper(strings.TrimSpace(s))

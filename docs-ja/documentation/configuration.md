@@ -71,11 +71,19 @@ KestreLynxは、`PYTHON_VERSION`に記録されたCPythonの版をPythonのセ�
 | `notify.slack_bot_token` | 空 | `chat:write`権限を持つSlack Bot Tokenです。`slack_channel`と一緒に設定すると、スレッド投稿と前回レポートへのリンクを利用できます。 |
 | `notify.slack_channel` | 空 | Botで通知するSlackチャンネルIDです。 |
 | `notify.generic_webhook_url` | 空 | 構造化JSONを受け取るエンドポイントです。 |
-| `notify.language` | `en` | Slack通知とPR本文の言語です。`en`か`ja`を指定し、それ以外は設定エラーです。汎用WebhookのJSONは英語のままです。 |
+| `notify.email.host` | 空 | スキームとポートを含まないSMTPホスト名またはIPです。 |
+| `notify.email.port` | 未設定 | SMTPポート（`1`–`65535`）です。 |
+| `notify.email.tls` | 未設定 | `starttls`（接続後にアップグレード）または`tls`（暗黙的TLS）です。暗号化なしのSMTPは拒否されます。 |
+| `notify.email.username` | 空 | 任意のSMTPユーザー名です。`password`と一緒に設定します。 |
+| `notify.email.password` | 空 | 任意のSMTPパスワードです。`username`と一緒に設定します。 |
+| `notify.email.from` | 空 | 送信元アドレスです。 |
+| `notify.email.to` | 空 | 1件以上の宛先アドレスです。 |
+| `notify.language` | `en` | Slackおよびメール通知とPR本文の言語です。`en`か`ja`を指定し、それ以外は設定エラーです。汎用WebhookのJSONは英語のままです。 |
 | `notify.notify_on_clean` | `false` | 脆弱性がない場合にも通知します。 |
 
 `slack_webhook_url`とBot Tokenの組み合わせを同時には設定できません。
-汎用Webhookは、どちらのSlack通知方式とも併用できます。
+汎用Webhookとメールは、どちらのSlack通知方式とも併用できます。
+メールだけでも通知先の要件を満たします。`notify.email`のいずれかの項目を設定した場合は、`host`・`port`・`tls`・`from`、および少なくとも1件の`to`をそろえて指定する必要があります。
 
 スレッドの位置とフッターの読み方は、[スレッドのレポート](slack-display.md#thread-display)を参照してください。
 

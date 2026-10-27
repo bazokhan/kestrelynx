@@ -17,9 +17,38 @@ import (
 )
 
 var mrkdwnEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+var mrkdwnUnescaper = strings.NewReplacer("&lt;", "<", "&gt;", ">", "&amp;", "&")
 
 // escMrkdwn escapes s for Slack mrkdwn. Apply it to a raw value once.
 func escMrkdwn(s string) string { return mrkdwnEscaper.Replace(s) }
+
+// unescapeMrkdwn undoes escMrkdwn.
+func unescapeMrkdwn(s string) string { return mrkdwnUnescaper.Replace(s) }
+
+var (
+	mrkdwnLinkLabel = regexp.MustCompile(`<([^<>|]+)\|([^<>]+)>`)
+	mrkdwnLinkBare  = regexp.MustCompile(`<([^<>|]+)>`)
+	mrkdwnBold      = regexp.MustCompile(`\*(.+?)\*`)
+)
+
+// mrkdwnToPlain turns Slack mrkdwn into readable plain text for email.
+func mrkdwnToPlain(s string) string {
+	s = mrkdwnLinkLabel.ReplaceAllStringFunc(s, func(m string) string {
+		sub := mrkdwnLinkLabel.FindStringSubmatch(m)
+		u := unescapeMrkdwn(sub[1])
+		label := unescapeMrkdwn(sub[2])
+		if label == u {
+			return u
+		}
+		return label + " (" + u + ")"
+	})
+	s = mrkdwnLinkBare.ReplaceAllStringFunc(s, func(m string) string {
+		return unescapeMrkdwn(mrkdwnLinkBare.FindStringSubmatch(m)[1])
+	})
+	s = mrkdwnBold.ReplaceAllString(s, "$1")
+	s = strings.ReplaceAll(s, "`", "")
+	return unescapeMrkdwn(s)
+}
 
 // validLinkURL reports whether raw may be placed inside a Slack link: an
 // http or https URL with a host and none of the characters that end or split

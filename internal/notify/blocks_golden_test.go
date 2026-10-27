@@ -459,11 +459,6 @@ func allBlocksText(msgs []SlackMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// unescapeMrkdwn undoes escMrkdwn.
-func unescapeMrkdwn(s string) string {
-	return strings.NewReplacer("&lt;", "<", "&gt;", ">", "&amp;", "&").Replace(s)
-}
-
 // savedOldOutput is the plain-text rendering of the case's input that the
 // saved file under testdata/legacy-text pins, from before the Block Kit
 // layout; cases with no saved counterpart are skipped.

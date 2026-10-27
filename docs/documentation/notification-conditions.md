@@ -5,6 +5,8 @@
 Scan notifications are sent according to the notification mode and the findings and changes in the current cycle.
 See [Configuration](configuration.md) for notification modes and destinations.
 
+Email uses the same delivery conditions as other destinations and sends one plain-text message per cycle when a notification is due.
+
 ### Delivery in diff mode {#diff-delivery}
 
 `diff` mode reports changes since the previous scan and the current unresolved state.

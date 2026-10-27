@@ -71,11 +71,21 @@ At least one destination is required.
 | `notify.slack_bot_token` | empty | Slack bot token with `chat:write`. Set together with `slack_channel` to enable thread posts and links to the previous report. |
 | `notify.slack_channel` | empty | Destination Slack channel ID for bot delivery. |
 | `notify.generic_webhook_url` | empty | Endpoint that receives structured JSON. |
-| `notify.language` | `en` | Language for Slack notifications and PR bodies: `en` or `ja`; other values are configuration errors. Generic webhook JSON remains in English. |
+| `notify.email.host` | empty | SMTP host name or IP, without a scheme or port. |
+| `notify.email.port` | unset | SMTP port (`1`–`65535`). |
+| `notify.email.tls` | unset | `starttls` (upgrade after connect) or `tls` (implicit TLS). Unencrypted SMTP is refused. |
+| `notify.email.username` | empty | Optional SMTP username; set together with `password`. |
+| `notify.email.password` | empty | Optional SMTP password; set together with `username`. |
+| `notify.email.from` | empty | Sender address. |
+| `notify.email.to` | empty | One or more recipient addresses. |
+| `notify.language` | `en` | Language for Slack and email notifications and PR bodies: `en` or `ja`; other values are configuration errors. Generic webhook JSON remains in English. |
 | `notify.notify_on_clean` | `false` | Send a notification when no vulnerabilities are found. |
 
 Configure either `slack_webhook_url` or the bot-token pair, not both. A generic
-webhook can be used alongside either Slack delivery method.
+webhook and email can be used alongside either Slack delivery method.
+Email alone is enough to satisfy the destination requirement. When any
+`notify.email` field is set, `host`, `port`, `tls`, `from`, and at least one
+`to` address are required together.
 
 See [Thread reports](slack-display.md#thread-display) for thread placement and how to read the footers.
 

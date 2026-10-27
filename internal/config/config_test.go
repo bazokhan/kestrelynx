@@ -195,6 +195,186 @@ func TestParse_RequiresNotifyTarget(t *testing.T) {
 	}
 }
 
+func TestParse_EmailAloneIsEnough(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 587
+    tls: starttls
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.Notify.Email.Host != "smtp.example.com" || c.Notify.Email.Port != 587 {
+		t.Errorf("email = %+v", c.Notify.Email)
+	}
+	if c.Notify.Email.TLS != EmailTLSStartTLS {
+		t.Errorf("tls = %q, want %q", c.Notify.Email.TLS, EmailTLSStartTLS)
+	}
+}
+
+func TestParse_EmailImplicitTLS(t *testing.T) {
+	c, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 465
+    tls: TLS
+    username: "user"
+    password: "s3cret"
+    from: "KestreLynx <kestrelynx@example.com>"
+    to:
+      - ops@example.com
+      - oncall@example.com
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.Notify.Email.TLS != EmailTLSImplicit {
+		t.Errorf("tls = %q, want %q", c.Notify.Email.TLS, EmailTLSImplicit)
+	}
+	if c.Notify.Email.Password.Value() != "s3cret" {
+		t.Errorf("password value not preserved")
+	}
+	if got := fmt.Sprint(c.Notify.Email.Password); got != "[redacted]" {
+		t.Errorf("password Sprint = %q, want [redacted]", got)
+	}
+	if len(c.Notify.Email.To) != 2 {
+		t.Errorf("to = %v", c.Notify.Email.To)
+	}
+}
+
+func TestParse_EmailWithSlackAllowed(t *testing.T) {
+	if _, err := Parse([]byte(`
+notify:
+  slack_webhook_url: "https://hooks.slack.test/x"
+  email:
+    host: smtp.example.com
+    port: 587
+    tls: starttls
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`)); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+}
+
+func TestParse_EmailPartialRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+`))
+	if err == nil {
+		t.Fatal("expected error for partial email block")
+	}
+	if !strings.Contains(err.Error(), "email") {
+		t.Errorf("error should mention email: %v", err)
+	}
+}
+
+func TestParse_EmailCleartextTLSRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 25
+    tls: none
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`))
+	if err == nil {
+		t.Fatal("expected error for unencrypted tls mode")
+	}
+	if !strings.Contains(err.Error(), "tls") {
+		t.Errorf("error should mention tls: %v", err)
+	}
+}
+
+func TestParse_EmailEmptyTLSRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 587
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`))
+	if err == nil {
+		t.Fatal("expected error when tls is omitted")
+	}
+}
+
+func TestParse_EmailUsernamePasswordTogether(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 587
+    tls: starttls
+    username: user
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`))
+	if err == nil {
+		t.Fatal("expected error when username is set without password")
+	}
+}
+
+func TestParse_EmailHostWithPortRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com:587
+    port: 587
+    tls: starttls
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`))
+	if err == nil {
+		t.Fatal("expected error when host includes a port")
+	}
+}
+
+func TestParse_EmailInvalidFromRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+notify:
+  email:
+    host: smtp.example.com
+    port: 587
+    tls: starttls
+    from: not-an-address
+    to: [ops@example.com]
+`))
+	if err == nil {
+		t.Fatal("expected error for invalid from")
+	}
+}
+
+func TestParse_EmailPasswordNotLeakedInError(t *testing.T) {
+	secret := "super-secret-password-value"
+	_, err := Parse([]byte(fmt.Sprintf(`
+notify:
+  email:
+    host: "smtp.example.com/with/path"
+    port: 587
+    tls: starttls
+    username: user
+    password: %q
+    from: kestrelynx@example.com
+    to: [ops@example.com]
+`, secret)))
+	if err == nil {
+		t.Fatal("expected error for invalid host")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error leaked password: %v", err)
+	}
+}
+
 func TestParse_NormalizesSeverityCase(t *testing.T) {
 	c, err := Parse([]byte(`
 scan:

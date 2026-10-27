@@ -10,7 +10,7 @@
 [設定リファレンス](docs-ja/documentation/configuration.md) ·
 [動作報告](https://github.com/kitsunetrail/kestrelynx/discussions/categories/trying-kestrelynx)
 
-> 稼働中のDocker・KubernetesコンテナのイメージをTrivyで定期的にスキャンし、**前回からの変化と、深刻度・CISA KEV・EPSSに基づく優先度**をSlackやWebhookへ通知するOSSです。Docker・Compose・Kubernetes向けの**修正計画と修正PR（実験的）**で、更新候補の比較からGitHubへのPR作成まで修正を支援します（既定で無効）。
+> 稼働中のDocker・KubernetesコンテナのイメージをTrivyで定期的にスキャンし、**前回からの変化と、深刻度・CISA KEV・EPSSに基づく優先度**をSlack・メール・Webhookへ通知するOSSです。Docker・Compose・Kubernetes向けの**修正計画と修正PR（実験的）**で、更新候補の比較からGitHubへのPR作成まで修正を支援します（既定で無効）。
 
 ## 主な機能
 
@@ -91,12 +91,14 @@
 | Slack Incoming Webhook | チャンネルに概要を投稿 | `notify.slack_webhook_url` |
 | Slack Bot | 概要に加え、diffモードではスレッドに未解決項目の詳細を投稿 | `notify.slack_bot_token`と`notify.slack_channel` |
 | 汎用Webhook | 現在のスキャン結果と、diffモードでの差分を構造化JSONとしてPOST | `notify.generic_webhook_url` |
+| メール | TLS必須のSMTPでプレーンテキストの概要を送信 | `notify.email`（`host`・`port`・`tls`・`from`・`to`） |
 
 - **Slack Botの詳細**：今すぐ対応／要監視の根拠・参照情報・未解決期間、低優先度の件数
 - **詳細レポートの更新**：変更時・週次レポートの日
 - **変更のない日のSlack Bot通知**：直近の詳細レポートへのリンク
 - **Slack Botの必要条件**：`chat:write`スコープ、通知先チャンネルへの招待
-- **併用可能**：Slack Incoming WebhookまたはSlack Botと、汎用Webhook
+- **メールのTLS**：`starttls`または`tls`のみ。暗号化なしのSMTPは拒否
+- **併用可能**：Slack Incoming WebhookまたはSlack Botと、汎用Webhookおよび／またはメール
 - **併用不可**：Slack Incoming WebhookとSlack Bot
 
 ## 修正計画と修正PR（実験的）

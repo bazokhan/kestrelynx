@@ -49,6 +49,17 @@ notify:
   slack_channel: ""
   # Generic webhook (POSTs structured JSON). The receiver can process it freely.
   generic_webhook_url: ""
+  # Optional SMTP email destination. TLS is required: "starttls" (upgrade after
+  # connect, typically port 587) or "tls" (implicit TLS, typically port 465).
+  # Unencrypted SMTP is refused. username and password are optional together.
+  # email:
+  #   host: smtp.example.com
+  #   port: 587
+  #   tls: starttls
+  #   username: ""
+  #   password: ""
+  #   from: kestrelynx@example.com
+  #   to: [ops@example.com]
   # Whether to send a message even when nothing is wrong. Defaults to false (notify only on findings).
   notify_on_clean: false
   # diff (default): only notify what changed since the last scan, plus a one-line
@@ -59,8 +70,8 @@ notify:
   # In diff mode, the weekday to send the complete report as a weekly digest,
   # so details are never more than a week away. Set to "never" to disable.
   full_report_day: "monday"
-  # Wording language for Slack messages, thread reports, fix plans and PR
-  # bodies: "en" (default) or "ja". The generic webhook stays in English.
+  # Wording language for Slack and email messages, thread reports, fix plans
+  # and PR bodies: "en" (default) or "ja". The generic webhook stays in English.
   language: "en"
 
 docker:

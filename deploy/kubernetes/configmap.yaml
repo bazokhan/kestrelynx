@@ -17,6 +17,13 @@ data:
 
     notify:
       slack_webhook_url: ""
+      # Optional SMTP email (TLS required: starttls or tls):
+      # email:
+      #   host: smtp.example.com
+      #   port: 587
+      #   tls: starttls
+      #   from: kestrelynx@example.com
+      #   to: [ops@example.com]
       notify_on_clean: false
       mode: "diff"
       full_report_day: "monday"
