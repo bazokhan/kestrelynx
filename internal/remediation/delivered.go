@@ -302,6 +302,9 @@ type deliveredRecord struct {
 	// showed. A record without it (written before the message was separate)
 	// counts as nothing delivered to Slack.
 	SlackFingerprint string `json:"slack_fingerprint,omitempty"`
+	// EmailFingerprint identifies what the last email fix plan showed. A
+	// record without it counts as nothing delivered to email.
+	EmailFingerprint string `json:"email_fingerprint,omitempty"`
 }
 
 // read returns the record; it is empty, with a nil error, when the file does
@@ -339,6 +342,13 @@ func (s DeliveredStore) LoadSlack() (string, error) {
 	return rec.SlackFingerprint, err
 }
 
+// LoadEmail returns the fingerprint of the last email fix plan, with the
+// same rules as Load.
+func (s DeliveredStore) LoadEmail() (string, error) {
+	rec, err := s.read()
+	return rec.EmailFingerprint, err
+}
+
 // Save replaces the record atomically. A file already there is replaced even
 // when it cannot be read: it only says what was last delivered, and keeping
 // an unreadable one would announce the same plan every cycle.
@@ -347,9 +357,15 @@ func (s DeliveredStore) Save(fingerprint string) error {
 }
 
 // SaveSlack replaces the fingerprint of the last Slack fix plan message and
-// keeps the other.
+// keeps the others.
 func (s DeliveredStore) SaveSlack(fingerprint string) error {
 	return s.save(func(rec *deliveredRecord) { rec.SlackFingerprint = fingerprint })
+}
+
+// SaveEmail replaces the fingerprint of the last email fix plan and keeps
+// the others.
+func (s DeliveredStore) SaveEmail(fingerprint string) error {
+	return s.save(func(rec *deliveredRecord) { rec.EmailFingerprint = fingerprint })
 }
 
 func (s DeliveredStore) save(set func(*deliveredRecord)) error {

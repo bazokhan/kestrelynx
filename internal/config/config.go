@@ -489,15 +489,23 @@ type rawConfig struct {
 		} `yaml:"python_runtime"`
 	} `yaml:"scan"`
 	Notify struct {
-		SlackWebhookURL   string      `yaml:"slack_webhook_url"`
-		SlackBotToken     string      `yaml:"slack_bot_token"`
-		SlackChannel      string      `yaml:"slack_channel"`
-		GenericWebhookURL string      `yaml:"generic_webhook_url"`
-		Email             EmailConfig `yaml:"email"`
-		NotifyOnClean     bool        `yaml:"notify_on_clean"`
-		Mode              string      `yaml:"mode"`
-		FullReportDay     string      `yaml:"full_report_day"`
-		Language          string      `yaml:"language"`
+		SlackWebhookURL   string `yaml:"slack_webhook_url"`
+		SlackBotToken     string `yaml:"slack_bot_token"`
+		SlackChannel      string `yaml:"slack_channel"`
+		GenericWebhookURL string `yaml:"generic_webhook_url"`
+		Email             struct {
+			Host     string    `yaml:"host"`
+			Port     int       `yaml:"port"`
+			TLS      string    `yaml:"tls"`
+			Username string    `yaml:"username"`
+			Password yaml.Node `yaml:"password"`
+			From     string    `yaml:"from"`
+			To       []string  `yaml:"to"`
+		} `yaml:"email"`
+		NotifyOnClean bool   `yaml:"notify_on_clean"`
+		Mode          string `yaml:"mode"`
+		FullReportDay string `yaml:"full_report_day"`
+		Language      string `yaml:"language"`
 	} `yaml:"notify"`
 	Docker struct {
 		// Socket is a pointer so validate can tell "explicitly set" (including
@@ -730,6 +738,16 @@ func Parse(data []byte) (Config, error) {
 		registries = append(registries, RemediationRegistry{Host: rr.Host, Username: rr.Username, Password: pw, TokenHosts: rr.TokenHosts})
 	}
 
+	emailPassword, err := secretFromNode(&raw.Notify.Email.Password)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: notify.email.password: %w", err)
+	}
+	email := EmailConfig{
+		Host: raw.Notify.Email.Host, Port: raw.Notify.Email.Port, TLS: raw.Notify.Email.TLS,
+		Username: raw.Notify.Email.Username, Password: emailPassword,
+		From: raw.Notify.Email.From, To: raw.Notify.Email.To,
+	}
+
 	c := Config{
 		Schedule: ScheduleConfig{
 			DailyAt:    raw.Schedule.DailyAt,
@@ -753,7 +771,17 @@ func Parse(data []byte) (Config, error) {
 				ReleaseCycleURL:  raw.Scan.PythonRuntime.ReleaseCycleURL,
 			},
 		},
-		Notify: NotifyConfig(raw.Notify),
+		Notify: NotifyConfig{
+			SlackWebhookURL:   raw.Notify.SlackWebhookURL,
+			SlackBotToken:     raw.Notify.SlackBotToken,
+			SlackChannel:      raw.Notify.SlackChannel,
+			GenericWebhookURL: raw.Notify.GenericWebhookURL,
+			Email:             email,
+			NotifyOnClean:     raw.Notify.NotifyOnClean,
+			Mode:              raw.Notify.Mode,
+			FullReportDay:     raw.Notify.FullReportDay,
+			Language:          raw.Notify.Language,
+		},
 		Docker: DockerConfig{Socket: stringOr(raw.Docker.Socket, "")},
 		Kubernetes: KubernetesConfig{
 			Enabled:       boolOr(raw.Kubernetes.Enabled, false),
@@ -919,22 +947,24 @@ func validateEmail(e *EmailConfig) error {
 
 // validateSMTPHost checks that host is a bare hostname or IP for SMTP, with
 // no scheme, user information, path, or port (the port is notify.email.port).
+// Errors never include the configured value: it may contain a password when
+// someone pastes a URL with userinfo.
 func validateSMTPHost(host string) error {
 	if host == "" {
 		return fmt.Errorf("must not be empty")
 	}
 	if strings.Contains(host, "://") {
-		return fmt.Errorf("%q must be a host name without a scheme", host)
+		return fmt.Errorf("must be a host name without a scheme")
 	}
 	if strings.ContainsAny(host, "/@?# \t") {
-		return fmt.Errorf("%q must be a host name only, without a path or user information", host)
+		return fmt.Errorf("must be a host name only, without a path or user information")
 	}
 	u, err := url.Parse("smtp://" + host)
 	if err != nil || u.Hostname() == "" {
-		return fmt.Errorf("%q is not a valid host name", host)
+		return fmt.Errorf("is not a valid host name")
 	}
 	if u.Port() != "" {
-		return fmt.Errorf("%q must not include a port; set notify.email.port", host)
+		return fmt.Errorf("must not include a port; set notify.email.port")
 	}
 	name := u.Hostname()
 	if ip := net.ParseIP(name); ip != nil {
@@ -943,16 +973,16 @@ func validateSMTPHost(host string) error {
 	// Reject a lone trailing dot and require at least one label character.
 	name = strings.TrimSuffix(name, ".")
 	if name == "" || strings.Contains(name, "..") {
-		return fmt.Errorf("%q is not a valid host name", host)
+		return fmt.Errorf("is not a valid host name")
 	}
 	for _, label := range strings.Split(name, ".") {
 		if label == "" || len(label) > 63 {
-			return fmt.Errorf("%q is not a valid host name", host)
+			return fmt.Errorf("is not a valid host name")
 		}
 		for i, r := range label {
 			ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (r == '-' && i > 0 && i < len(label)-1)
 			if !ok {
-				return fmt.Errorf("%q is not a valid host name", host)
+				return fmt.Errorf("is not a valid host name")
 			}
 		}
 	}

@@ -1170,6 +1170,18 @@ func (p *PlanInfo) SlackDue() bool {
 	return p.Weekly && !buildPlanView(p, enMessages, planOpts{openOnly: true}).empty()
 }
 
+// EmailDue reports whether the email fix plan is sent: when what it shows has
+// changed for email, and on the weekly day when it has anything to show.
+func (p *PlanInfo) EmailDue() bool {
+	if p == nil {
+		return false
+	}
+	if p.EmailChanged {
+		return true
+	}
+	return p.Weekly && !buildPlanView(p, enMessages, planOpts{openOnly: true}).empty()
+}
+
 // BuildPlanMessages renders the fix plan message of m, or nothing when it is
 // not due.
 func BuildPlanMessages(m Message, lang Language) []SlackMessage {

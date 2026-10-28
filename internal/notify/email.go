@@ -19,9 +19,24 @@ import (
 	"unicode/utf8"
 )
 
+// emailSendTimeout is the default limit for one SMTP send, from dial through
+// QUIT. A silent server must not stall the scan loop.
+const emailSendTimeout = 30 * time.Second
+
+// emailRenderLimits are large enough that the Slack packer keeps each
+// channel, thread, and plan section in one message, so continuation markers
+// never appear in the email body.
+var emailRenderLimits = RenderLimits{
+	MaxBlocks:        1 << 30,
+	MaxTextUnits:     1 << 30,
+	MaxMessageUnits:  1 << 30,
+	MaxFallbackUnits: 1 << 30,
+}
+
 // EmailNotifier delivers one plain-text message per cycle to the configured
 // SMTP destination. It does not write Message.Result or Message.PlanDelivery;
-// those belong to the Slack bot path.
+// those belong to the Slack bot path. It does write Message.EmailDelivery when
+// this message carried the fix plan.
 type EmailNotifier struct {
 	Host     string
 	Port     int
@@ -32,6 +47,8 @@ type EmailNotifier struct {
 	To       []string
 	// Language selects the wording dictionary. The zero value is LanguageEN.
 	Language Language
+	// Timeout bounds one send from dial through QUIT. Zero means 30s.
+	Timeout time.Duration
 
 	// DialContext opens the TCP connection; nil uses a net.Dialer.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -46,12 +63,22 @@ func (n EmailNotifier) Send(ctx context.Context, m Message) error {
 	}
 	subject := emailSubject(msgs)
 	body := emailBody(msgs)
-	return n.deliver(ctx, subject, body)
+	timeout := n.Timeout
+	if timeout <= 0 {
+		timeout = emailSendTimeout
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := n.deliver(sendCtx, subject, body)
+	if m.Plan != nil && m.Plan.EmailDue() {
+		m.EmailDelivery.record(err == nil)
+	}
+	return err
 }
 
 // buildEmailMessages collects the Slack messages that make up one email.
 func buildEmailMessages(m Message, lang Language) []SlackMessage {
-	msg, lim := messagesFor(lang), defaultRenderLimits
+	msg, lim := messagesFor(lang), emailRenderLimits
 	var out []SlackMessage
 	if !m.SkipReport {
 		out = append(out, buildChannelMessages(m, ChannelFooter{}, msg, lim)...)
@@ -59,8 +86,61 @@ func buildEmailMessages(m Message, lang Language) []SlackMessage {
 			out = append(out, buildThreadBlockMessagesWithPlan(m.Report, Ages{Finding: m.FirstSeen, EOL: m.EOLFirstSeen}, m.Plan, msg, lim)...)
 		}
 	}
-	out = append(out, buildPlanMessages(m, msg, lim)...)
+	out = append(out, buildEmailPlanMessages(m, msg, lim)...)
 	return out
+}
+
+// buildEmailPlanMessages is the fix-plan body for email: due when EmailDue is
+// set, and shown whole when EmailChanged is set.
+func buildEmailPlanMessages(m Message, msg messages, lim RenderLimits) []SlackMessage {
+	p := m.Plan
+	if !p.EmailDue() {
+		return nil
+	}
+	lim = lim.normalized()
+	v := buildPlanView(p, msg, planOpts{openOnly: !p.EmailChanged})
+	if m.Report.GenericWebhookConfigured && len(v.groups) > 0 {
+		v.notes = append(v.notes, trimNL(msg.DetailsInWebhook))
+	}
+
+	head := []string{trimNL(msg.PlanHeading)}
+	plain := v.summary
+	switch {
+	case v.unavailable != "":
+		head = append(head, v.unavailable)
+		plain = strings.Trim(v.unavailable, "_")
+	case v.summary != "":
+		head = append(head, v.summary)
+	case len(v.groups) == 0 && len(v.notes) == 0:
+		head = append(head, trimNL(msg.PlanNothing))
+		plain = trimNL(msg.PlanNothing)
+	}
+	var l layout
+	l.section(lim, head, false)
+	for _, g := range v.groups {
+		l.group()
+		lines := append(append([]string(nil), g.headings...), g.lines...)
+		l.emit(unit{blocks: sectionBlocks(lines, lim.MaxTextUnits), contTitle: g.headings[0]}, false)
+	}
+	if len(v.notes) > 0 {
+		l.group()
+		l.section(lim, v.notes, false)
+	}
+
+	date := (&chView{r: m.Report}).dateText()
+	return splitUnits(l.units, splitSpec{
+		lim: lim,
+		lead: func(n, total int) string {
+			return trimNL(msg.PlanHeading) + fmt.Sprintf(msg.ChannelContinued, n, total)
+		},
+		cont: msg.ThreadContinued,
+		fallback: func(info msgInfo) string {
+			if info.n > 1 {
+				return fmt.Sprintf(msg.PlanFallbackCont, date, info.n, info.total)
+			}
+			return fmt.Sprintf(msg.PlanFallback, date, plain)
+		},
+	})
 }
 
 func emailSubject(msgs []SlackMessage) string {
@@ -261,14 +341,11 @@ func (n EmailNotifier) dialTLS(ctx context.Context, addr string, cfg *tls.Config
 	c := tls.Client(raw, cfg)
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = c.SetDeadline(deadline)
-	} else {
-		_ = c.SetDeadline(time.Now().Add(15 * time.Second))
 	}
 	if err := c.HandshakeContext(ctx); err != nil {
 		raw.Close()
 		return nil, err
 	}
-	_ = c.SetDeadline(time.Time{})
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = c.SetDeadline(deadline)
 	}

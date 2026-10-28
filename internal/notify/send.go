@@ -63,6 +63,11 @@ type Message struct {
 	// delivered, so the caller can record it although something else in the
 	// same send failed.
 	PlanDelivery *PlanDelivery
+
+	// EmailDelivery, when set, receives whether the email fix plan was
+	// delivered, so the caller can record it although something else in the
+	// same send failed.
+	EmailDelivery *PlanDelivery
 }
 
 // PlanDelivery is the out-slot for the delivery of the Slack fix plan message.

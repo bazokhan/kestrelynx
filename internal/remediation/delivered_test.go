@@ -143,8 +143,8 @@ func TestStatusFingerprint(t *testing.T) {
 	}
 }
 
-// The fingerprint of the plan and the one of the Slack message live in one
-// record; saving either keeps the other, and an old record has no Slack one.
+// The fingerprint of the plan, Slack message, and email live in one record;
+// saving any keeps the others, and an old record has no Slack or email one.
 func TestDeliveredStoreKeepsBothFingerprints(t *testing.T) {
 	s := DeliveredStore{Path: filepath.Join(t.TempDir(), "delivered.json")}
 	if err := s.Save("plan-1"); err != nil {
@@ -153,17 +153,32 @@ func TestDeliveredStoreKeepsBothFingerprints(t *testing.T) {
 	if got, err := s.LoadSlack(); err != nil || got != "" {
 		t.Fatalf("slack fingerprint of a record without one = %q, %v", got, err)
 	}
+	if got, err := s.LoadEmail(); err != nil || got != "" {
+		t.Fatalf("email fingerprint of a record without one = %q, %v", got, err)
+	}
 	if err := s.SaveSlack("slack-1"); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SaveEmail("email-1"); err != nil {
+		t.Fatal(err)
+	}
 	if got, _ := s.Load(); got != "plan-1" {
-		t.Errorf("SaveSlack lost the plan fingerprint: %q", got)
+		t.Errorf("SaveSlack/SaveEmail lost the plan fingerprint: %q", got)
+	}
+	if got, _ := s.LoadSlack(); got != "slack-1" {
+		t.Errorf("SaveEmail lost the Slack fingerprint: %q", got)
+	}
+	if got, _ := s.LoadEmail(); got != "email-1" {
+		t.Errorf("email fingerprint = %q", got)
 	}
 	if err := s.Save("plan-2"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.LoadSlack(); got != "slack-1" {
 		t.Errorf("Save lost the Slack fingerprint: %q", got)
+	}
+	if got, _ := s.LoadEmail(); got != "email-1" {
+		t.Errorf("Save lost the email fingerprint: %q", got)
 	}
 	if got, _ := s.Load(); got != "plan-2" {
 		t.Errorf("plan fingerprint = %q", got)

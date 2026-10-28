@@ -355,23 +355,63 @@ notify:
 }
 
 func TestParse_EmailPasswordNotLeakedInError(t *testing.T) {
-	secret := "super-secret-password-value"
-	_, err := Parse([]byte(fmt.Sprintf(`
+	const secret = "super-secret-password-value"
+	emailYAML := func(password, host string) []byte {
+		return []byte(fmt.Sprintf(`
 notify:
   email:
-    host: "smtp.example.com/with/path"
+    host: %s
     port: 587
     tls: starttls
     username: user
-    password: %q
+    password: %s
     from: kestrelynx@example.com
     to: [ops@example.com]
-`, secret)))
-	if err == nil {
-		t.Fatal("expected error for invalid host")
+`, host, password))
 	}
-	if strings.Contains(err.Error(), secret) {
-		t.Errorf("error leaked password: %v", err)
+	for name, val := range map[string]string{
+		"tagged int":    "!!int " + secret,
+		"tagged float":  "!!float " + secret,
+		"tagged bool":   "!!bool " + secret,
+		"tagged null":   "!!null " + secret,
+		"tagged seq":    "!!seq " + secret,
+		"tagged map":    "!!map " + secret,
+		"tagged ts":     "!!timestamp " + secret,
+		"tagged binary": "!!binary " + secret,
+		"custom tag":    "!custom " + secret,
+		"list":          "[" + secret + "]",
+		"map":           "{k: " + secret + "}",
+		"number":        "12345678",
+		"bool":          "true",
+	} {
+		_, err := Parse(emailYAML(val, "smtp.example.com"))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "12345678") {
+			t.Errorf("%s: error echoes the value: %v", name, err)
+		}
+	}
+	for name, host := range map[string]string{
+		"scheme with userinfo": `"smtp://user:` + secret + `@example.com"`,
+		"path":                 `"smtp.example.com/with/path"`,
+		"userinfo only":        `"user:` + secret + `@example.com"`,
+	} {
+		_, err := Parse(emailYAML(`"`+secret+`"`, host))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("%s: error leaked password: %v", name, err)
+		}
+	}
+	for _, val := range []string{"!!str " + secret, `"` + secret + `"`, "'" + secret + "'", secret} {
+		c, err := Parse(emailYAML(val, "smtp.example.com"))
+		if err != nil || c.Notify.Email.Password.Value() != secret {
+			t.Errorf("%s: password = %q, err = %v", val, c.Notify.Email.Password.Value(), err)
+		}
 	}
 }
 

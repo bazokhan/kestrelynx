@@ -456,13 +456,15 @@ func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOu
 	// terms; the generic webhook gets both together whenever either is sent.
 	reportDue := report.HasIssues() || r.NotifyOnClean || len(report.RuntimeUnchecked) > 0
 	m := plan.message(notify.Message{Report: report, SkipReport: !reportDue})
-	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() {
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !m.Plan.EmailDue() {
 		log.Info("no issues found; skipping notification")
 		return nil
 	}
 	m.PlanDelivery = &notify.PlanDelivery{}
+	m.EmailDelivery = &notify.PlanDelivery{}
 	if err := r.Notifier.Send(ctx, m); err != nil {
 		r.markSlackPlanDelivered(plan, m.PlanDelivery)
+		r.markEmailPlanDelivered(plan, m.EmailDelivery)
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)
@@ -521,13 +523,15 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 		LastReport:   prev.LastFullReport,
 		Result:       res,
 	})
-	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() {
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !m.Plan.EmailDue() {
 		log.Info("no issues and no changes; skipping notification")
 		return r.saveState(next)
 	}
 	m.PlanDelivery = &notify.PlanDelivery{}
+	m.EmailDelivery = &notify.PlanDelivery{}
 	if err := r.Notifier.Send(ctx, m); err != nil {
 		r.markSlackPlanDelivered(plan, m.PlanDelivery)
+		r.markEmailPlanDelivered(plan, m.EmailDelivery)
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)

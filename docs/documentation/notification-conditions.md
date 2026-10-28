@@ -6,6 +6,7 @@ Scan notifications are sent according to the notification mode and the findings 
 See [Configuration](configuration.md) for notification modes and destinations.
 
 Email uses the same delivery conditions as other destinations and sends one plain-text message per cycle when a notification is due.
+The body is not split for Slack's size limits, so Slack continuation markers do not appear.
 
 ### Delivery in diff mode {#diff-delivery}
 
@@ -101,6 +102,14 @@ Slack remediation plans are sent by comparing their display content with the las
 When the display content changes, the notification includes completed PRs.
 See [Remediation plans in Slack](remediation-results.md#reading-results-in-slack-and-webhooks) for how to read the display.
 
+### Email delivery {#remediation-email-delivery}
+
+Email remediation plans use the same display content as Slack and keep a separate delivery record.
+
+- Send when the email display content differs from the last email delivery
+- In `diff` mode, send on the weekly report day if there is content to display, even when unchanged
+- A successful Slack delivery does not mark the email plan as delivered
+
 ### Webhook delivery {#remediation-webhook-delivery}
 
 The generic webhook compares against the last delivery record independently of the Slack display.
@@ -120,6 +129,7 @@ Delivery records for remediation plans and PR operations are handled separately 
 - Record delivery of the plan and the included PR operations when the notification as a whole is sent successfully
 - Plans and PR operations whose delivery could not be recorded because delivery failed remain eligible for redelivery next time
 - Record the delivered Slack display content when all Slack remediation plan messages are posted successfully, even if other notifications fail
+- Record the delivered email display content when the email that carried the plan was sent successfully, even if other notifications fail
 - Content already sent may be resent if the delivery record cannot be saved
 
 Resending a notification does not repeat a successful PR creation.

@@ -37,6 +37,10 @@ type PlanInfo struct {
 	// last one delivered (see SlackFingerprint). The message is sent when it
 	// is set, and on the weekly day (Weekly) whatever it says.
 	SlackChanged bool
+	// EmailChanged says what the email fix plan shows differs from the last
+	// one delivered to email. Email uses the same display fingerprint as
+	// Slack, and keeps its own delivery record.
+	EmailChanged bool
 	Weekly       bool
 }
 

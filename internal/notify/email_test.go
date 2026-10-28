@@ -191,6 +191,48 @@ func TestEmailNotifier_RequiresSTARTTLS(t *testing.T) {
 	}
 }
 
+func TestEmailNotifier_SilentServerTimesOut(t *testing.T) {
+	srv := startTestSMTP(t, smtpModeSilent)
+	defer srv.Close()
+
+	n := EmailNotifier{
+		Host: "127.0.0.1", Port: srv.Port, TLS: "starttls",
+		From: "kestrelynx@example.com", To: []string{"ops@example.com"},
+		Timeout:     200 * time.Millisecond,
+		DialContext: srv.DialContext,
+		TLSConfig:   srv.ClientTLS,
+	}
+	start := time.Now()
+	err := n.Send(context.Background(), Message{Report: sampleReport()})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout when the server never answers")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("send took %v, want under 2s", elapsed)
+	}
+	if srv.Got().Data != "" {
+		t.Error("silent server must not receive a message")
+	}
+}
+
+func TestEmailBodyHasNoContinuationMarkers(t *testing.T) {
+	r := bigReport(60, "")
+	slackMsgs := buildChannelMessages(Message{Report: r}, ChannelFooter{}, enMessages, defaultRenderLimits)
+	if len(slackMsgs) < 2 {
+		t.Fatalf("fixture should split under Slack limits, got %d messages", len(slackMsgs))
+	}
+	body := emailBody(buildEmailMessages(Message{Report: r}, LanguageEN))
+	for _, marker := range []string{"(cont.", "_(cont.)_", "_(cont. "} {
+		if strings.Contains(body, marker) {
+			t.Errorf("email body still has Slack continuation marker %q:\n%s", marker, body)
+		}
+	}
+	if !strings.Contains(body, "pkg01") || !strings.Contains(body, "pkg60") {
+		t.Fatalf("email body missing packages from the large report:\n%s", body)
+	}
+}
+
 func TestEncodeSubjectNonASCII(t *testing.T) {
 	got := encodeSubject("KestreLynx — スキャン結果")
 	if !strings.HasPrefix(got, "=?utf-8?") && !strings.HasPrefix(got, "=?UTF-8?") {
@@ -209,6 +251,7 @@ const (
 	smtpModeSTARTTLS smtpMode = iota
 	smtpModeImplicitTLS
 	smtpModePlain
+	smtpModeSilent // accept the connection and never speak
 )
 
 type smtpCapture struct {
@@ -288,6 +331,11 @@ func (s *testSMTP) serve() {
 func (s *testSMTP) handle(c net.Conn) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	if s.mode == smtpModeSilent {
+		buf := make([]byte, 1)
+		_, _ = c.Read(buf)
+		return
+	}
 	if s.mode == smtpModeImplicitTLS {
 		s.mu.Lock()
 		s.cap.UsedImplicitTLS = true
