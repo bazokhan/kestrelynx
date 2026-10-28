@@ -95,6 +95,7 @@ func main() {
 		Source:                   scanSource,
 		Now:                      time.Now,
 		Log:                      log,
+		EmailConfigured:          cfg.Notify.Email.Configured(),
 		GenericWebhookConfigured: cfg.Notify.GenericWebhookURL != "",
 	}
 	if cfg.Notify.Mode == "diff" {

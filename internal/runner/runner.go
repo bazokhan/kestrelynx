@@ -128,6 +128,10 @@ type Runner struct {
 	// Muted always reflects this cycle's own status/priority/runtime
 	// verdict, never a value carried over from before.
 	MuteUnfixableNotInUse bool
+	// EmailConfigured mirrors notify.email being set. The email fix-plan
+	// record is consulted and written only then, so a Slack-only install
+	// does not treat every plan as waiting on email.
+	EmailConfigured bool
 	// GenericWebhookConfigured mirrors config.NotifyConfig.GenericWebhookURL
 	// != "", stamped onto every Report (RunOnce) the same way Environment is:
 	// notify has no other way to know whether the generic webhook guidance
@@ -456,7 +460,7 @@ func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOu
 	// terms; the generic webhook gets both together whenever either is sent.
 	reportDue := report.HasIssues() || r.NotifyOnClean || len(report.RuntimeUnchecked) > 0
 	m := plan.message(notify.Message{Report: report, SkipReport: !reportDue})
-	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !m.Plan.EmailDue() {
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !r.emailPlanDue(m.Plan) {
 		log.Info("no issues found; skipping notification")
 		return nil
 	}
@@ -468,6 +472,7 @@ func (r Runner) sendFull(ctx context.Context, report analyze.Report, plan planOu
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)
+	r.markEmailPlanDelivered(plan, m.EmailDelivery)
 	log.Info("notification sent",
 		"affected", report.AffectedImageCount(),
 		"eosl", len(report.EOSLImages),
@@ -523,7 +528,7 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 		LastReport:   prev.LastFullReport,
 		Result:       res,
 	})
-	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !m.Plan.EmailDue() {
+	if !reportDue && !plan.mustSend() && !m.Plan.SlackDue() && !r.emailPlanDue(m.Plan) {
 		log.Info("no issues and no changes; skipping notification")
 		return r.saveState(next)
 	}
@@ -535,6 +540,7 @@ func (r Runner) sendDiff(ctx context.Context, report analyze.Report, plan planOu
 		return fmt.Errorf("send notification: %w", err)
 	}
 	r.markDelivered(plan)
+	r.markEmailPlanDelivered(plan, m.EmailDelivery)
 	if res.Ref.TS != "" {
 		ref := res.Ref
 		next.LastFullReport = &ref

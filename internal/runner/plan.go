@@ -297,14 +297,16 @@ func (r Runner) finishPlan(info *notify.PlanInfo, planFingerprint string) planOu
 	info.SlackChanged = out.slackChanged
 
 	out.emailFingerprint = out.slackFingerprint
-	out.emailChanged = out.changed
-	if store, ok := r.Plan.Delivered.(EmailDeliveredStore); ok {
-		last, err := store.LoadEmail()
-		if err != nil {
-			r.log().Warn("delivered email fix plan record unreadable; treating the plan as undelivered", "err", err)
-			last = ""
+	if r.EmailConfigured {
+		out.emailChanged = out.changed
+		if store, ok := r.Plan.Delivered.(EmailDeliveredStore); ok {
+			last, err := store.LoadEmail()
+			if err != nil {
+				r.log().Warn("delivered email fix plan record unreadable; treating the plan as undelivered", "err", err)
+				last = ""
+			}
+			out.emailChanged = out.emailFingerprint != last
 		}
-		out.emailChanged = out.emailFingerprint != last
 	}
 	info.EmailChanged = out.emailChanged
 	return out
@@ -547,7 +549,6 @@ func (r Runner) markDelivered(o planOutcome) {
 		}
 	}
 	r.saveSlackPlan(o)
-	r.saveEmailPlan(o)
 	if o.prLastSeq > 0 && r.Plan.PullRequests != nil && r.Plan.PullRequests.Store != nil {
 		if err := remediation.MarkPROperationsDelivered(r.Plan.PullRequests.Store, o.prLastSeq); err != nil {
 			r.log().Warn("delivered pull request operations could not be recorded; they may be announced again", "err", err)
@@ -589,8 +590,14 @@ func (r Runner) markSlackPlanDelivered(o planOutcome, d *notify.PlanDelivery) {
 	r.saveSlackPlan(o)
 }
 
-// markEmailPlanDelivered records the email fix plan after a send that failed
-// as a whole, when the plan itself was posted in the email.
+// emailPlanDue reports whether this cycle should send because the email
+// fix plan is due. Email that is not configured never makes a cycle due.
+func (r Runner) emailPlanDue(p *notify.PlanInfo) bool {
+	return r.EmailConfigured && p.EmailDue()
+}
+
+// markEmailPlanDelivered records the email fix plan when that email carried
+// it, including after a send that failed for some other destination.
 func (r Runner) markEmailPlanDelivered(o planOutcome, d *notify.PlanDelivery) {
 	if o.info == nil || d == nil || !d.Posted || d.Failed {
 		return
